@@ -32,6 +32,7 @@ describe('MCP server smoke test', () => {
         type: 'result',
         result: {
           query: request.query,
+          sourceStats: [{ source: 'bing', count: 0, ms: 1, status: 'blocked' }],
           results: [{
             key: 'example.com',
             url: 'https://example.com/',
@@ -53,7 +54,8 @@ describe('MCP server smoke test', () => {
     const result = await client.callTool({ name: 'search', arguments: { query: 'fusion' } });
     expect(result.isError).not.toBe(true);
     expect(result.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'text', text: expect.stringContaining('Fusion result') })]));
-    expect(result.structuredContent).toMatchObject({ results: [{ title: 'Fusion result', n: 1 }] });
+    expect(result.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'text', text: expect.stringContaining('尚未完成验证的来源：bing') })]));
+    expect(result.structuredContent).toMatchObject({ results: [{ title: 'Fusion result', n: 1 }], blockedSources: ['bing'] });
     await client.close();
     await server.close();
   });

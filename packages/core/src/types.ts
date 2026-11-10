@@ -48,6 +48,7 @@ export interface FusedResult {
   rerankScore?: number;
   /** Final score used for ordering, in [0, 1]. */
   score: number;
+  late?: boolean;
   content?: string;
   publishedAt?: string;
   meta: HitMeta;
@@ -149,6 +150,7 @@ export type PipelineEvent =
   | { type: 'source_blocked'; source: SourceId; message: string }
   | { type: 'source_done'; source: SourceId; count: number; ms: number }
   | { type: 'source_error'; source: SourceId; error: string; ms: number }
+  | { type: 'late_results'; source: SourceId; results: FusedResult[] }
   | { type: 'fused'; results: FusedResult[] }
   | { type: 'reranked'; results: FusedResult[]; provider: RerankProvider; error?: string }
   | { type: 'summary_start'; citations: Citation[] }
@@ -169,7 +171,7 @@ export interface PipelineResult {
   results: FusedResult[];
   summary?: string;
   citations: Citation[];
-  sourceStats: { source: SourceId; count: number; ms: number; error?: string }[];
+  sourceStats: { source: SourceId; count: number; ms: number; error?: string; status?: 'blocked' }[];
 }
 
 export interface RunOptions {

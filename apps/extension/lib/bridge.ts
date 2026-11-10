@@ -1,7 +1,6 @@
-import { runSearch, usableSources, type FusionConfig, type RunOptions, type SourceId } from '@fusion-search/core';
+import { runSearch, usableSources, type Env, type FusionConfig, type RunOptions, type SourceId } from '@fusion-search/core';
 import { browser } from 'wxt/browser';
 import { loadBridge, loadConfig } from './settings';
-import type { Env } from '@fusion-search/core';
 
 /**
  * WebSocket client that lets the local MCP server (packages/mcp) run searches
@@ -75,6 +74,7 @@ async function onMessage(sock: WebSocket, raw: string, makeEnv: () => Env) {
   }
   const ctrl = new AbortController();
   inflight.set(msg.id, ctrl);
+  const blockedSources = new Set<SourceId>();
   try {
     const config = await loadConfig();
     if (msg.type === 'answer' && config.summary.provider === 'chrome-builtin') {
@@ -86,15 +86,22 @@ async function onMessage(sock: WebSocket, raw: string, makeEnv: () => Env) {
       limit: msg.options?.limit,
       signal: ctrl.signal,
       onEvent: (event) => {
-        if (event.type === 'source_done' || event.type === 'source_error' || event.type === 'source_blocked') send({ type: 'progress', event });
+        if (event.type === 'source_blocked') {
+          blockedSources.add(event.source);
+          send({ type: 'progress', event });
+        } else if ((event.type === 'source_done' || event.type === 'source_error') && !blockedSources.has(event.source)) {
+          send({ type: 'progress', event });
+        }
       },
     };
     if (!msg.query) throw new Error('MCP 请求缺少 query');
     const result = await runSearch(msg.query, config, makeEnv(), opts);
+    ctrl.abort();
     send({ type: 'result', result });
   } catch (e) {
     send({ type: 'error', error: e instanceof Error ? e.message : String(e) });
   } finally {
+    ctrl.abort();
     inflight.delete(msg.id);
   }
 }
