@@ -6,13 +6,57 @@ import { loadConfig } from '@/lib/settings';
 import { collectIdleWorkers, forgetWorkerTab, handleWorkerMessage, runBrowserEngine } from '@/lib/tabRenderer';
 
 export default defineBackground(() => {
+  const searchRedirectRuleId = 1001;
+  const ensureSearchRedirectRule = async () => {
+    await browser.declarativeNetRequest.updateDynamicRules({ removeRuleIds: [searchRedirectRuleId] });
+    await browser.declarativeNetRequest.updateDynamicRules({
+      addRules: [{
+        id: searchRedirectRuleId,
+        priority: 1,
+        action: {
+          type: 'redirect',
+          redirect: { regexSubstitution: browser.runtime.getURL('/newtab.html') + '?\\1' },
+        },
+        condition: {
+          regexFilter: '^https://s\\.kiwi\\.moe/s\\?(.*)$',
+          resourceTypes: ['main_frame'],
+        },
+      }],
+    });
+  };
+  let searchRedirectRegistration: Promise<void> | null = null;
+  const registerSearchRedirectRule = () => {
+    if (searchRedirectRegistration) return;
+    searchRedirectRegistration = ensureSearchRedirectRule()
+      .catch((error) => console.error('Could not register Kiwi Search redirect rule:', error))
+      .finally(() => {
+        searchRedirectRegistration = null;
+      });
+  };
+
   const makeEnv = (): Env => ({
     fetch: (input, init) => fetch(input, init),
     runBrowserEngine,
   });
 
   browser.runtime.onInstalled.addListener(() => {
+    registerSearchRedirectRule();
     browser.runtime.openOptionsPage?.().catch(() => {});
+  });
+  browser.runtime.onStartup.addListener(registerSearchRedirectRule);
+  registerSearchRedirectRule();
+
+  browser.omnibox.setDefaultSuggestion({ description: '用 Kiwi Search 搜索：%s' });
+  browser.omnibox.onInputEntered.addListener((text, disposition) => {
+    const url = `${browser.runtime.getURL('/newtab.html')}?q=${encodeURIComponent(text)}`;
+    if (disposition === 'currentTab') {
+      void browser.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        if (tab?.id !== undefined) return browser.tabs.update(tab.id, { url });
+        return browser.tabs.create({ url, active: true });
+      });
+      return;
+    }
+    void browser.tabs.create({ url, active: disposition === 'newForegroundTab' });
   });
 
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {

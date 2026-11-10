@@ -1,7 +1,14 @@
 import { BROWSER_ENGINES, DEFAULT_CONFIG, SOURCES, type FusionConfig, type SourceId } from '@kiwi-search/core';
 import { useEffect, useState, type ReactNode } from 'react';
+import { browser } from 'wxt/browser';
 import { DEFAULT_BRIDGE, loadBridge, loadConfig, saveBridge, saveConfig, type BridgeSettings } from '@/lib/settings';
 import { SOURCE_META } from '@/lib/sourceMeta';
+
+const defaultSearchFields = [
+  { id: 'name', label: '名称', value: 'Kiwi Search' },
+  { id: 'keyword', label: '快捷字词', value: 'kiwi' },
+  { id: 'url', label: '网址', value: 'https://s.kiwi.moe/s?q=%s' },
+] as const;
 
 const apiSourceIds: SourceId[] = ['openalex', 'exa', 'deepseek', 'brave', 'searxng'];
 const presets = [
@@ -15,6 +22,9 @@ export default function OptionsApp() {
   const [config, setConfig] = useState<FusionConfig>(() => structuredClone(DEFAULT_CONFIG));
   const [bridge, setBridge] = useState<BridgeSettings>(DEFAULT_BRIDGE);
   const [saved, setSaved] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState('');
+  const [settingsFallback, setSettingsFallback] = useState(false);
 
   useEffect(() => {
     void Promise.all([loadConfig(), loadBridge()]).then(([nextConfig, nextBridge]) => {
@@ -37,6 +47,26 @@ export default function OptionsApp() {
     await Promise.all([saveConfig(config), saveBridge(bridge)]);
     setSaved(true);
     setTimeout(() => setSaved(false), 2200);
+  }
+
+  async function copyDefaultSearchField(id: string, value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedField(id);
+      setCopyError('');
+      window.setTimeout(() => setCopiedField(null), 1600);
+    } catch {
+      setCopyError('复制失败，请手动选择并复制上面的内容。');
+    }
+  }
+
+  async function openSearchEngineSettings() {
+    setSettingsFallback(false);
+    try {
+      await browser.tabs.create({ url: 'chrome://settings/searchEngines' });
+    } catch {
+      setSettingsFallback(true);
+    }
   }
 
   const sourceRow = (id: SourceId) => {
@@ -84,6 +114,32 @@ export default function OptionsApp() {
         </div>
         <button className="save" onClick={() => void save()}>{saved ? '已保存' : '保存设置'}</button>
       </header>
+
+      <section>
+        <h2>默认搜索引擎</h2>
+        <p className="note">Kiwi Search 会注册为扩展提供的搜索引擎（名称“Kiwi Search”，快捷字词“kiwi”）。Chrome 不允许扩展自动更改默认搜索引擎；点击下方按钮打开设置，在 Kiwi Search 条目的菜单中选择“设为默认”。</p>
+        <button className="open-search-settings" onClick={() => void openSearchEngineSettings()}>打开 Chrome 搜索引擎设置</button>
+        {settingsFallback && <p className="note">无法自动打开设置，请将 <code>chrome://settings/searchEngines</code> 复制到地址栏。</p>}
+        <p className="note">如果没有看到 Kiwi Search，也可以手动添加：</p>
+        <div className="field-grid default-search-fields">
+          {defaultSearchFields.map(({ id, label, value }) => (
+            <label className="field" key={id}>
+              <span>{label}</span>
+              <div className="copy-field">
+                <input value={value} readOnly />
+                <button type="button" onClick={() => void copyDefaultSearchField(id, value)}>{copiedField === id ? '已复制' : '复制'}</button>
+              </div>
+            </label>
+          ))}
+        </div>
+        {copyError && <p className="note">{copyError}</p>}
+        <ol className="search-engine-steps">
+          <li>在“网站搜索”旁点击“添加”。</li>
+          <li>填入上面的名称、快捷字词和网址。</li>
+          <li>在该条目的 ⋮ 菜单中选择“设为默认”。</li>
+        </ol>
+        <p className="note">不改默认也可以在地址栏输入 <code>k</code> 加空格快速使用 Kiwi。</p>
+      </section>
 
       <section>
         <h2>来源</h2>
