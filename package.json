@@ -1,0 +1,14 @@
+{
+  "name": "fusion-search",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @fusion-search/extension dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}
