@@ -1,5 +1,14 @@
-import type { BrowserEngine } from '../types';
+import type { BrowserEngine, FetchLike, SearchHit } from '../types';
+import { normalizeUrl } from '../url';
 import { absoluteHttpUrl, cleanText } from './shared';
+
+const GOOGLE_HOST = /(^|\.)google\.(?:com|[a-z]{2,3}|co\.[a-z]{2}|com\.[a-z]{2,3})$/i;
+const MAX_REDIRECT_CONCURRENCY = 5;
+const REDIRECT_TIMEOUT_MS = 4000;
+
+function isGoogleHost(hostname: string): boolean {
+  return GOOGLE_HOST.test(hostname);
+}
 
 function resultUrl(href: string | null, pageUrl: string): string | null {
   const url = absoluteHttpUrl(href, pageUrl);
@@ -11,11 +20,48 @@ function resultUrl(href: string | null, pageUrl: string): string | null {
       return absoluteHttpUrl(target, pageUrl);
     }
     if (parsed.pathname === '/goto' && parsed.searchParams.has('url')) return parsed.href;
-    if (/(^|\.)google\.[a-z.]+$/i.test(parsed.hostname)) return null;
+    if (isGoogleHost(parsed.hostname)) return null;
   } catch {
     return null;
   }
   return url;
+}
+
+async function resolveRedirect(
+  hit: SearchHit,
+  fetch: FetchLike,
+  signal: AbortSignal,
+): Promise<SearchHit> {
+  let wrapper: URL;
+  try {
+    wrapper = new URL(hit.url);
+  } catch {
+    return hit;
+  }
+  if (wrapper.protocol !== 'https:' || !isGoogleHost(wrapper.hostname) || wrapper.pathname !== '/goto') return hit;
+
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal.reason);
+  if (signal.aborted) abort();
+  else signal.addEventListener('abort', abort, { once: true });
+  const timeout = setTimeout(() => controller.abort(), REDIRECT_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(wrapper.href, { signal: controller.signal });
+    if (!response.ok) return hit;
+    const finalUrl = absoluteHttpUrl(response.url, wrapper.href);
+    if (finalUrl && !isGoogleHost(new URL(finalUrl).hostname)) return { ...hit, url: finalUrl };
+
+    const body = await response.text();
+    const anchor = body.match(/<a\b[^>]*\bhref\s*=\s*(["'])(https?:\/\/[^"']+)\1/i);
+    const target = absoluteHttpUrl(anchor?.[2]?.replace(/&amp;/gi, '&'), wrapper.href);
+    return target && !isGoogleHost(new URL(target).hostname) ? { ...hit, url: target } : hit;
+  } catch {
+    return hit;
+  } finally {
+    clearTimeout(timeout);
+    signal.removeEventListener('abort', abort);
+  }
 }
 
 export const google: BrowserEngine = {
@@ -42,5 +88,27 @@ export const google: BrowserEngine = {
       hits.push({ url, title, snippet, rank: hits.length + 1 });
     }
     return hits;
+  },
+  async resolve(hits, { fetch, signal }) {
+    const resolved = hits.slice();
+    let nextIndex = 0;
+    const workers = Array.from({ length: Math.min(MAX_REDIRECT_CONCURRENCY, hits.length) }, async () => {
+      while (!signal.aborted) {
+        const index = nextIndex++;
+        if (index >= hits.length) return;
+        resolved[index] = await resolveRedirect(hits[index], fetch, signal);
+      }
+    });
+    await Promise.all(workers);
+
+    const seen = new Set<string>();
+    return resolved
+      .filter((hit) => {
+        const key = normalizeUrl(hit.url);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((hit, index) => ({ ...hit, rank: index + 1 }));
   },
 };
