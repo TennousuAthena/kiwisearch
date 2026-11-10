@@ -201,8 +201,14 @@ async function restoreAfterCaptcha(request: PendingRequest): Promise<void> {
   }
 }
 
-async function focusForCaptcha(request: PendingRequest, state: RendererState, focusOnCaptcha: boolean): Promise<void> {
-  if (!focusOnCaptcha || request.focusedForCaptcha) return;
+async function focusForCaptcha(
+  request: PendingRequest,
+  state: RendererState,
+  focusOnCaptcha: boolean,
+  force = false,
+): Promise<void> {
+  if (!force && (!focusOnCaptcha || request.focusedForCaptcha)) return;
+  if (force) request.restoreTabId = undefined;
   try {
     const previousWindow = await browser.windows.getLastFocused({ windowTypes: ['normal'] });
     if (previousWindow.id !== undefined && !previousWindow.incognito) {
@@ -320,7 +326,7 @@ export async function handleWorkerMessage(message: unknown, sender: Browser.runt
     if (state && tabId !== undefined) {
       const request = pendingByTab.get(tabId);
       if (request) {
-        if (!request.focusedForCaptcha) await focusForCaptcha(request, state, true);
+        await focusForCaptcha(request, state, false, true);
       } else {
         await browser.tabGroups.update(state.groupId, { collapsed: false });
         await browser.tabs.update(tabId, { active: true });
