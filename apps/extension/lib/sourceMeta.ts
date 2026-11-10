@@ -1,4 +1,4 @@
-import type { SourceId } from '@fusion-search/core';
+import type { SourceId } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
 
 export const SOURCE_META: Record<SourceId, { label: string; short: string; color: string; kind: string }> = {

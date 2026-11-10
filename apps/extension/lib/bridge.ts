@@ -1,4 +1,4 @@
-import { runSearch, usableSources, type Env, type FusionConfig, type RunOptions, type SourceId } from '@fusion-search/core';
+import { runSearch, usableSources, type Env, type FusionConfig, type RunOptions, type SourceId } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
 import { loadBridge, loadConfig } from './settings';
 
@@ -78,7 +78,7 @@ async function onMessage(sock: WebSocket, raw: string, makeEnv: () => Env) {
   try {
     const config = await loadConfig();
     if (msg.type === 'answer' && config.summary.provider === 'chrome-builtin') {
-      throw new Error('MCP answer 需要 API 摘要提供方；请在 Fusion Search 设置中选择 OpenAI 兼容 API。');
+      throw new Error('MCP answer 需要 API 摘要提供方；请在 Kiwi Search 设置中选择 OpenAI 兼容 API。');
     }
     const opts: RunOptions = {
       sources: msg.options?.sources,

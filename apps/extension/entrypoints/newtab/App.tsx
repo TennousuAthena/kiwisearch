@@ -1,5 +1,5 @@
-import type { Citation, FusedResult, PipelineEvent, SourceId } from '@fusion-search/core';
-import type { ChatMessage } from '@fusion-search/core';
+import type { Citation, FusedResult, PipelineEvent, SourceId } from '@kiwi-search/core';
+import type { ChatMessage } from '@kiwi-search/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Browser } from 'wxt/browser';
 import { browser } from 'wxt/browser';
@@ -127,7 +127,7 @@ export default function App() {
       }
     });
     setState(emptyState(q));
-    document.title = `${q} - Fusion Search`;
+    document.title = `${q} - Kiwi Search`;
     const url = new URL(location.href);
     url.searchParams.set('q', q);
     history.replaceState(null, '', url);
@@ -252,7 +252,7 @@ export default function App() {
           <div className="sources">
             {(Object.entries(state.sources) as [SourceId, SourceState][]).map(([id, s]) => (
               s.status === 'blocked' ? (
-                <button key={id} className="chip blocked" title={s.error} onClick={() => void browser.runtime.sendMessage({ type: 'fusion:focus-worker', source: id })}>
+                <button key={id} className="chip blocked" title={s.error} onClick={() => void browser.runtime.sendMessage({ type: 'kiwi:focus-worker', source: id })}>
                   <i style={{ background: SOURCE_META[id].color }} />
                   {SOURCE_META[id].label}
                   <small>需要验证</small>

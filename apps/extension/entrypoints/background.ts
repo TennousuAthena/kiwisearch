@@ -1,4 +1,4 @@
-import { runSearch, type Env, type SourceId } from '@fusion-search/core';
+import { runSearch, type Env, type SourceId } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
 import { ensureBridge } from '@/lib/bridge';
 import type { PortMessage, SearchRequest } from '@/lib/messages';
@@ -16,7 +16,7 @@ export default defineBackground(() => {
   });
 
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (typeof (msg as { type?: string })?.type !== 'string' || !(msg as { type: string }).type.startsWith('fusion:')) return false;
+    if (typeof (msg as { type?: string })?.type !== 'string' || !(msg as { type: string }).type.startsWith('kiwi:')) return false;
     void handleWorkerMessage(msg, sender).then(sendResponse).catch((error) => sendResponse({ error: String(error) }));
     return true;
   });

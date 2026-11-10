@@ -1,9 +1,9 @@
 {
-  "name": "fusion-search",
+  "name": "kiwi-search",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @fusion-search/extension dev",
+    "dev": "pnpm --filter @kiwi-search/extension dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"

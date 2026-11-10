@@ -1,10 +1,10 @@
 {
-  "name": "@fusion-search/mcp",
+  "name": "@kiwi-search/mcp",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "fusion-search-mcp": "./dist/index.js"
+    "kiwi-search-mcp": "./dist/index.js"
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm --target node20 --platform node --out-dir dist",

@@ -1,5 +1,5 @@
 {
-  "name": "@fusion-search/extension",
+  "name": "@kiwi-search/extension",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
     "postinstall": "wxt prepare"
   },
   "dependencies": {
-    "@fusion-search/core": "workspace:*",
+    "@kiwi-search/core": "workspace:*",
     "dompurify": "^3.2.6",
     "marked": "^16.4.1",
     "react": "^19.1.1",

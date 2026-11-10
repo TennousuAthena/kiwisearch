@@ -78,7 +78,7 @@ function formatSearchResult(result: Record<string, unknown>): { text: string; st
 }
 
 export function createMcpServer(bridge: BridgeTransport): McpServer {
-  const server = new McpServer({ name: 'fusion-search', version: '0.1.0' });
+  const server = new McpServer({ name: 'kiwi-search', version: '0.1.0' });
   server.registerTool(
     'search',
     {
