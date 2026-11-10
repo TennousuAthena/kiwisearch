@@ -1,4 +1,4 @@
-import type { SearchHit } from '@fusion-search/core';
+import type { SearchHit, SourceId } from '@fusion-search/core';
 import { browser } from 'wxt/browser';
 import { BROWSER_ENGINES } from '@fusion-search/core';
 
@@ -10,7 +10,7 @@ export default defineContentScript({
   runAt: 'document_idle',
   async main() {
     const handshake = (await browser.runtime.sendMessage({ type: 'fusion:worker?' })) as
-      | { type: 'fusion:worker!'; engine: string; requestId: string }
+      | { type: 'fusion:worker!'; engine: SourceId; requestId: string }
       | { type: 'fusion:not-worker' }
       | undefined;
     if (!handshake || handshake.type !== 'fusion:worker!') return;
