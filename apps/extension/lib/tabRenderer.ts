@@ -1,15 +1,8 @@
 import type { BrowserEngine, SearchHit, SourceId } from '@fusion-search/core';
 import type { Browser } from 'wxt/browser';
 import { browser } from 'wxt/browser';
+import { createAsyncLock, mergeRendererState, workerIdentity, type RendererState } from './rendererState';
 import { loadConfig } from './settings';
-
-interface RendererState {
-  windowId: number;
-  groupId: number;
-  tabs: Partial<Record<SourceId, number>>;
-  lastUsed: number;
-  lastUsedByEngine: Partial<Record<SourceId, number>>;
-}
 
 interface PendingRequest {
   requestId: string;
@@ -25,6 +18,7 @@ interface PendingRequest {
 
 const STORAGE_KEY = 'fusionRenderer';
 const GROUP_TITLE = 'Fusion Search';
+const withStateLock = createAsyncLock();
 let cachedState: RendererState | undefined;
 let statePromise: Promise<RendererState | null> | undefined;
 const pendingById = new Map<string, PendingRequest>();
@@ -46,6 +40,14 @@ async function readState(): Promise<RendererState | null> {
 }
 
 async function saveState(state: RendererState): Promise<void> {
+  if (
+    cachedState &&
+    cachedState !== state &&
+    cachedState.windowId === state.windowId &&
+    cachedState.groupId === state.groupId
+  ) {
+    state = mergeRendererState(cachedState, state);
+  }
   cachedState = state;
   await browser.storage.session.set({ [STORAGE_KEY]: state });
 }
@@ -109,11 +111,19 @@ async function ensureState(engineId: SourceId): Promise<RendererState> {
   const existing = await validState(await readState());
   if (existing) return existing;
   const { id: windowId, initialTabId } = await normalWindow();
-  const tab = initialTabId === undefined
-    ? await browser.tabs.create({ windowId, url: 'about:blank', active: false })
-    : await browser.tabs.get(initialTabId);
+  const existingGroup = (await browser.tabGroups.query({ windowId })).find((group) => group.title === GROUP_TITLE);
+  let groupId = existingGroup?.id;
+  let tab = groupId === undefined
+    ? undefined
+    : (await browser.tabs.query({ windowId, groupId })).find((candidate) => candidate.id !== undefined);
+  if (!tab) {
+    tab = initialTabId === undefined
+      ? await browser.tabs.create({ windowId, url: 'about:blank', active: false })
+      : await browser.tabs.get(initialTabId);
+  }
   if (tab.id === undefined) throw new Error('Unable to create a worker tab');
-  const groupId = await browser.tabs.group({ tabIds: [tab.id] });
+  if (groupId === undefined) groupId = await browser.tabs.group({ tabIds: [tab.id] });
+  else if (tab.groupId !== groupId) await browser.tabs.group({ tabIds: [tab.id], groupId });
   await browser.tabs.update(tab.id, { active: false, muted: true, autoDiscardable: false });
   await browser.tabGroups.update(groupId, { title: GROUP_TITLE, color: 'grey', collapsed: true });
   const state: RendererState = {
@@ -215,18 +225,26 @@ export function runBrowserEngine(
 ): Promise<SearchHit[]> {
   return enqueue(engine.id, async () => {
     const config = await loadConfig();
-    const state = await ensureState(engine.id);
-    const last = lastStarted.get(engine.id) ?? state.lastUsedByEngine[engine.id] ?? 0;
+    const last = await withStateLock(async () => {
+      const state = await ensureState(engine.id);
+      return lastStarted.get(engine.id) ?? state.lastUsedByEngine[engine.id] ?? 0;
+    });
     const waitFor = config.renderer.minIntervalMs - (Date.now() - last);
     if (waitFor > 0) await pause(waitFor, opts.signal);
     if (opts.signal.aborted) throw opts.signal.reason ?? new Error('Search cancelled');
-    const tabId = await ensureWorkerTab(state, engine.id);
-    if (opts.signal.aborted) throw opts.signal.reason ?? new Error('Search cancelled');
-    lastStarted.set(engine.id, Date.now());
+    const { tabId, groupId } = await withStateLock(async () => {
+      if (opts.signal.aborted) throw opts.signal.reason ?? new Error('Search cancelled');
+      const currentState = await ensureState(engine.id);
+      const tabId = await ensureWorkerTab(currentState, engine.id);
+      if (opts.signal.aborted) throw opts.signal.reason ?? new Error('Search cancelled');
+      const now = Date.now();
+      lastStarted.set(engine.id, now);
+      currentState.lastUsed = now;
+      currentState.lastUsedByEngine[engine.id] = now;
+      await saveState(currentState);
+      return { tabId, groupId: currentState.groupId };
+    });
     const requestId = crypto.randomUUID();
-    state.lastUsed = Date.now();
-    state.lastUsedByEngine[engine.id] = Date.now();
-    await saveState(state);
     return new Promise<SearchHit[]>((resolve, reject) => {
       const cleanup = () => {
         pendingById.delete(requestId);
@@ -251,7 +269,7 @@ export function runBrowserEngine(
       opts.signal.addEventListener('abort', onAbort, { once: true });
       void browser.tabs
         .update(tabId, { url: engine.buildUrl(query, opts.count), active: false, muted: true, autoDiscardable: false })
-        .then(() => browser.tabGroups.update(state.groupId, { title: GROUP_TITLE, color: 'grey', collapsed: true }))
+        .then(() => browser.tabGroups.update(groupId, { title: GROUP_TITLE, color: 'grey', collapsed: true }))
         .catch((error) => {
           cleanup();
           pending.cleanup();
@@ -261,10 +279,10 @@ export function runBrowserEngine(
   });
 }
 
-export function workerForTab(tabId: number | undefined): { engine: BrowserEngine; requestId: string } | null {
+export function workerForTab(tabId: number | undefined): { engine: SourceId; requestId: string } | null {
   if (tabId === undefined) return null;
   const request = pendingByTab.get(tabId);
-  return request ? { engine: request.engine, requestId: request.requestId } : null;
+  return request ? workerIdentity(request.engine.id, request.requestId) : null;
 }
 
 export async function handleWorkerMessage(message: unknown, sender: Browser.runtime.MessageSender): Promise<unknown> {
@@ -277,7 +295,7 @@ export async function handleWorkerMessage(message: unknown, sender: Browser.runt
   if (msg?.type === 'fusion:blocked' && tabId !== undefined) {
     const request = pendingById.get(msg.requestId ?? '');
     if (request && request.tabId === tabId) {
-      const state = await readState();
+      const state = await withStateLock(() => readState());
       const config = await loadConfig();
       request.onBlocked('需要在搜索引擎页面手动完成验证');
       if (state) await focusForCaptcha(request, state, config.renderer.focusOnCaptcha);
@@ -297,7 +315,7 @@ export async function handleWorkerMessage(message: unknown, sender: Browser.runt
     return { ok: true };
   }
   if (msg?.type === 'fusion:focus-worker' && typeof msg.source === 'string') {
-    const state = await validState(await readState());
+    const state = await withStateLock(async () => validState(await readState()));
     const tabId = state?.tabs[msg.source as SourceId];
     if (state && tabId !== undefined) {
       const request = pendingByTab.get(tabId);
@@ -315,33 +333,29 @@ export async function handleWorkerMessage(message: unknown, sender: Browser.runt
 }
 
 export async function collectIdleWorkers(): Promise<void> {
-  const state = await validState(await readState());
-  if (!state) return;
   const config = await loadConfig();
-  const maxIdle = config.renderer.workerIdleMinutes * 60_000;
-  const now = Date.now();
-  for (const [source, tabId] of Object.entries(state.tabs) as [SourceId, number][]) {
-    if (pendingByTab.has(tabId)) continue;
-    if (now - (state.lastUsedByEngine[source] ?? state.lastUsed) < maxIdle) continue;
-    try {
-      await browser.tabs.remove(tabId);
-    } catch {
-      // Already closed.
+  await withStateLock(async () => {
+    const state = await validState(await readState());
+    if (!state) return;
+    const maxIdle = config.renderer.workerIdleMinutes * 60_000;
+    const now = Date.now();
+    for (const [source, tabId] of Object.entries(state.tabs) as [SourceId, number][]) {
+      if (pendingByTab.has(tabId)) continue;
+      if (now - (state.lastUsedByEngine[source] ?? state.lastUsed) < maxIdle) continue;
+      try {
+        await browser.tabs.remove(tabId);
+      } catch {
+        // Already closed.
+      }
+      delete state.tabs[source];
+      delete state.lastUsedByEngine[source];
     }
-    delete state.tabs[source];
-    delete state.lastUsedByEngine[source];
-  }
-  state.lastUsed = now;
-  await saveState(state);
+    state.lastUsed = now;
+    await saveState(state);
+  });
 }
 
 export function forgetWorkerTab(tabId: number): void {
-  if (cachedState) {
-    for (const [id, workerTab] of Object.entries(cachedState.tabs) as [SourceId, number][]) {
-      if (workerTab === tabId) delete cachedState.tabs[id];
-    }
-    void saveState(cachedState);
-  }
   const pending = pendingByTab.get(tabId);
   if (pending) {
     pendingByTab.delete(tabId);
@@ -349,4 +363,12 @@ export function forgetWorkerTab(tabId: number): void {
     pending.cleanup();
     pending.reject(new Error('Search worker tab was closed'));
   }
+  void withStateLock(async () => {
+    const state = await readState();
+    if (!state) return;
+    for (const [id, workerTab] of Object.entries(state.tabs) as [SourceId, number][]) {
+      if (workerTab === tabId) delete state.tabs[id];
+    }
+    await saveState(state);
+  }).catch(() => {});
 }
