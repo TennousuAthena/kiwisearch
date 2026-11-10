@@ -10,6 +10,31 @@ function isGoogleHost(hostname: string): boolean {
   return GOOGLE_HOST.test(hostname);
 }
 
+export function isGoogleGotoUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && isGoogleHost(url.hostname) && url.pathname === '/goto' && url.searchParams.has('url');
+  } catch {
+    return false;
+  }
+}
+
+function extractHost(cite: Element | null | undefined): string | undefined {
+  const token = cleanText(cite).replace(/[\u200e\u200f\u202a-\u202e]/g, '').split(/\s*›\s*|\s+/)[0];
+  if (!token) return undefined;
+  try {
+    const url = new URL(token);
+    if (!/^https?:$/.test(url.protocol)) return undefined;
+    return url.hostname.replace(/^www\./i, '');
+  } catch {
+    return undefined;
+  }
+}
+
+function hasMetaUrl(body: string): boolean {
+  return [...body.matchAll(/<meta\b[^>]*>/gi)].some(([tag]) => /\burl\s*=/i.test(tag));
+}
+
 function resultUrl(href: string | null, pageUrl: string): string | null {
   const url = absoluteHttpUrl(href, pageUrl);
   if (!url) return null;
@@ -32,13 +57,8 @@ async function resolveRedirect(
   fetch: FetchLike,
   signal: AbortSignal,
 ): Promise<SearchHit> {
-  let wrapper: URL;
-  try {
-    wrapper = new URL(hit.url);
-  } catch {
-    return hit;
-  }
-  if (wrapper.protocol !== 'https:' || !isGoogleHost(wrapper.hostname) || wrapper.pathname !== '/goto') return hit;
+  if (!isGoogleGotoUrl(hit.url)) return hit;
+  const wrapper = new URL(hit.url);
 
   const controller = new AbortController();
   const abort = () => controller.abort(signal.reason);
@@ -53,6 +73,7 @@ async function resolveRedirect(
     if (finalUrl && !isGoogleHost(new URL(finalUrl).hostname)) return { ...hit, url: finalUrl };
 
     const body = await response.text();
+    if (hasMetaUrl(body)) return hit;
     const anchor = body.match(/<a\b[^>]*\bhref\s*=\s*(["'])(https?:\/\/[^"']+)\1/i);
     const target = absoluteHttpUrl(anchor?.[2]?.replace(/&amp;/gi, '&'), wrapper.href);
     return target && !isGoogleHost(new URL(target).hostname) ? { ...hit, url: target } : hit;
@@ -85,7 +106,8 @@ export const google: BrowserEngine = {
       seen.add(url);
       const block = heading.closest('.MjjYud, .g, .tF2Cxc, [data-hveid]') ?? anchor?.parentElement;
       const snippet = cleanText(block?.querySelector('.VwiC3b, [data-sncf], [style*="-webkit-line-clamp"]'));
-      hits.push({ url, title, snippet, rank: hits.length + 1 });
+      const host = isGoogleGotoUrl(url) ? extractHost(block?.querySelector('cite')) : undefined;
+      hits.push({ url, title, snippet, rank: hits.length + 1, ...(host ? { host } : {}) });
     }
     return hits;
   },

@@ -15,6 +15,7 @@ export type SourceKind = 'web' | 'ai' | 'academic';
 
 export interface SearchHit {
   url: string;
+  host?: string;
   title: string;
   snippet: string;
   source: SourceId;
@@ -39,6 +40,7 @@ export interface FusedResult {
   /** Normalized URL, used as the dedup key. */
   key: string;
   url: string;
+  host?: string;
   title: string;
   snippet: string;
   sources: { source: SourceId; rank: number }[];

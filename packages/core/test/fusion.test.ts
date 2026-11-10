@@ -38,6 +38,40 @@ describe('fuse (RRF)', () => {
     const fused = fuse([[hit('google', 'https://a.com', 1)], [hit('openalex', 'https://b.com', 1)]], { openalex: 2 });
     expect(fused[0].key).toBe('b.com');
   });
+
+  it('merges a hosted Google wrapper into a same-page result with a matching title', () => {
+    const wrapper: SearchHit = {
+      ...hit('google', 'https://www.google.com/goto?url=opaque', 2),
+      host: 'www.mongodb.com',
+      title: 'MongoDB Atlas Search: Retrieval — Guide… - MongoDB',
+    };
+    const bing: SearchHit = {
+      ...hit('bing', 'https://mongodb.com/resources/atlas-search', 1),
+      title: 'MongoDB Atlas Search Retrieval Guide Overview | MongoDB',
+    };
+    const results = fuse([[wrapper], [bing]], { google: 2, bing: 3 });
+    expect(results).toHaveLength(1);
+    expect(results[0].url).toBe(bing.url);
+    expect(results[0].sources.map((source) => source.source).sort()).toEqual(['bing', 'google']);
+    expect(results[0].rrfScore).toBeCloseTo(2 / 62 + 3 / 61);
+  });
+
+  it('keeps same-host results with different titles separate', () => {
+    const wrapper: SearchHit = {
+      ...hit('google', 'https://www.google.com/goto?url=opaque', 1),
+      host: 'mongodb.com',
+      title: 'Quarterly revenue forecast',
+    };
+    const other = hit('bing', 'https://www.mongodb.com/results', 1, 'MongoDB Atlas Search Guide');
+    expect(fuse([[wrapper], [other]])).toHaveLength(2);
+  });
+
+  it('keeps a wrapper separate when it has no host', () => {
+    const wrapper = hit('google', 'https://www.google.com/goto?url=opaque', 1);
+    const other = hit('bing', 'https://www.mongodb.com/results', 1);
+    other.title = wrapper.title;
+    expect(fuse([[wrapper], [other]])).toHaveLength(2);
+  });
 });
 
 describe('applyRerank', () => {

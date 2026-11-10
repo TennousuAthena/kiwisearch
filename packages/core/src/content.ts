@@ -1,5 +1,6 @@
 import { fetchText } from './http';
 import { htmlToText } from './text';
+import { isGoogleGotoUrl } from './engines/google';
 import type { Env, FusedResult, FusionConfig } from './types';
 
 /** Fill in page text for results that don't already carry content. */
@@ -13,6 +14,7 @@ export async function fetchContents(
   const out = new Map<string, string>();
   await Promise.all(
     results.map(async (r) => {
+      if (isGoogleGotoUrl(r.url)) return;
       if (r.content && r.content.length > 400) {
         out.set(r.key, r.content.slice(0, maxCharsPerSource));
         return;
