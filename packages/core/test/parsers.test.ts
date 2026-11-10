@@ -27,6 +27,7 @@ describe('browser engine extraction fixtures', () => {
           expect(hit.url).toMatch(/^https?:\/\//);
           expect(hit.title.trim().length).toBeGreaterThan(0);
         }
+        if (id === 'google') expect(hits.some((hit) => new URL(hit.url).pathname === '/goto')).toBe(true);
       });
     }
     if (id !== 'yandex') {

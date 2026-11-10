@@ -139,6 +139,7 @@ export interface BrowserEngine {
   blockedSelector: string;
   isBlockedUrl?(url: string): boolean;
   extract(doc: ParentNode, pageUrl: string): Omit<SearchHit, 'source'>[];
+  resolve?(hits: SearchHit[], ctx: { fetch: FetchLike; signal: AbortSignal }): Promise<SearchHit[]>;
 }
 
 export type PipelineEvent =
