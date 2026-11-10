@@ -231,7 +231,7 @@ export default function App() {
             search(input);
           }}
         >
-          <span className="logo">Fusion</span>
+          <span className="logo">Kiwi</span>
           <input
             ref={inputRef}
             autoFocus

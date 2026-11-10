@@ -117,10 +117,8 @@ export default function OptionsApp() {
 
       <section>
         <h2>默认搜索引擎</h2>
-        <p className="note">Kiwi Search 会注册为扩展提供的搜索引擎（名称“Kiwi Search”，快捷字词“kiwi”）。Chrome 不允许扩展自动更改默认搜索引擎；点击下方按钮打开设置，在 Kiwi Search 条目的菜单中选择“设为默认”。</p>
-        <button className="open-search-settings" onClick={() => void openSearchEngineSettings()}>打开 Chrome 搜索引擎设置</button>
-        {settingsFallback && <p className="note">无法自动打开设置，请将 <code>chrome://settings/searchEngines</code> 复制到地址栏。</p>}
-        <p className="note">如果没有看到 Kiwi Search，也可以手动添加：</p>
+        <p className="note">Chrome 不允许扩展自动更改默认搜索引擎，因此需要手动添加一次 Kiwi Search。</p>
+        <p className="note">名称、快捷字词和网址可通过下方按钮复制。在 Chrome 搜索引擎设置中按以下步骤添加并设为默认：</p>
         <div className="field-grid default-search-fields">
           {defaultSearchFields.map(({ id, label, value }) => (
             <label className="field" key={id}>
@@ -134,10 +132,13 @@ export default function OptionsApp() {
         </div>
         {copyError && <p className="note">{copyError}</p>}
         <ol className="search-engine-steps">
+          <li>点击下方按钮打开 Chrome 搜索引擎设置。</li>
           <li>在“网站搜索”旁点击“添加”。</li>
-          <li>填入上面的名称、快捷字词和网址。</li>
+          <li>填入上方的名称、快捷字词和网址。</li>
           <li>在该条目的 ⋮ 菜单中选择“设为默认”。</li>
         </ol>
+        <button className="open-search-settings" onClick={() => void openSearchEngineSettings()}>打开 Chrome 搜索引擎设置</button>
+        {settingsFallback && <p className="note">无法自动打开设置，请将 <code>chrome://settings/searchEngines</code> 复制到地址栏。</p>}
         <p className="note">不改默认也可以在地址栏输入 <code>k</code> 加空格快速使用 Kiwi。</p>
       </section>
 
