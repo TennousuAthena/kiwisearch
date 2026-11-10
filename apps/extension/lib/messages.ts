@@ -1,4 +1,4 @@
-import type { PipelineEvent, SourceId } from '@fusion-search/core';
+import type { PipelineEvent, SourceId } from '@kiwi-search/core';
 
 export type SearchRequest =
   | { type: 'search'; query: string; sources?: SourceId[]; summarize?: boolean }

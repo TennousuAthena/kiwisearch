@@ -1,4 +1,4 @@
-import type { SourceId } from '@fusion-search/core';
+import type { SourceId } from '@kiwi-search/core';
 
 export interface RendererState {
   windowId: number;

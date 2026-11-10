@@ -2,8 +2,8 @@ import { createServer, type IncomingMessage } from 'node:http';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 
-export const NOT_CONNECTED_MESSAGE = '浏览器插件未连接：请打开 Chrome 并在 Fusion Search 设置中启用 MCP 桥';
-export const PAIRING_MISMATCH_MESSAGE = '配对令牌不匹配，请在 Fusion Search 设置中填写 MCP 服务生成的 token';
+export const NOT_CONNECTED_MESSAGE = '浏览器插件未连接：请打开 Chrome 并在 Kiwi Search 设置中启用 MCP 桥';
+export const PAIRING_MISMATCH_MESSAGE = '配对令牌不匹配，请在 Kiwi Search 设置中填写 MCP 服务生成的 token';
 
 export interface BridgeRequest {
   type: 'search' | 'answer' | 'list_sources';

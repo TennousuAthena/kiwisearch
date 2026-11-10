@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createAsyncLock, mergeRendererState, workerIdentity, type RendererState } from '../lib/rendererState';
-import type { SourceId } from '@fusion-search/core';
+import type { SourceId } from '@kiwi-search/core';
 
 const engines: SourceId[] = ['google', 'bing', 'baidu', 'duckduckgo', 'scholar'];
 

@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, mergeConfig, type FusionConfig } from '@fusion-search/core';
+import { DEFAULT_CONFIG, mergeConfig, type FusionConfig } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
 
 export interface BridgeSettings {

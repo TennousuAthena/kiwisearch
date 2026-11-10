@@ -14,7 +14,7 @@ importers:
 
   apps/extension:
     dependencies:
-      '@fusion-search/core':
+      '@kiwi-search/core':
         specifier: workspace:*
         version: link:../../packages/core
       dompurify:

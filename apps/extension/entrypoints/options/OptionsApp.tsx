@@ -1,4 +1,4 @@
-import { BROWSER_ENGINES, DEFAULT_CONFIG, SOURCES, type FusionConfig, type SourceId } from '@fusion-search/core';
+import { BROWSER_ENGINES, DEFAULT_CONFIG, SOURCES, type FusionConfig, type SourceId } from '@kiwi-search/core';
 import { useEffect, useState, type ReactNode } from 'react';
 import { DEFAULT_BRIDGE, loadBridge, loadConfig, saveBridge, saveConfig, type BridgeSettings } from '@/lib/settings';
 import { SOURCE_META } from '@/lib/sourceMeta';
@@ -78,7 +78,7 @@ export default function OptionsApp() {
     <div className="options-page">
       <header>
         <div>
-          <p className="eyebrow">FUSION SEARCH</p>
+          <p className="eyebrow">KIWI SEARCH</p>
           <h1>设置</h1>
           <p className="muted">配置搜索来源、渲染节奏、模型与本地 MCP 桥。</p>
         </div>

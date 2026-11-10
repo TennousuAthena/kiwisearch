@@ -1,6 +1,6 @@
-import type { SearchHit, SourceId } from '@fusion-search/core';
+import type { SearchHit, SourceId } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
-import { BROWSER_ENGINES } from '@fusion-search/core';
+import { BROWSER_ENGINES } from '@kiwi-search/core';
 
 const matches = [...new Set(Object.values(BROWSER_ENGINES).flatMap((engine) => engine.matches))];
 
@@ -9,11 +9,11 @@ export default defineContentScript({
   allFrames: false,
   runAt: 'document_idle',
   async main() {
-    const handshake = (await browser.runtime.sendMessage({ type: 'fusion:worker?' })) as
-      | { type: 'fusion:worker!'; engine: SourceId; requestId: string }
-      | { type: 'fusion:not-worker' }
+    const handshake = (await browser.runtime.sendMessage({ type: 'kiwi:worker?' })) as
+      | { type: 'kiwi:worker!'; engine: SourceId; requestId: string }
+      | { type: 'kiwi:not-worker' }
       | undefined;
-    if (!handshake || handshake.type !== 'fusion:worker!') return;
+    if (!handshake || handshake.type !== 'kiwi:worker!') return;
     const { engine: engineId, requestId } = handshake;
     const engine = BROWSER_ENGINES[engineId as keyof typeof BROWSER_ENGINES];
     if (!engine) return;
@@ -27,7 +27,7 @@ export default defineContentScript({
       finished = true;
       clearTimeout(timeout);
       observer.disconnect();
-        void browser.runtime.sendMessage({ type: 'fusion:extracted', requestId, hits });
+        void browser.runtime.sendMessage({ type: 'kiwi:extracted', requestId, hits });
     };
     function check() {
       if (finished) return;
@@ -35,7 +35,7 @@ export default defineContentScript({
       if (blocked && !blockedSent) {
         blockedSent = true;
         clearTimeout(timeout);
-        void browser.runtime.sendMessage({ type: 'fusion:blocked', requestId });
+        void browser.runtime.sendMessage({ type: 'kiwi:blocked', requestId });
         timeout = setTimeout(() => {
           finished = true;
           observer.disconnect();

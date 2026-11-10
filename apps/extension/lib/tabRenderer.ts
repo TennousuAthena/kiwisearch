@@ -1,4 +1,4 @@
-import type { BrowserEngine, SearchHit, SourceId } from '@fusion-search/core';
+import type { BrowserEngine, SearchHit, SourceId } from '@kiwi-search/core';
 import type { Browser } from 'wxt/browser';
 import { browser } from 'wxt/browser';
 import { createAsyncLock, mergeRendererState, workerIdentity, type RendererState } from './rendererState';
@@ -16,8 +16,8 @@ interface PendingRequest {
   cleanup: () => void;
 }
 
-const STORAGE_KEY = 'fusionRenderer';
-const GROUP_TITLE = 'Fusion Search';
+const STORAGE_KEY = 'kiwiRenderer';
+const GROUP_TITLE = 'Kiwi Search';
 const withStateLock = createAsyncLock();
 let cachedState: RendererState | undefined;
 let statePromise: Promise<RendererState | null> | undefined;
@@ -294,11 +294,11 @@ export function workerForTab(tabId: number | undefined): { engine: SourceId; req
 export async function handleWorkerMessage(message: unknown, sender: Browser.runtime.MessageSender): Promise<unknown> {
   const msg = message as { type?: string; requestId?: string; source?: string; hits?: Omit<SearchHit, 'source'>[] };
   const tabId = sender.tab?.id;
-  if (msg?.type === 'fusion:worker?') {
+  if (msg?.type === 'kiwi:worker?') {
     const pending = workerForTab(tabId);
-    return pending ? { type: 'fusion:worker!', ...pending } : { type: 'fusion:not-worker' };
+    return pending ? { type: 'kiwi:worker!', ...pending } : { type: 'kiwi:not-worker' };
   }
-  if (msg?.type === 'fusion:blocked' && tabId !== undefined) {
+  if (msg?.type === 'kiwi:blocked' && tabId !== undefined) {
     const request = pendingById.get(msg.requestId ?? '');
     if (request && request.tabId === tabId) {
       const state = await withStateLock(() => readState());
@@ -308,7 +308,7 @@ export async function handleWorkerMessage(message: unknown, sender: Browser.runt
     }
     return { ok: true };
   }
-  if (msg?.type === 'fusion:extracted' && tabId !== undefined) {
+  if (msg?.type === 'kiwi:extracted' && tabId !== undefined) {
     const request = pendingById.get(msg.requestId ?? '');
     if (request && request.tabId === tabId) {
       pendingById.delete(request.requestId);
@@ -320,7 +320,7 @@ export async function handleWorkerMessage(message: unknown, sender: Browser.runt
     }
     return { ok: true };
   }
-  if (msg?.type === 'fusion:focus-worker' && typeof msg.source === 'string') {
+  if (msg?.type === 'kiwi:focus-worker' && typeof msg.source === 'string') {
     const state = await withStateLock(async () => validState(await readState()));
     const tabId = state?.tabs[msg.source as SourceId];
     if (state && tabId !== undefined) {
