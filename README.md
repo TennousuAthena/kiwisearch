@@ -18,6 +18,16 @@ pnpm --filter @kiwi-search/mcp build
 apps/extension/.output/chrome-mv3
 ```
 
+## 默认搜索引擎
+
+Chrome 不允许扩展自动更改默认搜索引擎，因此需要手动添加一次 Kiwi Search。打开 `chrome://settings/searchEngines`，然后：
+
+1. 在“网站搜索”旁点击“添加”。
+2. 填入名称 `Kiwi Search`、快捷字词 `kiwi`、网址 `https://s.kiwi.moe/s?q=%s`。
+3. 在该条目的 ⋮ 菜单中选择“设为默认”。
+
+也可以在扩展设置页使用复制按钮复制这些字段。不改默认也可以在地址栏输入 `k` 加空格快速使用 Kiwi。
+
 打开扩展的“设置”页配置来源和模型。Google、Bing、百度、DuckDuckGo、Google Scholar 等 A 类来源通过折叠的“Kiwi Search”标签组在浏览器中渲染；OpenAlex、Exa、DeepSeek Search、Brave Search 和 SearXNG 通过各自的官方 API 调用。需要 Key 的 API 来源可先启用，填入 Key 后才会参与搜索。
 
 OpenAlex 不填 Key 也可使用，但同一 IP 下免费额度约为每天 `$0.10`；免费注册 Key 可将额度提高到约 `$1/天`：[OpenAlex API 设置](https://openalex.org/settings/api)。
