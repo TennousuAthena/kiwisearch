@@ -93,7 +93,7 @@ export async function runSearch(
   const result: PipelineResult = { query, results: limited, citations: [], sourceStats };
 
   const wantSummary = opts.summarize ?? config.summary.enabled;
-  if (wantSummary && results.length && config.summary.provider === 'chrome-builtin' && llmConfigured(config.llm)) {
+  if (wantSummary && results.length && config.summary.provider === 'chrome-builtin') {
     const top = results.slice(0, config.summary.maxSources);
     const citations = buildCitations(top);
     result.citations = citations;

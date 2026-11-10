@@ -8,6 +8,7 @@ import type { PortMessage, SearchRequest } from '@/lib/messages';
 import { SOURCE_META, faviconUrl } from '@/lib/sourceMeta';
 
 type SourceState = { status: 'loading' | 'blocked' | 'done' | 'error'; count?: number; ms?: number; error?: string };
+const BUILTIN_MODEL_FIRST_CHUNK_TIMEOUT_MS = 60000;
 
 interface SearchState {
   query: string;
@@ -17,7 +18,7 @@ interface SearchState {
   rerankInfo?: string;
   citations: Citation[];
   summary: string;
-  summaryStatus: 'idle' | 'loading' | 'streaming' | 'done' | 'error';
+  summaryStatus: 'idle' | 'loading' | 'starting' | 'streaming' | 'done' | 'error';
   summaryError?: string;
   fatal?: string;
 }
@@ -54,7 +55,7 @@ function reduce(s: SearchState, e: PipelineEvent): SearchState {
     case 'summary_start':
       return { ...s, citations: e.citations, summaryStatus: 'loading' };
     case 'summary_prompt':
-      return { ...s, citations: e.citations, summaryStatus: 'loading' };
+      return { ...s, citations: e.citations, summaryStatus: 'starting' };
     case 'summary_delta':
       return { ...s, summary: s.summary + e.text, summaryStatus: 'streaming' };
     case 'summary_done':
@@ -73,11 +74,17 @@ export default function App() {
   const [hoverCite, setHoverCite] = useState<number | null>(null);
   const portRef = useRef<Browser.runtime.Port | null>(null);
   const keepaliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const builtinModelRef = useRef<AbortController | null>(null);
+  const builtinModelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const search = useCallback((q: string) => {
     q = q.trim();
     if (!q) return;
+    builtinModelRef.current?.abort();
+    builtinModelRef.current = null;
+    if (builtinModelTimeoutRef.current) clearTimeout(builtinModelTimeoutRef.current);
+    builtinModelTimeoutRef.current = null;
     if (keepaliveRef.current) clearInterval(keepaliveRef.current);
     portRef.current?.disconnect();
     const port = browser.runtime.connect({ name: 'search' });
@@ -119,11 +126,49 @@ export default function App() {
           keepaliveRef.current = null;
         }
         if (msg.event.type === 'summary_prompt') {
+          const controller = new AbortController();
+          builtinModelRef.current = controller;
+          let timedOut = false;
+          let receivedFirstChunk = false;
+          const timeout = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+            if (portRef.current === port && builtinModelRef.current === controller) {
+              setState((s) => s && {
+                ...s,
+                summaryStatus: 'error',
+                summaryError: '浏览器内置模型在 60 秒内未返回首个内容块，请检查模型状态后重试。',
+              });
+            }
+          }, BUILTIN_MODEL_FIRST_CHUNK_TIMEOUT_MS);
+          builtinModelTimeoutRef.current = timeout;
+          const isCurrent = () => portRef.current === port && builtinModelRef.current === controller;
           void promptWithBuiltinModel(msg.event.messages, (delta) => {
+            if (!isCurrent() || timedOut) return;
+            if (!receivedFirstChunk) {
+              receivedFirstChunk = true;
+              clearTimeout(timeout);
+              if (builtinModelTimeoutRef.current === timeout) builtinModelTimeoutRef.current = null;
+            }
             setState((s) => s && { ...s, summary: s.summary + delta, summaryStatus: 'streaming' });
-          })
-            .then(() => setState((s) => s && { ...s, summaryStatus: 'done' }))
-            .catch((error) => setState((s) => s && { ...s, summaryStatus: 'error', summaryError: error instanceof Error ? error.message : String(error) }));
+          }, controller.signal)
+            .then(() => {
+              if (isCurrent() && !timedOut) setState((s) => s && { ...s, summaryStatus: 'done' });
+            })
+            .catch((error) => {
+              if (!isCurrent() || timedOut) return;
+              const detail = error instanceof Error ? error.message : String(error);
+              setState((s) => s && {
+                ...s,
+                summaryStatus: 'error',
+                summaryError: `浏览器内置模型启动或生成失败：${detail}`,
+              });
+            })
+            .finally(() => {
+              clearTimeout(timeout);
+              if (builtinModelTimeoutRef.current === timeout) builtinModelTimeoutRef.current = null;
+              if (builtinModelRef.current === controller) builtinModelRef.current = null;
+            });
         }
       }
     });
@@ -248,6 +293,7 @@ export default function App() {
                 )}
                 {state.summaryStatus === 'idle' && state.stage !== 'done' && <p className="muted">等待检索与重排…</p>}
                 {state.summaryStatus === 'loading' && <p className="muted">正在读取前 {state.citations.length} 篇来源…</p>}
+                {state.summaryStatus === 'starting' && <p className="muted">正在启动浏览器内置模型…</p>}
                 {state.summaryStatus === 'error' && <p className="error">{state.summaryError}</p>}
                 {summaryHtml && (
                   <div
@@ -300,21 +346,46 @@ interface PromptApi {
   create(): Promise<PromptSession>;
 }
 
-async function promptWithBuiltinModel(messages: ChatMessage[], onDelta: (delta: string) => void): Promise<void> {
+async function promptWithBuiltinModel(
+  messages: ChatMessage[],
+  onDelta: (delta: string) => void,
+  signal: AbortSignal,
+): Promise<void> {
   const model = (globalThis as typeof globalThis & { LanguageModel?: PromptApi }).LanguageModel;
   if (!model) throw new Error('当前浏览器不支持内置模型');
   const availability = await model.availability();
+  if (signal.aborted) return;
   if (!['available', 'downloadable', 'downloading'].includes(availability)) throw new Error('当前浏览器不支持内置模型');
   const session = await model.create();
+  let reader: ReadableStreamDefaultReader<string> | undefined;
+  const abort = () => {
+    void reader?.cancel().catch(() => {});
+    session.destroy?.();
+  };
+  signal.addEventListener('abort', abort, { once: true });
   try {
+    if (signal.aborted) return;
     const prompt = messages.map((message) => `${message.role.toUpperCase()}:\n${message.content}`).join('\n\n');
-    const reader = (await session.promptStreaming(prompt)).getReader();
+    const stream = await session.promptStreaming(prompt);
+    if (signal.aborted) {
+      void stream.cancel().catch(() => {});
+      return;
+    }
+    reader = stream.getReader();
+    let receivedContent = false;
     for (;;) {
+      if (signal.aborted) break;
       const { done, value } = await reader.read();
       if (done) break;
-      if (value) onDelta(value);
+      if (value) {
+        receivedContent = true;
+        onDelta(value);
+      }
     }
+    if (!receivedContent && !signal.aborted) throw new Error('浏览器内置模型没有生成内容，请稍后重试。');
   } finally {
+    signal.removeEventListener('abort', abort);
+    reader?.releaseLock();
     session.destroy?.();
   }
 }

@@ -73,12 +73,14 @@ describe('runSearch', () => {
     expect(types.indexOf('summary_done')).toBeLessThan(types.indexOf('done'));
   });
 
-  it('sends summary messages to the browser built-in provider without an API key', async () => {
+  it('sends summary messages to the browser built-in provider without API LLM settings', async () => {
     const config = configFor('google');
     config.summary.enabled = true;
     config.summary.provider = 'chrome-builtin';
     config.summary.contentFetcher = 'none';
     config.llm.apiKey = '';
+    config.llm.baseUrl = '';
+    config.llm.model = '';
     const env: Env = {
       fetch,
       runBrowserEngine: async (engine) => [hit(engine.id, 'https://example.com/result', 'Result')],
