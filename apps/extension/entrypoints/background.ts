@@ -1,4 +1,4 @@
-import { runSearch, type Env } from '@fusion-search/core';
+import { runSearch, type Env, type SourceId } from '@fusion-search/core';
 import { browser } from 'wxt/browser';
 import { ensureBridge } from '@/lib/bridge';
 import type { PortMessage, SearchRequest } from '@/lib/messages';
@@ -39,14 +39,40 @@ export default defineBackground(() => {
       if (req.type !== 'search') return;
       ctrl?.abort();
       const current = (ctrl = new AbortController());
+      const deferredSources = new Set<SourceId>();
+      let searchFinished = false;
+      let resolveDeferred!: () => void;
+      const deferredSettled = new Promise<void>((resolve) => {
+        resolveDeferred = resolve;
+      });
+      const maybeResolveDeferred = () => {
+        if (searchFinished && deferredSources.size === 0) resolveDeferred();
+      };
       try {
         const config = await loadConfig();
         await runSearch(req.query, config, makeEnv(), {
           sources: req.sources,
           summarize: req.summarize,
           signal: current.signal,
-          onEvent: (event) => !current.signal.aborted && post({ type: 'event', event }),
+          onEvent: (event) => {
+            if (event.type === 'source_blocked') deferredSources.add(event.source);
+            if (event.type === 'late_results' || event.type === 'source_error') deferredSources.delete(event.source);
+            maybeResolveDeferred();
+            if (!current.signal.aborted) post({ type: 'event', event });
+          },
         });
+        searchFinished = true;
+        maybeResolveDeferred();
+        if (deferredSources.size > 0 && !current.signal.aborted) {
+          let onAbort!: () => void;
+          const aborted = new Promise<void>((resolve) => {
+            onAbort = resolve;
+            current.signal.addEventListener('abort', onAbort, { once: true });
+          });
+          if (current.signal.aborted) onAbort();
+          await Promise.race([deferredSettled, aborted]);
+          current.signal.removeEventListener('abort', onAbort);
+        }
       } catch (e) {
         if (!current.signal.aborted) post({ type: 'fatal', error: e instanceof Error ? e.message : String(e) });
       }

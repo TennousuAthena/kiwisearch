@@ -45,8 +45,20 @@ function pipelineResult(reply: BridgeReply): Record<string, unknown> {
   return reply.result as Record<string, unknown>;
 }
 
+function blockedSourceIds(result: Record<string, unknown>): string[] {
+  if (!Array.isArray(result.sourceStats)) return [];
+  return (result.sourceStats as { source?: unknown; status?: unknown }[])
+    .filter((stat) => stat.status === 'blocked' && typeof stat.source === 'string')
+    .map((stat) => stat.source as string);
+}
+
+function blockedNote(sources: string[]): string {
+  return sources.length ? `\n\n尚未完成验证的来源：${sources.join('、')}。结果可能不完整。` : '';
+}
+
 function formatSearchResult(result: Record<string, unknown>): { text: string; structured: Record<string, unknown> } {
   const results = Array.isArray(result.results) ? result.results as Record<string, unknown>[] : [];
+  const blocked = blockedSourceIds(result);
   const entries = results.map((item, index) => {
     const title = String(item.title ?? '无标题');
     const url = String(item.url ?? '');
@@ -56,8 +68,12 @@ function formatSearchResult(result: Record<string, unknown>): { text: string; st
     return `${index + 1}. [${title}](${url})${sources ? ` — ${sources}` : ''}\n\n   ${String(item.snippet ?? '')}`;
   });
   return {
-    text: entries.length ? entries.join('\n\n') : '没有找到搜索结果。',
-    structured: { results: results.map((item, index) => ({ n: index + 1, ...item })) },
+    text: `${entries.length ? entries.join('\n\n') : '没有找到搜索结果。'}${blockedNote(blocked)}`,
+    structured: {
+      results: results.map((item, index) => ({ n: index + 1, ...item })),
+      sourceStats: Array.isArray(result.sourceStats) ? result.sourceStats : [],
+      blockedSources: blocked,
+    },
   };
 }
 
@@ -95,10 +111,19 @@ export function createMcpServer(bridge: BridgeTransport): McpServer {
       try {
         const result = pipelineResult(await callBridge(bridge, { type: 'answer', query, options: { sources, summarize: true } }, extra));
         const summary = String(result.summary ?? '');
-        if (!summary) throw new Error('未能生成摘要，请检查 LLM 设置或来源结果。');
+        const blocked = blockedSourceIds(result);
+        if (!summary && blocked.length === 0) throw new Error('未能生成摘要，请检查 LLM 设置或来源结果。');
         const citations = Array.isArray(result.citations) ? result.citations as Record<string, unknown>[] : [];
         const references = citations.map((citation) => `[${citation.n}] [${citation.title}](${citation.url})`).join('\n');
-        return textResult(`${summary}${references ? `\n\n## 引用\n${references}` : ''}`, { summary, citations });
+        return textResult(
+          `${summary || '未生成摘要。'}${references ? `\n\n## 引用\n${references}` : ''}${blockedNote(blocked)}`,
+          {
+            summary,
+            citations,
+            sourceStats: Array.isArray(result.sourceStats) ? result.sourceStats : [],
+            blockedSources: blocked,
+          },
+        );
       } catch (error) {
         return errorResult(error);
       }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyRerank, fuse, normalizeUrl } from '../src';
+import { applyRerank, fuse, mergeLateHits, normalizeUrl } from '../src';
 import type { SearchHit } from '../src';
 
 const hit = (source: SearchHit['source'], url: string, rank: number, snippet = ''): SearchHit => ({
@@ -76,6 +76,51 @@ describe('fuse (RRF)', () => {
     const other = hit('bing', 'https://www.mongodb.com/results', 1);
     other.title = wrapper.title;
     expect(fuse([[wrapper], [other]])).toHaveLength(2);
+  });
+});
+
+describe('mergeLateHits', () => {
+  it('adds a late source badge to a matching wrapper result without changing order or score', () => {
+    const wrapper = fuse([[
+      {
+        ...hit('google', 'https://www.google.com/goto?url=opaque', 1),
+        host: 'example.com',
+        title: 'Example page: a detailed guide to fusion ranking',
+      },
+    ]]);
+    const originalScore = wrapper[0].score;
+    const merged = mergeLateHits(wrapper, [
+      {
+        ...hit('bing', 'https://www.example.com/fusion', 2),
+        title: 'Example page: a detailed guide to fusion ranking',
+      },
+    ]);
+    expect(merged).not.toBe(wrapper);
+    expect(merged[0].url).toBe(wrapper[0].url);
+    expect(merged[0].sources.map((source) => source.source)).toEqual(['google', 'bing']);
+    expect(merged[0].rrfScore).toBeCloseTo(wrapper[0].rrfScore + 1 / 62);
+    expect(merged[0].score).toBe(originalScore);
+    expect(merged[0].late).toBeUndefined();
+  });
+
+  it('appends unmatched hits at the end with zero score and a late marker', () => {
+    const initial = fuse([[hit('google', 'https://example.com/first', 1)]]);
+    const appended = mergeLateHits(initial, [hit('bing', 'https://example.com/second', 1)]);
+    expect(appended.map((result) => result.url)).toEqual([
+      'https://example.com/first',
+      'https://example.com/second',
+    ]);
+    expect(appended[1]).toMatchObject({ late: true, score: 0 });
+  });
+
+  it('deduplicates late hits among themselves', () => {
+    const appended = mergeLateHits([], [
+      hit('bing', 'https://example.com/shared', 1),
+      hit('baidu', 'https://www.example.com/shared/', 2),
+    ]);
+    expect(appended).toHaveLength(1);
+    expect(appended[0].sources.map((source) => source.source)).toEqual(['bing', 'baidu']);
+    expect(appended[0].late).toBe(true);
   });
 });
 

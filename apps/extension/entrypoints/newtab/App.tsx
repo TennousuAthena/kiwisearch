@@ -43,6 +43,19 @@ function reduce(s: SearchState, e: PipelineEvent): SearchState {
       return { ...s, sources: { ...s.sources, [e.source]: { status: 'done', count: e.count, ms: e.ms } } };
     case 'source_error':
       return { ...s, sources: { ...s.sources, [e.source]: { status: 'error', error: e.error, ms: e.ms } } };
+    case 'late_results': {
+      const previous = s.sources[e.source];
+      const count =
+        previous?.count ?? e.results.filter((result) => result.sources.some((source) => source.source === e.source)).length;
+      return {
+        ...s,
+        results: e.results,
+        sources: {
+          ...s.sources,
+          [e.source]: { status: 'done', count, ms: previous?.ms },
+        },
+      };
+    }
     case 'fused':
       return { ...s, results: e.results, stage: 'reranking' };
     case 'reranked':
@@ -89,6 +102,13 @@ export default function App() {
     portRef.current?.disconnect();
     const port = browser.runtime.connect({ name: 'search' });
     portRef.current = port;
+    const deferredSources = new Set<SourceId>();
+    let doneReceived = false;
+    const stopKeepaliveIfSettled = () => {
+      if (!doneReceived || deferredSources.size > 0) return;
+      if (keepaliveRef.current) clearInterval(keepaliveRef.current);
+      keepaliveRef.current = null;
+    };
     keepaliveRef.current = setInterval(() => {
       if (portRef.current !== port) return;
       try {
@@ -115,16 +135,21 @@ export default function App() {
       if (portRef.current !== port) return;
       const msg = raw as PortMessage;
       if (msg.type === 'fatal') {
-        if (keepaliveRef.current) clearInterval(keepaliveRef.current);
-        keepaliveRef.current = null;
+        doneReceived = true;
+        deferredSources.clear();
+        stopKeepaliveIfSettled();
         setState((s) => s && { ...s, fatal: msg.error, stage: 'done' });
       }
       else {
+        if (msg.event.type === 'source_blocked') deferredSources.add(msg.event.source);
+        if (msg.event.type === 'late_results' || msg.event.type === 'source_error') {
+          deferredSources.delete(msg.event.source);
+        }
         setState((s) => s && reduce(s, msg.event));
         if (msg.event.type === 'done') {
-          if (keepaliveRef.current) clearInterval(keepaliveRef.current);
-          keepaliveRef.current = null;
+          doneReceived = true;
         }
+        stopKeepaliveIfSettled();
         if (msg.event.type === 'summary_prompt') {
           const controller = new AbortController();
           builtinModelRef.current = controller;
@@ -271,6 +296,7 @@ export default function App() {
                           {SOURCE_META[s.source].short} #{s.rank}
                         </span>
                       ))}
+                      {r.late && <span className="late-tag">验证后补充</span>}
                       {r.meta.citations !== undefined && <span className="extra">被引 {r.meta.citations}</span>}
                       {r.meta.year && <span className="extra">{r.meta.year}</span>}
                       {!r.meta.year && r.publishedAt && <span className="extra">{r.publishedAt.slice(0, 10)}</span>}

@@ -28,6 +28,17 @@ function titlesMatch(left: string, right: string): boolean {
   return shorter.length >= 25 && longer.startsWith(shorter);
 }
 
+function matchesWrapperPair(left: FusedResult, right: FusedResult): boolean {
+  const leftIsWrapper = isGoogleGotoUrl(left.url);
+  const rightIsWrapper = isGoogleGotoUrl(right.url);
+  if (leftIsWrapper === rightIsWrapper) return false;
+  const wrapper = leftIsWrapper ? left : right;
+  const page = leftIsWrapper ? right : left;
+  const host = wrapper.host ? normalizedHost(wrapper.host) : '';
+  const title = normalizedTitle(wrapper.title);
+  return !!host && !!title && normalizedHost(page.url) === host && titlesMatch(title, normalizedTitle(page.title));
+}
+
 /**
  * Merge per-source ranked lists with Reciprocal Rank Fusion:
  * score(d) = sum_s w_s / (k + rank_s(d)).
@@ -78,15 +89,7 @@ export function fuse(
   const wrappers = values.filter((result) => isGoogleGotoUrl(result.url));
   const results = values.filter((result) => !isGoogleGotoUrl(result.url));
   for (const wrapper of wrappers) {
-    const host = wrapper.host ? normalizedHost(wrapper.host) : '';
-    const title = normalizedTitle(wrapper.title);
-    const match = host && title
-      ? results.find((result) =>
-          !isGoogleGotoUrl(result.url) &&
-          normalizedHost(result.url) === host &&
-          titlesMatch(title, normalizedTitle(result.title)),
-        )
-      : undefined;
+    const match = results.find((result) => matchesWrapperPair(wrapper, result));
     if (!match) {
       results.push(wrapper);
       continue;
@@ -108,6 +111,34 @@ export function fuse(
   const max = results[0]?.rrfScore ?? 1;
   for (const r of results) r.score = r.rrfScore / max;
   return results;
+}
+
+export function mergeLateHits(
+  results: FusedResult[],
+  hits: SearchHit[],
+  weights: Partial<Record<SourceId, number>> = {},
+  k = RRF_K,
+): FusedResult[] {
+  const merged = results.map((result) => ({
+    ...result,
+    sources: result.sources.map((source) => ({ ...source })),
+    meta: { ...result.meta },
+  }));
+  for (const late of fuse([hits], weights, k)) {
+    const existing = merged.find(
+      (result) => normalizeUrl(result.url) === late.key || matchesWrapperPair(result, late),
+    );
+    if (!existing) {
+      merged.push({ ...late, late: true, score: 0 });
+      continue;
+    }
+    for (const source of late.sources) {
+      if (existing.sources.some((current) => current.source === source.source)) continue;
+      existing.sources.push({ ...source });
+      existing.rrfScore += (weights[source.source] ?? 1) / (k + source.rank);
+    }
+  }
+  return merged;
 }
 
 /**
