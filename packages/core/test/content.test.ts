@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CONFIG } from '../src/config';
 import { fetchContents } from '../src/content';
 import { buildSummaryMessages } from '../src/summarize';
@@ -35,5 +35,44 @@ describe('fetchContents', () => {
     expect(requested).toEqual([]);
     expect(contents.has(wrapper.key)).toBe(false);
     expect(messages[1].content).toContain(wrapper.snippet);
+  });
+
+  it('returns completed content and aborts pending reads at the overall deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const config = structuredClone(DEFAULT_CONFIG);
+      config.summary.contentFetcher = 'direct';
+      const result = (url: string, key: string): FusedResult => ({
+        key,
+        url,
+        title: key,
+        snippet: '',
+        sources: [{ source: 'google', rank: 1 }],
+        rrfScore: 1,
+        score: 1,
+        meta: {},
+      });
+      const completed = result('https://example.com/complete', 'complete');
+      const pending = result('https://example.com/pending', 'pending');
+      let pendingSignal: AbortSignal | undefined;
+      const env: Env = {
+        fetch: async (input, init) => {
+          if (input === pending.url) {
+            pendingSignal = init?.signal as AbortSignal;
+            return new Promise<Response>(() => {});
+          }
+          return new Response('x'.repeat(140), { headers: { 'content-type': 'text/plain' } });
+        },
+      };
+
+      const contentsPromise = fetchContents([completed, pending], config, env);
+      await vi.advanceTimersByTimeAsync(12000);
+      const contents = await contentsPromise;
+
+      expect(contents.get(completed.key)).toBe('x'.repeat(140));
+      expect(pendingSignal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

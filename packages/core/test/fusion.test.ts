@@ -20,6 +20,11 @@ describe('normalizeUrl', () => {
     expect(normalizeUrl('https://arxiv.org/pdf/2401.01234.pdf')).toBe('arxiv:2401.01234');
     expect(normalizeUrl('https://doi.org/10.1145/ABC')).toBe('doi:10.1145/abc');
   });
+  it('drops Bing msockid parameters regardless of case', () => {
+    const bare = 'https://www.mongodb.com/resources/basics/reciprocal-rank-fusion';
+    expect(normalizeUrl(`${bare}?msockid=095abedf12345678`)).toBe(normalizeUrl(bare));
+    expect(normalizeUrl(`${bare}?MSOCKID=095abedf12345678`)).toBe(normalizeUrl(bare));
+  });
 });
 
 describe('fuse (RRF)', () => {

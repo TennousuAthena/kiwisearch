@@ -1,6 +1,6 @@
 const TRACKING_PARAMS = [
   /^utm_/i,
-  /^(fbclid|gclid|dclid|msclkid|yclid|mc_cid|mc_eid|igshid|spm|from|ref|ref_src|source|si)$/i,
+  /^(fbclid|gclid|dclid|msclkid|msockid|yclid|mc_cid|mc_eid|igshid|spm|from|ref|ref_src|source|si)$/i,
 ];
 
 /** Canonical form of a URL used to detect duplicates across engines. */
