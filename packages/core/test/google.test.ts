@@ -19,6 +19,19 @@ function responseAt(url: string, body = ''): Response {
 }
 
 describe('Google result links', () => {
+  it('uses the first valid cite URL as the host for unresolved wrappers', () => {
+    const window = new Window();
+    window.document.write(`
+      <div id="search">
+        <div class="MjjYud"><a href="/goto?url=fixture"><h3>Wrapped page</h3></a><cite>https://www.example.com › resources › article</cite></div>
+        <div class="MjjYud"><a href="/goto?url=dated"><h3>Dated page</h3></a><cite>2 years ago</cite></div>
+        <div class="MjjYud"><a href="/url?q=https%3A%2F%2Fexample.com%2Fdirect"><h3>Direct page</h3></a><cite>https://www.example.com</cite></div>
+      </div>
+    `);
+    const hits = google.extract(window.document as unknown as ParentNode, 'https://www.google.com/search');
+    expect(hits.map((result) => result.host)).toEqual(['example.com', undefined, undefined]);
+  });
+
   it('keeps unwrapping /url?q= links during extraction', () => {
     const window = new Window();
     window.document.write('<div id="search"><a href="/url?q=https%3A%2F%2Fexample.com%2Farticle"><h3>Article</h3></a></div>');
@@ -34,6 +47,14 @@ describe('Google result links', () => {
       signal: new AbortController().signal,
     });
     expect(hits[0].url).toBe('https://example.com/article?a=1&b=2');
+  });
+
+  it('keeps the wrapper when an anchor is on a meta-refresh throttling page', async () => {
+    const wrapper = 'https://www.google.com/goto?url=fixture-redirect-1';
+    const fetch: FetchLike = async () =>
+      new Response('<meta content="3;url=/goto?url=next-token"><a href="https://example.com/article">here</a>');
+    const hits = await google.resolve!([hit(wrapper)], { fetch, signal: new AbortController().signal });
+    expect(hits[0].url).toBe(wrapper);
   });
 
   it('uses the final URL when fetch followed a real redirect', async () => {

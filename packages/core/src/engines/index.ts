@@ -14,7 +14,7 @@ export const browserSources = Object.fromEntries(
 
 export { baidu } from './baidu';
 export { bing, decodeBingUrl } from './bing';
-export { google } from './google';
+export { google, isGoogleGotoUrl } from './google';
 export { duckduckgo } from './duckduckgo';
 export { scholar } from './scholar';
 export { yandex } from './yandex';

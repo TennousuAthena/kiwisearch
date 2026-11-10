@@ -212,8 +212,8 @@ export default function App() {
                 return (
                   <article key={r.key} className={`result ${n && n === hoverCite ? 'hl' : ''}`} id={n ? `cite-${n}` : undefined}>
                     <div className="site">
-                      <img src={faviconUrl(r.url)} alt="" />
-                      <span className="host">{prettyUrl(r.url)}</span>
+                      <img src={faviconUrl(r.host ? `https://${r.host}` : r.url)} alt="" />
+                      <span className="host">{r.host ?? prettyUrl(r.url)}</span>
                       {n && <span className="cite-n">[{n}]</span>}
                     </div>
                     <a className="title" href={r.url} target="_blank" rel="noreferrer">

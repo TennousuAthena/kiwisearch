@@ -27,7 +27,11 @@ describe('browser engine extraction fixtures', () => {
           expect(hit.url).toMatch(/^https?:\/\//);
           expect(hit.title.trim().length).toBeGreaterThan(0);
         }
-        if (id === 'google') expect(hits.some((hit) => new URL(hit.url).pathname === '/goto')).toBe(true);
+        if (id === 'google') {
+          const wrappers = hits.filter((hit) => new URL(hit.url).pathname === '/goto');
+          expect(wrappers.length).toBeGreaterThan(0);
+          expect(wrappers.some((hit) => hit.host === 'arxiv.org')).toBe(true);
+        }
       });
     }
     if (id !== 'yandex') {
