@@ -1,0 +1,21 @@
+{
+  "name": "@kiwi-search/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "node-html-parser": "^7.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "happy-dom": "^18.0.1",
+    "vitest": "^3.2.4"
+  }
+}
