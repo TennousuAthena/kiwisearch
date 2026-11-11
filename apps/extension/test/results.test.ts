@@ -5,12 +5,16 @@ import {
   compactCount,
   filterSince,
   formatDuration,
+  COMMUNITY_MODES,
   MODES,
+  isCommunityMode,
   hiddenLabel,
   iconHost,
   modeHasOverview,
   parseMode,
   pickLandmarks,
+  platformOf,
+  splitPlatforms,
   searchUrl,
   siteLabel,
   sinceYears,
@@ -132,5 +136,46 @@ describe('pickLandmarks', () => {
     expect(pickLandmarks(list, [{ title: 'Some other spelling', doi: '10.1/ABC' }]).map((r) => r.title)).toEqual(['Attention Is All You Need']);
     expect(pickLandmarks(list, [{ title: 'Not here at all' }])).toEqual([]);
     expect(pickLandmarks(list, [{ title: 'BERT: Pre-training' }, { title: 'BERT Pre-training' }])).toHaveLength(1);
+  });
+});
+
+describe('community platforms in a general list', () => {
+  const post = (title: string, meta: FusedResult['meta'] = {}, extra: Partial<FusedResult> = {}) => ({ ...paper(title, meta), ...extra });
+  const zhihu = (n: number) => post(`z${n}`, { siteName: '知乎' });
+  const wechat = (n: number) => post(`w${n}`, { siteName: '微信公众号' });
+  const note = (n: number) => post(`n${n}`, {}, { note: { cover: 'x', width: 1, height: 1, author: 'a', time: 't', likes: '1' } as FusedResult['note'] });
+
+  it('tells which platform a result is a post from', () => {
+    expect(platformOf(zhihu(1))).toBe('zhihu');
+    expect(platformOf(wechat(1))).toBe('wechat');
+    expect(platformOf(note(1))).toBe('xiaohongshu');
+    expect(platformOf(paper('web', {}))).toBeNull();
+  });
+
+  it('pulls two or more posts out of the list, leaving everything else where it was', () => {
+    const list = [paper('a', {}), zhihu(1), paper('b', {}), note(1), paper('c', {})];
+    const { platform, rest } = splitPlatforms(list);
+    expect(platform.map((r) => r.title)).toEqual(['z1', 'n1']);
+    expect(rest.map((r) => r.title)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('leaves a lone post in the list', () => {
+    const list = [paper('a', {}), zhihu(1), paper('b', {})];
+    expect(splitPlatforms(list)).toEqual({ platform: [], rest: list });
+  });
+
+  it('lets no platform fill the block, and keeps what does not fit in the list', () => {
+    const list = [zhihu(1), zhihu(2), zhihu(3), zhihu(4), wechat(1), note(1), note(2), note(3), note(4)];
+    const { platform, rest } = splitPlatforms(list);
+    expect(platform.map((r) => r.title)).toEqual(['z1', 'z2', 'z3', 'w1', 'n1', 'n2']);
+    expect(rest.map((r) => r.title)).toEqual(['z4', 'n3', 'n4']);
+  });
+});
+
+describe('tab structure', () => {
+  it('folds the platforms into one tab and leaves the content types', () => {
+    expect(MODES.filter((m) => !isCommunityMode(m))).toEqual(['web', 'images', 'video', 'academic']);
+    expect(COMMUNITY_MODES).toEqual(['zhihu', 'xiaohongshu', 'wechat', 'x']);
+    for (const mode of COMMUNITY_MODES) expect(MODES).toContain(mode);
   });
 });

@@ -310,3 +310,27 @@ describe('academic summary prompt', () => {
     expect(user.content).not.toContain('cited by');
   });
 });
+
+describe('summary prompt across platforms', () => {
+  const page = (title: string, extra: Partial<FusedResult> = {}): FusedResult => ({ key: title, url: `https://example.com/${encodeURIComponent(title)}`, title, snippet: `${title} snippet`, sources: [], rrfScore: 1, score: 1, meta: {}, ...extra });
+
+  it('labels community posts and asks the model to compare what platforms say, naming them', () => {
+    const messages = buildSummaryMessages('如何看待 996', [page('官方说明'), page('一个回答', { meta: { siteName: '知乎' } }), page('一篇文章', { meta: { siteName: '微信公众号' } })], new Map());
+    expect(messages[0].content).toContain('Some sources are posts from community platforms');
+    expect(messages[1].content).toContain('Platform: 知乎');
+    expect(messages[1].content).toContain('Platform: 微信公众号');
+    expect(messages[1].content).not.toMatch(/\[1\][^\[]*Platform:/);
+  });
+
+  it('says nothing about platforms when every source is an ordinary page, or when the whole search is one platform', () => {
+    const plain = buildSummaryMessages('q', [page('a'), page('b')], new Map());
+    expect(plain[0].content).not.toContain('community platforms');
+    expect(plain[1].content).not.toContain('Platform:');
+    const zhihuOnly = buildSummaryMessages('q', [page('a', { meta: { siteName: '知乎' } }), page('b', { meta: { siteName: '知乎' } })], new Map(), undefined, new Date(), 'zhihu');
+    expect(zhihuOnly[0].content).not.toContain('community platforms');
+  });
+
+  it('keeps the literature overview prompt for papers', () => {
+    expect(buildSummaryMessages('q', [page('a', { meta: { siteName: '知乎' } })], new Map(), undefined, new Date(), 'academic')[0].content).not.toContain('community platforms');
+  });
+});

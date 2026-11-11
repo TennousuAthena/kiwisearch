@@ -178,6 +178,8 @@ export interface FusedResult {
   judgment?: Judgment;
   /** Filtered out of the main list; kept so the UI can offer to show it. */
   hidden?: HiddenReason;
+  /** The same article found on other sites, folded into this result (best-effort: which copy is the original is a guess). */
+  reprints?: { url: string; host: string }[];
   content?: string;
   publishedAt?: string;
   meta: HitMeta;

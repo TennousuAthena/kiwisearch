@@ -5,6 +5,14 @@ export function buildCitations(results: FusedResult[]): Citation[] {
   return results.map((r, i) => ({ n: i + 1, url: r.url, title: r.title }));
 }
 
+/** Which community platform a result is a post from, in the words the model should use for it; null for an ordinary page. */
+export function platformLabel(r: Pick<FusedResult, 'note' | 'meta'>): string | null {
+  if (r.note) return '小红书';
+  if (r.meta.siteName === '知乎') return '知乎';
+  if (r.meta.siteName === '微信公众号') return '微信公众号';
+  return null;
+}
+
 function paperLine(r: FusedResult): string {
   const { authors, venue, year, citations } = r.meta;
   const parts = [
@@ -25,11 +33,15 @@ export function buildSummaryMessages(
   mode: SearchMode = 'web',
 ): ChatMessage[] {
   const academic = mode === 'academic';
+  // Community posts are labelled, so the model can say where platforms agree and where they differ.
+  const platforms = [...new Set(results.map(platformLabel).filter((p): p is string => !!p))];
+  const mixed = !academic && platforms.length > 0 && (platforms.length > 1 || results.some((r) => !platformLabel(r)));
   const context = results
     .map((r, i) => {
       const body = contents.get(r.key) || r.snippet;
       const date = r.publishedAt ? ` (${r.publishedAt.slice(0, 10)})` : '';
-      return `[${i + 1}] ${r.title}${date}\nURL: ${r.url}\n${academic ? paperLine(r) : ''}${body}`;
+      const platform = platformLabel(r);
+      return `[${i + 1}] ${r.title}${date}\nURL: ${r.url}\n${platform ? `Platform: ${platform} (a community post, not an authoritative page)\n` : ''}${academic ? paperLine(r) : ''}${body}`;
     })
     .join('\n\n---\n\n');
   const system = [
@@ -42,6 +54,9 @@ export function buildSummaryMessages(
       ? '- Write a short literature overview: the main findings, how the approaches or results differ, which works are most cited or most recent, and what remains open. Mention year or venue where it helps. Use a short Markdown list for the key papers.'
       : '- Start with a direct 1-3 sentence answer, then key points as a short Markdown list when useful.',
     '- If sources disagree, say so. If they do not contain the answer, say what is missing instead of guessing.',
+    mixed
+      ? '- Some sources are posts from community platforms (marked "Platform:"), the rest are ordinary web pages. Where it helps the reader, say what the platforms say and how they differ from each other and from the web pages, naming the platform (for example "知乎上多数回答认为…，小红书用户反馈…"). Only describe a difference the sources actually show, and do not present a community opinion as established fact.'
+      : '',
     '- No preamble, no closing remarks, no separate reference list.',
     `- Today is ${now.toISOString().slice(0, 10)}.`,
     instructions ? `Additional instructions: ${instructions}` : '',
