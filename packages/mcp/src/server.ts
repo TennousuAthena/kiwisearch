@@ -144,14 +144,20 @@ function formatSearchResult(result: Record<string, unknown>): { text: string; st
     const detail = detailLine(item);
     return `${index + 1}. [${title}](${url})${sources ? ` — ${sources}` : ''}${detail ? `\n\n   ${detail}` : ''}\n\n   ${String(item.snippet ?? '')}`;
   });
+  const plan = result.plan && typeof result.plan === 'object' ? (result.plan as { intent?: string; keywords?: string[] }) : undefined;
+  const landmarks = Array.isArray(result.landmarks) ? (result.landmarks as { title?: string; year?: number }[]) : [];
+  const planNote = plan
+    ? `检索理解：${plan.intent ?? ''}${plan.keywords?.length ? `（关键词：${plan.keywords.join('、')}）` : ''}${landmarks.length ? `\n已核对存在的核心文献：${landmarks.map((l) => `${l.title}${l.year ? `（${l.year}）` : ''}`).join('；')}` : ''}\n\n`
+    : '';
   const hiddenNote = hidden.length ? `\n\n另有 ${hidden.length} 条结果被过滤（低质量、不相关或命中屏蔽规则），详见 structuredContent.hidden。` : '';
   return {
-    text: `${entries.length ? entries.join('\n\n') : '没有找到搜索结果。'}${hiddenNote}${blockedNote(result)}`,
+    text: `${planNote}${entries.length ? entries.join('\n\n') : '没有找到搜索结果。'}${hiddenNote}${blockedNote(result)}`,
     structured: {
       results: results.map((item, index) => ({ n: index + 1, ...item })),
       hidden,
       sourceStats: Array.isArray(result.sourceStats) ? result.sourceStats : [],
       blockedSources: blocked,
+      ...(plan ? { plan, landmarks } : {}),
     },
   };
 }

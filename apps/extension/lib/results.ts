@@ -1,4 +1,4 @@
-import type { FusedResult, HiddenReason, SearchMode } from '@kiwi-search/core';
+import type { FusedResult, HiddenReason, SearchMode, VerifiedLandmark } from '@kiwi-search/core';
 
 export function splitResults(results: FusedResult[]): { visible: FusedResult[]; hidden: FusedResult[] } {
   return { visible: results.filter((r) => !r.hidden), hidden: results.filter((r) => r.hidden) };
@@ -109,6 +109,20 @@ export function formatDuration(ms: number): string {
 export function sinceYears(now = new Date()): number[] {
   const year = now.getFullYear();
   return [year, year - 1, year - 4];
+}
+
+/** Same whole-title key as core's `paperTitleKey` (this bundle doesn't import core's runtime). */
+const titleKey = (title: string) => title.toLowerCase().replace(/[\p{P}\p{S}\s]/gu, '');
+
+/** The results that are the papers the model named and the index confirmed, in the order it named them (matched by DOI, else by whole title). */
+export function pickLandmarks(results: FusedResult[], landmarks: VerifiedLandmark[]): FusedResult[] {
+  const picked: FusedResult[] = [];
+  for (const landmark of landmarks) {
+    const key = titleKey(landmark.title);
+    const found = results.find((r) => !picked.includes(r) && ((landmark.doi && r.meta.doi?.toLowerCase() === landmark.doi.toLowerCase()) || titleKey(r.title) === key));
+    if (found) picked.push(found);
+  }
+  return picked;
 }
 
 /** Papers published in `since` or later; papers with an unknown year can't be placed, so they drop out. */

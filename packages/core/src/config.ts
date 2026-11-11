@@ -57,6 +57,8 @@ export const DEFAULT_CONFIG: FusionConfig = {
     rules: [],
   },
   intent: { enabled: true, threshold: 0.6, timeoutMs: 3000, autoSwitch: true, switchThreshold: 0.85 },
+  // Needs the summary model (`llm`) to be set up; without one an academic search is the plain one.
+  academic: { smart: true, timeoutMs: 12000, landmarks: 5 },
   // Off by default: a blocking LLM call per search, and its min-max scores can't be used to filter.
   rerank: { provider: 'none', candidates: 30 },
   llm: { baseUrl: 'https://api.deepseek.com/v1', apiKey: '', model: 'deepseek-flash' },
@@ -97,6 +99,7 @@ export function mergeConfig(base: FusionConfig, patch: DeepPartial<FusionConfig>
     sources,
     judge: { ...base.judge, ...stripUndefined(patch.judge) },
     intent: { ...base.intent, ...stripUndefined(patch.intent) },
+    academic: { ...base.academic, ...stripUndefined(patch.academic) },
     rerank: { ...base.rerank, ...stripUndefined(patch.rerank) },
     renderer: { ...base.renderer, ...stripUndefined(patch.renderer) },
     llm: { ...base.llm, ...stripUndefined(patch.llm) },

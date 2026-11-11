@@ -80,6 +80,14 @@ export function AdvancedSection({ open, onOpenChange, config, bridge, health, on
         </div>
 
         <div className="adv-block">
+          <h3>智能学术搜索的参数</h3>
+          <div className="field-grid">
+            <NumberField label="最多点名几篇论文" value={config.academic.landmarks} min={1} max={10} onChange={(landmarks) => onChange((c) => ({ ...c, academic: { ...c.academic, landmarks } }))} />
+            <NumberField label="最长等待（毫秒）" hint="模型和文献库核对加起来超过这个时间，就放弃智能部分，只用普通搜索。" value={config.academic.timeoutMs} min={3000} step={1000} onChange={(timeoutMs) => onChange((c) => ({ ...c, academic: { ...c.academic, timeoutMs } }))} />
+          </div>
+        </div>
+
+        <div className="adv-block">
           <h3>AI 概览的参数</h3>
           <div className="field-grid">
             <NumberField label="引用的来源数量" value={config.summary.maxSources} min={1} max={20} onChange={(maxSources) => setSummary({ maxSources })} />
