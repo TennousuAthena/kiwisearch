@@ -58,8 +58,17 @@ function blockedSourceIds(result: Record<string, unknown>): string[] {
     .map((stat) => stat.source as string);
 }
 
-function blockedNote(sources: string[]): string {
-  return sources.length ? `\n\n尚未完成验证的来源：${sources.join('、')}。结果可能不完整。` : '';
+/** What is missing and why: a captcha the user has to solve, or a site the browser isn't signed in to. */
+function blockedNote(result: Record<string, unknown>): string {
+  const stats = Array.isArray(result.sourceStats) ? (result.sourceStats as { source?: unknown; status?: unknown; blockedReason?: unknown }[]) : [];
+  const blocked = stats.filter((stat) => stat.status === 'blocked' && typeof stat.source === 'string');
+  const ids = (reason: 'login' | 'captcha') => blocked.filter((stat) => (stat.blockedReason === 'login' ? 'login' : 'captcha') === reason).map((stat) => stat.source as string);
+  const captcha = ids('captcha');
+  const login = ids('login');
+  return [
+    captcha.length ? `\n\n尚未完成验证的来源：${captcha.join('、')}。结果可能不完整。` : '',
+    login.length ? `\n\n需要先在浏览器里登录的来源：${login.join('、')}。结果可能不完整。` : '',
+  ].join('');
 }
 
 interface ResultMeta {
@@ -137,7 +146,7 @@ function formatSearchResult(result: Record<string, unknown>): { text: string; st
   });
   const hiddenNote = hidden.length ? `\n\n另有 ${hidden.length} 条结果被过滤（低质量、不相关或命中屏蔽规则），详见 structuredContent.hidden。` : '';
   return {
-    text: `${entries.length ? entries.join('\n\n') : '没有找到搜索结果。'}${hiddenNote}${blockedNote(blocked)}`,
+    text: `${entries.length ? entries.join('\n\n') : '没有找到搜索结果。'}${hiddenNote}${blockedNote(result)}`,
     structured: {
       results: results.map((item, index) => ({ n: index + 1, ...item })),
       hidden,
@@ -188,7 +197,7 @@ export function createMcpServer(bridge: BridgeTransport): McpServer {
         const citations = Array.isArray(result.citations) ? result.citations as Record<string, unknown>[] : [];
         const references = citations.map((citation) => `[${citation.n}] [${citation.title}](${citation.url})`).join('\n');
         return textResult(
-          `${summary || '未生成摘要。'}${references ? `\n\n## 引用\n${references}` : ''}${blockedNote(blocked)}`,
+          `${summary || '未生成摘要。'}${references ? `\n\n## 引用\n${references}` : ''}${blockedNote(result)}`,
           {
             summary,
             citations,

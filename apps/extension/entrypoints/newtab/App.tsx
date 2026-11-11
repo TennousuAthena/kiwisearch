@@ -114,7 +114,7 @@ export default function App() {
           <StatusLine
             state={state}
             visibleCount={shown.length}
-            onVerify={() => void browser.runtime.sendMessage({ type: 'kiwi:focus-worker', source: state.blocked[0] })}
+            onOpenWorker={(source) => void browser.runtime.sendMessage({ type: 'kiwi:focus-worker', source })}
           />
           {state.fatal && <FatalError message={state.fatal} onRetry={() => go(state.query, state.mode, 'replace')} />}
 

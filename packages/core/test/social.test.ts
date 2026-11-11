@@ -93,11 +93,14 @@ describe('Zhihu engine (real captured page, see the fixture header)', () => {
     ]);
   });
 
-  it('builds the search URL, is matched on the search page, and sees the sign-in page as a block', () => {
+  it('builds the search URL, is matched on the search page, and sees the sign-in page as a login wall (not a captcha)', () => {
     expect(zhihu.buildUrl('红楼梦', 10, 'zhihu')).toBe('https://www.zhihu.com/search?type=content&q=%E7%BA%A2%E6%A5%BC%E6%A2%A6');
     expect(zhihu.matches).toContain('*://www.zhihu.com/search*');
-    expect(zhihu.isBlockedUrl?.('https://www.zhihu.com/signin?next=%2Fsearch')).toBe(true);
-    expect(zhihu.isBlockedUrl?.(ZHIHU_PAGE)).toBe(false);
+    expect(zhihu.isLoginUrl?.('https://www.zhihu.com/signin?next=%2Fsearch')).toBe(true);
+    expect(zhihu.isLoginUrl?.(ZHIHU_PAGE)).toBe(false);
+    expect(zhihu.isBlockedUrl?.('https://www.zhihu.com/signin?next=%2Fsearch')).toBe(false);
+    expect(zhihu.isBlockedUrl?.('https://www.zhihu.com/account/unhuman?type=unhuman')).toBe(true);
+    expect(dom(fixture('zhihu.html')).querySelector(zhihu.loginSelector!)).toBeNull();
     expect(dom(fixture('zhihu.html')).querySelector(zhihu.blockedSelector)).toBeNull();
     expect(dom(fixture('zhihu.html')).querySelector(zhihu.readySelector)).not.toBeNull();
   });
@@ -171,14 +174,15 @@ describe('Xiaohongshu / RedNote engines (real captured page, see the fixture hea
     const query = encodeURIComponent('红楼梦');
     expect(rednote.buildUrl('红楼梦', 12, 'xiaohongshu')).toBe(`https://www.rednote.com/search_result?keyword=${query}&source=web_search_result_notes`);
     expect(xiaohongshu.buildUrl('红楼梦', 12, 'xiaohongshu')).toBe(`https://www.xiaohongshu.com/search_result?keyword=${query}&source=web_search_result_notes`);
-    expect(rednote.matches).toEqual(['*://www.rednote.com/search_result*']);
-    expect(xiaohongshu.matches).toEqual(['*://www.xiaohongshu.com/search_result*']);
+    expect(rednote.matches).toEqual(['*://www.rednote.com/search_result*', '*://www.rednote.com/website-login/*']);
+    expect(xiaohongshu.matches).toEqual(['*://www.xiaohongshu.com/search_result*', '*://www.xiaohongshu.com/website-login/*']);
     expect(rednote.id).toBe('rednote');
     expect(xiaohongshu.id).toBe('xiaohongshu');
   });
 
   it('is ready on a card and does not mistake the real logged-in page for a login wall', () => {
     expect(dom(fixture('rednote.html')).querySelector(rednote.readySelector)).not.toBeNull();
+    expect(dom(fixture('rednote.html')).querySelector(rednote.loginSelector!)).toBeNull();
     expect(dom(fixture('rednote.html')).querySelector(rednote.blockedSelector)).toBeNull();
   });
 

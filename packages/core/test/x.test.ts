@@ -83,10 +83,14 @@ describe('X engine (real captured page, see the fixture header)', () => {
   it('builds the search URL, waits for a tweet, and treats the onboarding redirect as signed out', () => {
     expect(x.buildUrl('红楼梦 openai', 10, 'x')).toBe('https://x.com/search?q=%E7%BA%A2%E6%A5%BC%E6%A2%A6%20openai&src=typed_query');
     expect(dom(fixture('x.html')).querySelector(x.readySelector)).not.toBeNull();
+    expect(dom(fixture('x.html')).querySelector(x.loginSelector!)).toBeNull();
     expect(dom(fixture('x.html')).querySelector(x.blockedSelector)).toBeNull();
-    expect(x.isBlockedUrl?.('https://x.com/i/jf/onboarding/web')).toBe(true);
-    expect(x.isBlockedUrl?.('https://x.com/i/flow/login')).toBe(true);
-    expect(x.isBlockedUrl?.(PAGE)).toBe(false);
+    expect(x.isLoginUrl?.('https://x.com/i/jf/onboarding/web')).toBe(true);
+    expect(x.isLoginUrl?.('https://x.com/i/flow/login')).toBe(true);
+    expect(x.isLoginUrl?.(PAGE)).toBe(false);
+    // Signed out is a login wall, never a captcha: the page tells the two apart so the user is sent to the right place.
+    expect(x.isBlockedUrl?.('https://x.com/i/jf/onboarding/web')).toBe(false);
+    expect(x.isBlockedUrl?.('https://x.com/account/access')).toBe(true);
     expect(x.matches).toEqual(expect.arrayContaining(['*://x.com/search*', '*://x.com/i/jf/onboarding*']));
     expect(x.minIntervalMs).toBeGreaterThan(DEFAULT_CONFIG.renderer.minIntervalMs);
   });

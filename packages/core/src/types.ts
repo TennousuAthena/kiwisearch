@@ -253,11 +253,14 @@ export interface SourceCache {
   set(key: string, hits: SearchHit[]): void;
 }
 
+/** Why a page can't be read: a verification the user has to solve, or a login wall (the browser isn't signed in to the site). */
+export type BlockReason = 'captcha' | 'login';
+
 export interface BrowserRunOptions {
   mode: SearchMode;
   count: number;
   signal: AbortSignal;
-  onBlocked: (message: string) => void;
+  onBlocked: (message: string, reason?: BlockReason) => void;
   /** Call when the page actually starts loading, after queueing and rate limiting. */
   onStart: () => void;
   /** Renderer settings from the same config snapshot as the rest of the search. */
@@ -276,7 +279,7 @@ export interface SourceContext {
   mode: SearchMode;
   count: number;
   signal: AbortSignal;
-  onBlocked: (message: string) => void;
+  onBlocked: (message: string, reason?: BlockReason) => void;
   onStart: () => void;
   renderer: FusionConfig['renderer'];
 }
@@ -300,8 +303,12 @@ export interface BrowserEngine {
   matches: string[];
   /** CSS selector list; a match means results have started to render (may cover several modes). */
   readySelector: string;
+  /** A captcha or other verification the user has to solve. Use `:not(*)` when none is known. */
   blockedSelector: string;
   isBlockedUrl?(url: string): boolean;
+  /** A login wall: the engine only works in a browser signed in to the site. Checked before the captcha selector. */
+  loginSelector?: string;
+  isLoginUrl?(url: string): boolean;
   /** A gap between requests to this engine that is longer than the global `renderer.minIntervalMs`. */
   minIntervalMs?: number;
   extract(doc: ParentNode, pageUrl: string, mode: SearchMode): Omit<SearchHit, 'source'>[];
@@ -310,7 +317,7 @@ export interface BrowserEngine {
 
 export type PipelineEvent =
   | { type: 'source_start'; source: SourceId }
-  | { type: 'source_blocked'; source: SourceId; message: string }
+  | { type: 'source_blocked'; source: SourceId; message: string; reason: BlockReason }
   | { type: 'source_done'; source: SourceId; count: number; ms: number }
   | { type: 'source_error'; source: SourceId; error: string; ms: number }
   | { type: 'late_results'; source: SourceId; results: FusedResult[] }
@@ -338,7 +345,7 @@ export interface PipelineResult {
   summary?: string;
   citations: Citation[];
   /** `blocked`: waiting on a captcha; `late`: still running past the soft deadline. Both merge in later. */
-  sourceStats: { source: SourceId; count: number; ms: number; error?: string; status?: 'blocked' | 'late' }[];
+  sourceStats: { source: SourceId; count: number; ms: number; error?: string; status?: 'blocked' | 'late'; /** Set with `status: 'blocked'`. */ blockedReason?: BlockReason }[];
 }
 
 export interface RunOptions {

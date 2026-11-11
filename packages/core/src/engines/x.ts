@@ -26,11 +26,14 @@ export const x: BrowserEngine = {
   label: 'X',
   modes: ['x'],
   buildUrl: (query) => `https://x.com/search?q=${encodeURIComponent(query)}&src=typed_query`,
-  matches: ['*://x.com/search*', '*://x.com/i/jf/onboarding*', '*://x.com/i/flow/login*', '*://x.com/login*'],
+  matches: ['*://x.com/search*', '*://x.com/i/jf/onboarding*', '*://x.com/i/flow/login*', '*://x.com/login*', '*://x.com/account/access*'],
   readySelector: 'article[data-testid="tweet"]',
-  blockedSelector: '[data-testid="loginButton"], [data-testid="signupButton"]',
+  loginSelector: '[data-testid="loginButton"], [data-testid="signupButton"]',
   // Seen when signed out: the search redirects to /i/jf/onboarding/web.
-  isBlockedUrl: (url) => /^\/(?:i\/jf\/onboarding|i\/flow\/login|login)(?:\/|$)/.test(new URL(url).pathname),
+  isLoginUrl: (url) => /^\/(?:i\/jf\/onboarding|i\/flow\/login|login)(?:\/|$)/.test(new URL(url).pathname),
+  // The challenge page X shows when it wants proof of a human; the path is from memory and was never captured.
+  blockedSelector: ':not(*)',
+  isBlockedUrl: (url) => /^\/account\/access(?:\/|$)/.test(new URL(url).pathname),
   // X polices automated use of an account closely, so it gets a longer gap than the other engines.
   minIntervalMs: 10_000,
   extract(doc, pageUrl) {

@@ -1,6 +1,6 @@
 import type { FusedResult, PipelineEvent, PipelineResult } from '@kiwi-search/core';
 import { describe, expect, it } from 'vitest';
-import { emptyState, lateSourcesAfterDone, reduce, type SearchState } from '../lib/searchState';
+import { emptyState, firstBlocked, lateSourcesAfterDone, reduce, type SearchState } from '../lib/searchState';
 
 const result = (title: string, extra: Partial<FusedResult> = {}): FusedResult => ({
   key: title,
@@ -35,16 +35,29 @@ describe('search state reducer', () => {
   });
 
   it('tracks captcha-blocked sources until their results arrive, without keeping them as running', () => {
-    let state = run([{ type: 'source_start', source: 'google' }, { type: 'source_blocked', source: 'google', message: 'captcha' }]);
+    let state = run([{ type: 'source_start', source: 'google' }, { type: 'source_blocked', source: 'google', message: 'captcha', reason: 'captcha' }]);
     expect(state.blocked).toEqual(['google']);
+    expect(state.blockedBy).toEqual({ google: 'captcha' });
     expect(state.running).toEqual([]);
     state = run([{ type: 'late_results', source: 'google', results: [result('late')] }], state);
     expect(state.blocked).toEqual([]);
+    expect(state.blockedBy).toEqual({});
     expect(state.results.map((r) => r.title)).toEqual(['late']);
   });
 
+  it('keeps a login wall apart from a captcha, one action each', () => {
+    const state = run([
+      { type: 'source_blocked', source: 'zhihu', message: '登录', reason: 'login' },
+      { type: 'source_blocked', source: 'google', message: '验证', reason: 'captcha' },
+      { type: 'source_blocked', source: 'x', message: '登录', reason: 'login' },
+    ]);
+    expect(firstBlocked(state, 'login')).toBe('zhihu');
+    expect(firstBlocked(state, 'captcha')).toBe('google');
+    expect(firstBlocked(emptyState('q', 'web'), 'login')).toBeUndefined();
+  });
+
   it('clears a blocked source that fails', () => {
-    const state = run([{ type: 'source_blocked', source: 'bing', message: 'x' }, { type: 'source_error', source: 'bing', error: 'timeout', ms: 1 }]);
+    const state = run([{ type: 'source_blocked', source: 'bing', message: 'x', reason: 'captcha' }, { type: 'source_error', source: 'bing', error: 'timeout', ms: 1 }]);
     expect(state.blocked).toEqual([]);
   });
 
