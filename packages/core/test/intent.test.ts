@@ -113,8 +113,8 @@ describe('sourcesForRoutes', () => {
     const config = structuredClone(DEFAULT_CONFIG);
     expect(sourcesForRoutes(config, true, ['zhihu'])).toEqual(['zhihu']);
     expect(sourcesForRoutes(config, true, ['xiaohongshu'])).toEqual(['rednote']);
-    expect(sourcesForRoutes(config, true, ['academic']).sort()).toEqual(['arxiv', 'crossref', 'openalex', 'scholar']);
-    expect(sourcesForRoutes(config, false, ['academic']).sort()).toEqual(['arxiv', 'crossref', 'openalex']);
+    expect(sourcesForRoutes(config, true, ['academic']).sort()).toEqual(['arxiv', 'crossref', 'openalex', 'pubmed', 'scholar']);
+    expect(sourcesForRoutes(config, false, ['academic']).sort()).toEqual(['arxiv', 'crossref', 'openalex', 'pubmed']);
     expect(sourcesForRoutes(config, true, ['wechat'])).toEqual(['weixin']);
     expect(sourcesForRoutes(config, false, ['zhihu', 'xiaohongshu', 'wechat'])).toEqual([]);
     config.sources.xiaohongshu = { enabled: true };

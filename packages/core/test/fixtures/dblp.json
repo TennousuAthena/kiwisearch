@@ -1,0 +1,93 @@
+{
+  "_note": "HAND-WRITTEN, not a captured response: dblp.org answered every request from the capturing machine with an Anubis bot check (see dblp-challenge.html, which IS real), so no real JSON could be had. The shape follows https://dblp.org/faq/13501473.html (a single author is a bare object, not an array; hits.@total etc. are strings; the fields @pid, @score, @id, time and completions are left out because the parser does not read them). The bibliographic facts are from memory.",
+  "result": {
+    "query": "graph neural network",
+    "status": { "@code": "200", "text": "OK" },
+    "hits": {
+      "@total": "4",
+      "@computed": "4",
+      "@sent": "4",
+      "@first": "0",
+      "hit": [
+        {
+          "info": {
+            "authors": { "author": [{ "text": "Thomas N. Kipf" }, { "text": "Max Welling" }] },
+            "title": "Semi-Supervised Classification with Graph Convolutional Networks.",
+            "venue": "ICLR (Poster)",
+            "year": "2017",
+            "type": "Conference and Workshop Papers",
+            "access": "open",
+            "key": "conf/iclr/KipfW17",
+            "ee": "https://openreview.net/forum?id=SJU4ayYgl",
+            "url": "https://dblp.org/rec/conf/iclr/KipfW17"
+          }
+        },
+        {
+          "info": {
+            "authors": {
+              "author": [
+                { "text": "Zonghan Wu" },
+                { "text": "Shirui Pan" },
+                { "text": "Fengwen Chen" },
+                { "text": "Guodong Long" },
+                { "text": "Chengqi Zhang" },
+                { "text": "Philip S. Yu" }
+              ]
+            },
+            "title": "A Comprehensive Survey on Graph Neural Networks.",
+            "venue": "IEEE Trans. Neural Networks Learn. Syst.",
+            "volume": "32",
+            "number": "1",
+            "pages": "4-24",
+            "year": "2021",
+            "type": "Journal Articles",
+            "access": "closed",
+            "key": "journals/tnn/WuPCLZY21",
+            "doi": "10.1109/TNNLS.2020.2978386",
+            "ee": "https://doi.org/10.1109/TNNLS.2020.2978386",
+            "url": "https://dblp.org/rec/journals/tnn/WuPCLZY21"
+          }
+        },
+        {
+          "info": {
+            "authors": { "author": { "text": "Jürgen Schmidhuber" } },
+            "title": "Deep learning in neural networks: An overview.",
+            "venue": "Neural Networks",
+            "volume": "61",
+            "pages": "85-117",
+            "year": "2015",
+            "type": "Journal Articles",
+            "access": "closed",
+            "key": "journals/nn/Schmidhuber15",
+            "doi": "10.1016/J.NEUNET.2014.09.003",
+            "ee": "https://doi.org/10.1016/j.neunet.2014.09.003",
+            "url": "https://dblp.org/rec/journals/nn/Schmidhuber15"
+          }
+        },
+        {
+          "info": {
+            "authors": {
+              "author": [
+                { "text": "Jie Zhou" },
+                { "text": "Ganqu Cui" },
+                { "text": "Zhengyan Zhang" },
+                { "text": "Cheng Yang" },
+                { "text": "Zhiyuan Liu" },
+                { "text": "Maosong Sun" }
+              ]
+            },
+            "title": "Graph Neural Networks: A Review of Methods and Applications.",
+            "venue": "CoRR",
+            "volume": "abs/1812.08434",
+            "year": "2018",
+            "type": "Informal and Other Publications",
+            "access": "open",
+            "key": "journals/corr/abs-1812-08434",
+            "ee": "https://arxiv.org/abs/1812.08434",
+            "url": "https://dblp.org/rec/journals/corr/abs-1812-08434"
+          }
+        }
+      ]
+    }
+  }
+}

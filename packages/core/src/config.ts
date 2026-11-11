@@ -22,6 +22,10 @@ export const DEFAULT_CONFIG: FusionConfig = {
     arxiv: { enabled: true },
     crossref: { enabled: true },
     openverse: { enabled: true },
+    // PubMed is open and needs no key. Europe PMC and DBLP overlap what is already on, so they are opt-in.
+    pubmed: { enabled: true },
+    europepmc: { enabled: false },
+    dblp: { enabled: false },
     youtube: { enabled: true },
     bilibili: { enabled: true },
     zhihu: { enabled: true },
