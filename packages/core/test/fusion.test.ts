@@ -20,6 +20,16 @@ describe('normalizeUrl', () => {
     expect(normalizeUrl('https://arxiv.org/pdf/2401.01234.pdf')).toBe('arxiv:2401.01234');
     expect(normalizeUrl('https://doi.org/10.1145/ABC')).toBe('doi:10.1145/abc');
   });
+  it('shares a key between doi.org and publisher pages that embed the DOI', () => {
+    const doi = normalizeUrl('https://doi.org/10.1007/s11263-015-0816-y');
+    expect(normalizeUrl('https://link.springer.com/article/10.1007/s11263-015-0816-y')).toBe(doi);
+    expect(normalizeUrl('https://onlinelibrary.wiley.com/doi/full/10.1002/ABC.123/pdf')).toBe('doi:10.1002/abc.123');
+    expect(normalizeUrl('https://dl.acm.org/doi/10.1145/3292500.3330701?utm_source=x')).toBe('doi:10.1145/3292500.3330701');
+    expect(normalizeUrl('https://example.com/blog/post')).toBe('example.com/blog/post');
+  });
+  it('keeps old-style arXiv ids intact', () => {
+    expect(normalizeUrl('https://arxiv.org/abs/hep-th/9901001v3')).toBe('arxiv:hep-th/9901001');
+  });
   it('drops Bing msockid parameters regardless of case', () => {
     const bare = 'https://www.mongodb.com/resources/basics/reciprocal-rank-fusion';
     expect(normalizeUrl(`${bare}?msockid=095abedf12345678`)).toBe(normalizeUrl(bare));
@@ -76,6 +86,57 @@ describe('fuse (RRF)', () => {
     const other = hit('bing', 'https://www.mongodb.com/results', 1);
     other.title = wrapper.title;
     expect(fuse([[wrapper], [other]])).toHaveLength(2);
+  });
+});
+
+describe('paper de-duplication', () => {
+  const paper = (source: SearchHit['source'], url: string, rank: number, title: string, year?: number): SearchHit => ({
+    ...hit(source, url, rank),
+    title,
+    meta: { authors: ['A. Author'], year },
+  });
+  const title = 'Attention Is All You Need: Transformers for Sequence Modeling';
+
+  it('merges the same paper from different URLs when the title and year agree', () => {
+    const fused = fuse([
+      [paper('openalex', 'https://doi.org/10.1000/xyz', 1, title, 2017)],
+      [paper('scholar', 'https://publisher.example/articles/12345', 2, title.toUpperCase() + '.', 2017)],
+    ]);
+    expect(fused).toHaveLength(1);
+    expect(fused[0].sources.map((source) => source.source).sort()).toEqual(['openalex', 'scholar']);
+  });
+
+  it('keeps papers apart when the years differ or the title is short', () => {
+    expect(
+      fuse([[paper('openalex', 'https://a.example/1', 1, title, 2017)], [paper('scholar', 'https://b.example/2', 1, title, 2021)]]),
+    ).toHaveLength(2);
+    expect(
+      fuse([[paper('openalex', 'https://a.example/1', 1, 'Introduction', 2017)], [paper('scholar', 'https://b.example/2', 1, 'Introduction', 2017)]]),
+    ).toHaveLength(2);
+  });
+
+  it('does not merge plain web pages that happen to share a long title', () => {
+    expect(
+      fuse([[hit('google', 'https://a.example/1', 1)], [hit('bing', 'https://b.example/2', 1)]].map((list) =>
+        list.map((item) => ({ ...item, title: title })),
+      )),
+    ).toHaveLength(2);
+  });
+
+  it('takes the larger citation count and fills missing metadata from the twin', () => {
+    const left = paper('openalex', 'https://doi.org/10.1000/xyz', 1, title, 2017);
+    left.meta = { ...left.meta, citations: 10, venue: undefined };
+    const right = paper('scholar', 'https://publisher.example/a', 1, title, 2017);
+    right.meta = { ...right.meta, citations: 90, venue: 'NeurIPS' };
+    const [merged] = fuse([[left], [right]]);
+    expect(merged.meta).toMatchObject({ citations: 90, venue: 'NeurIPS' });
+  });
+
+  it('folds a late paper into the existing result instead of appending it', () => {
+    const initial = fuse([[paper('openalex', 'https://doi.org/10.1000/xyz', 1, title, 2017)]]);
+    const merged = mergeLateHits(initial, [paper('scholar', 'https://publisher.example/a', 1, title, 2017)]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].sources.map((source) => source.source)).toEqual(['openalex', 'scholar']);
   });
 });
 

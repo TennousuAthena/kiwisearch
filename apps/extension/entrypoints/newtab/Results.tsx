@@ -1,0 +1,292 @@
+import type { FusedResult, SearchMode } from '@kiwi-search/core';
+import { useState } from 'react';
+import { ChevronDownIcon } from '@/lib/icons';
+import { breadcrumb, clip, compactCount, hiddenLabel, iconHost, siteLabel } from '@/lib/results';
+import { Favicon } from './Favicon';
+
+interface ItemProps {
+  result: FusedResult;
+  highlighted?: boolean;
+  /** Why this result was filtered out, when it is shown in the hidden section. */
+  note?: string;
+}
+
+function WebResult({ result, highlighted, note }: ItemProps) {
+  const date = result.publishedAt?.slice(0, 10);
+  return (
+    <article className={highlighted ? 'result hl' : 'result'}>
+      <div className="site">
+        <Favicon host={iconHost(result)} label={siteLabel(result)} />
+        <div className="site-text">
+          <span className="site-name">{siteLabel(result)}</span>
+          <cite>{breadcrumb(result)}</cite>
+        </div>
+      </div>
+      <h3 className="result-title">
+        <a href={result.url} target="_blank" rel="noreferrer">
+          {result.title}
+        </a>
+      </h3>
+      {(result.snippet || date) && (
+        <p className="snippet">
+          {date && <span className="date">{date} — </span>}
+          {result.snippet}
+        </p>
+      )}
+      {note && <p className="result-note">{note}</p>}
+    </article>
+  );
+}
+
+function PaperResult({ result, highlighted, note }: ItemProps) {
+  const { authors, venue, year, citations, pdfUrl, doi } = result.meta;
+  const byline = [authors?.length ? authors.slice(0, 5).join(', ') + (authors.length > 5 ? ' 等' : '') : '', venue, year]
+    .filter(Boolean)
+    .join(' · ');
+  // Source snippets repeat the byline in front of the abstract; the abstract alone reads better here.
+  const abstract = clip(result.content ?? result.snippet, 320);
+  return (
+    <article className={highlighted ? 'result paper hl' : 'result paper'}>
+      <h3 className="result-title">
+        <a href={result.url} target="_blank" rel="noreferrer">
+          {result.title}
+        </a>
+      </h3>
+      {byline && <p className="byline">{byline}</p>}
+      {abstract && <p className="snippet">{abstract}</p>}
+      <div className="paper-links">
+        {pdfUrl && (
+          <a href={pdfUrl} target="_blank" rel="noreferrer">
+            PDF
+          </a>
+        )}
+        {doi && (
+          <a href={`https://doi.org/${doi}`} target="_blank" rel="noreferrer">
+            DOI
+          </a>
+        )}
+        {citations !== undefined && <span>被引 {citations.toLocaleString()}</span>}
+      </div>
+      {note && <p className="result-note">{note}</p>}
+    </article>
+  );
+}
+
+function VideoResult({ result, highlighted, note }: ItemProps) {
+  const { video } = result;
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const byline = [siteLabel(result), video?.channel, video?.views, video?.published].filter(Boolean).join(' · ');
+  return (
+    <article className={highlighted ? 'result video hl' : 'result video'}>
+      <a className="video-thumb" href={result.url} target="_blank" rel="noreferrer" tabIndex={-1} aria-hidden="true">
+        {video?.thumbnail && !thumbnailFailed && (
+          <img src={video.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setThumbnailFailed(true)} />
+        )}
+        {video?.duration && <span className="video-duration">{video.duration}</span>}
+      </a>
+      <div className="video-body">
+        <h3 className="result-title">
+          <a href={result.url} target="_blank" rel="noreferrer">
+            {result.title}
+          </a>
+        </h3>
+        {byline && <p className="byline">{byline}</p>}
+        {result.snippet && <p className="snippet">{clip(result.snippet, 180)}</p>}
+        {note && <p className="result-note">{note}</p>}
+      </div>
+    </article>
+  );
+}
+
+/** What kind of Zhihu card this is, from its link. */
+function zhihuKind(url: string): string {
+  if (url.includes('/answer/')) return '回答';
+  return url.includes('zhuanlan.zhihu.com') ? '文章' : '问题';
+}
+
+function ZhihuResult({ result, highlighted, note }: ItemProps) {
+  const { author, votes, comments, age, thumbnail } = result.meta;
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const byline = [
+    author,
+    votes !== undefined ? `${votes.toLocaleString()} 赞同` : '',
+    comments !== undefined ? `${comments.toLocaleString()} 评论` : '',
+    age,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <article className={highlighted ? 'result zhihu hl' : 'result zhihu'}>
+      <div className="zhihu-body">
+        <h3 className="result-title">
+          <a href={result.url} target="_blank" rel="noreferrer">
+            {result.title}
+          </a>
+        </h3>
+        <p className="byline">
+          <span className="kind">{zhihuKind(result.url)}</span>
+          {byline}
+        </p>
+        {result.snippet && <p className="snippet">{clip(result.snippet, 240)}</p>}
+        {note && <p className="result-note">{note}</p>}
+      </div>
+      {thumbnail && !thumbnailFailed && (
+        <a className="zhihu-cover" href={result.url} target="_blank" rel="noreferrer" tabIndex={-1} aria-hidden="true">
+          <img src={thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setThumbnailFailed(true)} />
+        </a>
+      )}
+    </article>
+  );
+}
+
+/** A WeChat official-account article (found through Sogou): text first, the article's thumbnail on the right. */
+function WechatResult({ result, highlighted, note }: ItemProps) {
+  const { author, thumbnail } = result.meta;
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const byline = [author, result.publishedAt?.slice(0, 10)].filter(Boolean).join(' · ');
+  return (
+    <article className={highlighted ? 'result zhihu wechat hl' : 'result zhihu wechat'}>
+      <div className="zhihu-body">
+        <h3 className="result-title">
+          <a href={result.url} target="_blank" rel="noreferrer">
+            {result.title}
+          </a>
+        </h3>
+        <p className="byline">
+          <span className="kind">公众号</span>
+          {byline}
+        </p>
+        {result.snippet && <p className="snippet">{clip(result.snippet, 240)}</p>}
+        {note && <p className="result-note">{note}</p>}
+      </div>
+      {thumbnail && !thumbnailFailed && (
+        <a className="zhihu-cover" href={result.url} target="_blank" rel="noreferrer" tabIndex={-1} aria-hidden="true">
+          <img src={thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setThumbnailFailed(true)} />
+        </a>
+      )}
+    </article>
+  );
+}
+
+/** A tweet: who and when, the text, then its counts; the media thumbnail sits on the right. */
+function XResult({ result, highlighted, note }: ItemProps) {
+  const { comments, reposts, votes, views, thumbnail } = result.meta;
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const stats = [
+    comments !== undefined ? `${compactCount(comments)} 回复` : '',
+    reposts !== undefined ? `${compactCount(reposts)} 转发` : '',
+    votes !== undefined ? `${compactCount(votes)} 喜欢` : '',
+    views !== undefined ? `${compactCount(views)} 浏览` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <article className={highlighted ? 'result zhihu tweet hl' : 'result zhihu tweet'}>
+      <div className="zhihu-body">
+        <h3 className="result-title">
+          <a href={result.url} target="_blank" rel="noreferrer">
+            {result.title}
+          </a>
+        </h3>
+        {result.publishedAt && <p className="byline">{result.publishedAt.slice(0, 10)}</p>}
+        {result.snippet && <p className="snippet tweet-text">{result.snippet}</p>}
+        {stats && <p className="byline">{stats}</p>}
+        {note && <p className="result-note">{note}</p>}
+      </div>
+      {thumbnail && !thumbnailFailed && (
+        <a className="zhihu-cover" href={result.url} target="_blank" rel="noreferrer" tabIndex={-1} aria-hidden="true">
+          <img src={thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setThumbnailFailed(true)} />
+        </a>
+      )}
+    </article>
+  );
+}
+
+/** A Xiaohongshu note inside the general list: cover on the left, title and author line on the right. */
+function NoteRow({ result, highlighted, note }: ItemProps) {
+  const info = result.note;
+  const [coverFailed, setCoverFailed] = useState(false);
+  const byline = ['小红书', info?.author, info?.time, info?.likes ? `${info.likes} 赞` : ''].filter(Boolean).join(' · ');
+  return (
+    <article className={highlighted ? 'result video note-row hl' : 'result video note-row'}>
+      <a className="video-thumb" href={result.url} target="_blank" rel="noreferrer" tabIndex={-1} aria-hidden="true">
+        {info?.cover && !coverFailed && (
+          <img src={info.cover} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setCoverFailed(true)} />
+        )}
+      </a>
+      <div className="video-body">
+        <h3 className="result-title">
+          <a href={result.url} target="_blank" rel="noreferrer">
+            {result.title}
+          </a>
+        </h3>
+        <p className="byline">{byline}</p>
+        {note && <p className="result-note">{note}</p>}
+      </div>
+    </article>
+  );
+}
+
+/**
+ * Which card a result gets. In the general list, results the decision model pulled in from other platforms
+ * (a Zhihu answer, a note, a paper) keep the look they have in their own tab.
+ */
+const itemFor = (mode: SearchMode, result: FusedResult) => {
+  if (mode === 'academic') return PaperResult;
+  if (mode === 'video') return VideoResult;
+  if (mode === 'zhihu') return ZhihuResult;
+  if (mode === 'wechat') return WechatResult;
+  if (mode === 'x') return XResult;
+  if (result.note) return NoteRow;
+  if (result.meta.siteName === '知乎') return ZhihuResult;
+  if (result.meta.siteName === '微信公众号') return WechatResult;
+  if (result.meta.authors?.length && result.meta.year !== undefined) return PaperResult;
+  return WebResult;
+};
+
+function Card({ mode, ...props }: ItemProps & { mode: SearchMode }) {
+  const Item = itemFor(mode, props.result);
+  return <Item {...props} />;
+}
+
+export function ResultList({
+  results,
+  mode,
+  hoverCite,
+  citedUrls,
+}: {
+  results: FusedResult[];
+  mode: SearchMode;
+  hoverCite: number | null;
+  citedUrls: Map<string, number>;
+}) {
+  return (
+    <div className="result-list">
+      {results.map((result) => {
+        const n = citedUrls.get(result.url);
+        return <Card key={result.key} mode={mode} result={result} highlighted={n !== undefined && n === hoverCite} />;
+      })}
+    </div>
+  );
+}
+
+/** Results the filter hid, folded away but one click from view so a wrong call is easy to catch. */
+export function HiddenResults({ results, mode }: { results: FusedResult[]; mode: SearchMode }) {
+  const [open, setOpen] = useState(false);
+  if (!results.length) return null;
+  return (
+    <section className="hidden-results" aria-label="已隐藏的结果">
+      <button type="button" className="disclosure" aria-expanded={open} onClick={() => setOpen(!open)}>
+        已隐藏 {results.length} 条结果 · {open ? '收起' : '显示'}
+        <ChevronDownIcon className={open ? 'flip' : ''} />
+      </button>
+      {open && (
+        <div className="result-list muted">
+          {results.map((result) => (
+            <Card key={result.key} mode={mode} result={result} note={result.hidden ? hiddenLabel(result.hidden) : undefined} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}

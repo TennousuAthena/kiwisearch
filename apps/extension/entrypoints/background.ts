@@ -1,9 +1,13 @@
-import { runSearch, type Env, type SourceId } from '@kiwi-search/core';
+import { createSourceCache, runSearch, type Env, type SourceId } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
 import { ensureBridge } from '@/lib/bridge';
 import type { PortMessage, SearchRequest } from '@/lib/messages';
 import { loadConfig } from '@/lib/settings';
+import { handleFaviconMessage } from '@/lib/faviconService';
 import { collectIdleWorkers, forgetWorkerTab, handleWorkerMessage, runBrowserEngine } from '@/lib/tabRenderer';
+
+/** The new-tab page shows results once the fast sources are in; slower ones merge in afterwards. */
+const UI_SOFT_DEADLINE_MS = 6000;
 
 export default defineBackground(() => {
   const searchRedirectRuleId = 1001;
@@ -34,14 +38,17 @@ export default defineBackground(() => {
       });
   };
 
+  // Shared by the new-tab page and the MCP bridge, so repeat queries skip the rate-limited engines.
+  const cache = createSourceCache();
   const makeEnv = (): Env => ({
     fetch: (input, init) => fetch(input, init),
     runBrowserEngine,
+    cache,
   });
 
-  browser.runtime.onInstalled.addListener(() => {
+  browser.runtime.onInstalled.addListener(({ reason }) => {
     registerSearchRedirectRule();
-    browser.runtime.openOptionsPage?.().catch(() => {});
+    if (reason === 'install') browser.runtime.openOptionsPage?.().catch(() => {});
   });
   browser.runtime.onStartup.addListener(registerSearchRedirectRule);
   registerSearchRedirectRule();
@@ -61,7 +68,8 @@ export default defineBackground(() => {
 
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (typeof (msg as { type?: string })?.type !== 'string' || !(msg as { type: string }).type.startsWith('kiwi:')) return false;
-    void handleWorkerMessage(msg, sender).then(sendResponse).catch((error) => sendResponse({ error: String(error) }));
+    const reply = (msg as { type: string }).type === 'kiwi:favicon' ? handleFaviconMessage(msg) : handleWorkerMessage(msg, sender);
+    void reply.then(sendResponse).catch((error) => sendResponse({ error: String(error) }));
     return true;
   });
   browser.tabs.onRemoved.addListener(forgetWorkerTab);
@@ -95,11 +103,17 @@ export default defineBackground(() => {
       try {
         const config = await loadConfig();
         await runSearch(req.query, config, makeEnv(), {
+          mode: req.mode,
           sources: req.sources,
           summarize: req.summarize,
+          softDeadlineMs: UI_SOFT_DEADLINE_MS,
           signal: current.signal,
           onEvent: (event) => {
             if (event.type === 'source_blocked') deferredSources.add(event.source);
+            // Sources still running at the soft deadline report after `done`; keep the port open for them.
+            if (event.type === 'done') {
+              for (const stat of event.result.sourceStats) if (stat.status === 'late') deferredSources.add(stat.source);
+            }
             if (event.type === 'late_results' || event.type === 'source_error') deferredSources.delete(event.source);
             maybeResolveDeferred();
             if (!current.signal.aborted) post({ type: 'event', event });

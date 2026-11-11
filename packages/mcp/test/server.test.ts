@@ -59,4 +59,45 @@ describe('MCP server smoke test', () => {
     await client.close();
     await server.close();
   });
+
+  it('keeps filtered results out of the list but reports them', async () => {
+    hub = new BridgeHub('smoke-token', { port: 0, extensionId: 'smoke-extension' });
+    await hub.start();
+    extension = new WebSocket(`ws://127.0.0.1:${hub.port}/extension`, { origin: 'chrome-extension://smoke-extension' });
+    await new Promise<void>((resolve) => extension!.once('open', resolve));
+    const ready = new Promise<void>((resolve) => extension!.once('message', () => resolve()));
+    extension.send(JSON.stringify({ type: 'hello', token: 'smoke-token' }));
+    await ready;
+    extension.on('message', (data) => {
+      const request = JSON.parse(data.toString()) as { id: string };
+      extension?.send(JSON.stringify({
+        id: request.id,
+        type: 'result',
+        result: {
+          sourceStats: [],
+          results: [
+            { url: 'https://good.example/', title: 'Good', snippet: 's', sources: [] },
+            { url: 'https://farm.example/', title: 'Farm', snippet: 's', sources: [], hidden: { reason: 'junk' } },
+          ],
+        },
+      }));
+    });
+    const server = createMcpServer(hub);
+    const client = new Client({ name: 'smoke-client', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const result = await client.callTool({ name: 'search', arguments: { query: 'fusion' } });
+    const text = (result.content as { text: string }[])[0].text;
+    expect(text).toContain('Good');
+    expect(text).not.toContain('Farm');
+    expect(text).toContain('1 条结果被过滤');
+    expect(text).not.toContain('图片：');
+    expect(result.structuredContent).toMatchObject({
+      results: [{ title: 'Good', n: 1 }],
+      hidden: [{ title: 'Farm', url: 'https://farm.example/', reason: 'junk' }],
+    });
+    await client.close();
+    await server.close();
+  });
 });

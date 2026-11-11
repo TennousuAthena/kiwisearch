@@ -1,0 +1,26 @@
+<!-- HAND-WRITTEN, not captured from a live page (Bing refuses non-browser clients).
+     It follows the tile structure the parser assumes: a.iusc with a JSON "m" attribute
+     (murl = image file, purl = page, turl = thumbnail, t = title with U+E000/U+E001 highlight marks).
+     Re-capture from a real Chrome session when possible and update the parser if the markup differs. -->
+<html><body>
+<ul class="dgControl_list">
+  <li data-idx="0" class="imgpt"><div class="img_cont hoff">
+    <a class="iusc" style="height:180px;width:240px"
+       m='{"cid":"a1","purl":"https://photos.example.com/sunset","murl":"https://cdn.example.com/img/sunset.jpg","turl":"https://tse1.mm.bing.net/th?id=OIP.aaa&amp;pid=Api","md5":"x","t":"Orange sunset over the sea"}'
+       mad='{"maw":"240","mah":"180"}' href="/images/search?view=detailV2&amp;id=1">
+      <div class="img_cont hoff"><img class="mimg" width="240" height="180" src="https://tse1.mm.bing.net/th?id=OIP.aaa&amp;pid=Api" alt="Image result for orange sunset"></div>
+    </a></div></li>
+  <li data-idx="1" class="imgpt"><div class="img_cont hoff">
+    <a class="iusc" style="height:180px;width:320px"
+       m='{"cid":"a2","purl":"https://blog.example.org/post/42","murl":"//static.example.org/42.png","turl":"https://tse2.mm.bing.net/th?id=OIP.bbb&amp;pid=Api","t":"Sunset &amp; sea"}'
+       href="/images/search?view=detailV2&amp;id=2">
+      <div class="img_cont hoff"><img class="mimg" width="320" height="180" data-src="https://tse2.mm.bing.net/th?id=OIP.bbb" alt="Image result for orange sunset"></div>
+    </a></div></li>
+  <li data-idx="2" class="imgpt"><div class="img_cont hoff">
+    <a class="iusc" m='{"purl":"https://nofile.example.com/","t":"missing file url"}' href="#"><img class="mimg" src="https://tse3.mm.bing.net/th?id=OIP.ccc"></a></div></li>
+  <li data-idx="3" class="imgpt"><div class="img_cont hoff">
+    <a class="iusc" m='this is not json' href="#"><img class="mimg" src="https://tse4.mm.bing.net/th?id=OIP.ddd"></a></div></li>
+  <li data-idx="4" class="imgpt"><div class="img_cont hoff">
+    <a class="iusc" m='{"cid":"a5","purl":"https://photos.example.com/sunset-copy","murl":"https://cdn.example.com/img/sunset.jpg","turl":"https://tse1.mm.bing.net/th?id=OIP.aaa","t":"Duplicate file"}' href="#"><img class="mimg" width="240" height="180" src="https://tse1.mm.bing.net/th?id=OIP.aaa"></a></div></li>
+</ul>
+</body></html>

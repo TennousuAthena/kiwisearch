@@ -9,7 +9,7 @@ interface BraveResponse {
 export const brave: SearchSource = {
   id: 'brave',
   label: 'Brave',
-  kind: 'web',
+  modes: ['web'],
   requiresKey: true,
   async search(query, { env, settings, count, signal }) {
     const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${Math.min(count, 20)}&extra_snippets=true`;

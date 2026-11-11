@@ -4,7 +4,7 @@ import { absoluteHttpUrl, cleanText } from './shared';
 export const scholar: BrowserEngine = {
   id: 'scholar',
   label: 'Google Scholar',
-  kind: 'academic',
+  modes: ['academic'],
   buildUrl: (query, count) => `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}&num=${Math.min(count, 20)}`,
   matches: ['*://scholar.google.com/scholar*', '*://scholar.google.com/sorry/*'],
   readySelector: '.gs_r.gs_or.gs_scl',
@@ -25,6 +25,7 @@ export const scholar: BrowserEngine = {
       const venue = byline.split(/\s+[–-]\s+/)[1]?.replace(/,\s*\d{4}.*$/, '').trim();
       const year = byline.match(/\b(19|20)\d{2}\b/)?.[0];
       const citations = citationsText.match(/Cited by\s+([\d,]+)/i)?.[1]?.replace(/,/g, '');
+      const pdfUrl = absoluteHttpUrl(item.querySelector('.gs_or_ggsm a')?.getAttribute('href'), pageUrl) ?? undefined;
       hits.push({
         url,
         title,
@@ -35,6 +36,7 @@ export const scholar: BrowserEngine = {
           ...(venue ? { venue } : {}),
           ...(year ? { year: Number(year) } : {}),
           ...(citations ? { citations: Number(citations) } : {}),
+          ...(pdfUrl ? { pdfUrl } : {}),
         },
       });
     }

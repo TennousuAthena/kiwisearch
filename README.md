@@ -28,7 +28,7 @@ Chrome 不允许扩展自动更改默认搜索引擎，因此需要手动添加�
 
 也可以在扩展设置页使用复制按钮复制这些字段。不改默认也可以在地址栏输入 `k` 加空格快速使用 Kiwi。
 
-打开扩展的“设置”页配置来源和模型。Google、Bing、百度、DuckDuckGo、Google Scholar 等 A 类来源通过折叠的“Kiwi Search”标签组在浏览器中渲染；OpenAlex、Exa、DeepSeek Search、Brave Search 和 SearXNG 通过各自的官方 API 调用。需要 Key 的 API 来源可先启用，填入 Key 后才会参与搜索。
+打开扩展的“设置”页配置来源和模型。百度默认关闭（它的结果页混有翻译、推荐等不是搜索结果的卡片），在设置里勾选时会先弹窗确认。Google、Bing、DuckDuckGo、Google Scholar、YouTube、哔哩哔哩、知乎、小红书（国内站和 RedNote 国际站）、搜狗（含微信公众号搜索）、X（推特）等 A 类来源通过一个单独的、已最小化的窗口在浏览器中渲染（不占用你正在用的窗口）；OpenAlex、Exa、DeepSeek Search、Brave Search 和 SearXNG 通过各自的官方 API 调用。需要 Key 的 API 来源可先启用，填入 Key 后才会参与搜索。知乎和小红书用的是你自己浏览器里的登录状态，需要先登录；小红书的国内站和国际站账号各自独立，在设置里勾选你登录的那个。X 同样用你浏览器里的登录状态：只有你点开“X”标签时才会访问它，两次请求至少间隔 10 秒，不做结果过滤和摘要；X 对自动化使用管得很严，仍有让账号被限制的风险，建议用小号。因为工作窗口是最小化的，X 只会渲染首屏的几条推文，一次搜索通常得到 4–6 条。配置了 TypeSafe Key 后，搜索“全部”时会让决策模型判断要不要同时搜学术、知乎、小红书；没有 Key 或判定出错时只搜通用来源。
 
 OpenAlex 不填 Key 也可使用，但同一 IP 下免费额度约为每天 `$0.10`；免费注册 Key 可将额度提高到约 `$1/天`：[OpenAlex API 设置](https://openalex.org/settings/api)。
 
@@ -72,8 +72,8 @@ MCP 服务首次运行时，会在 `~/.kiwi-search/token` 以 `0600` 权限生�
 
 提供的工具：
 
-- `search(query, sources?, limit?)`：返回融合结果、摘要片段以及各来源排名。
-- `answer(query, sources?)`：返回带 `[n]` 引用的摘要。
+- `search(query, mode?, sources?, limit?)`：返回融合结果、摘要片段以及各来源排名。`mode` 取 `web`（默认）、`images`、`video`、`academic`、`zhihu`、`xiaohongshu`、`wechat`、`x`。
+- `answer(query, mode?, sources?)`：返回带 `[n]` 引用的摘要；`images`、`video`、`xiaohongshu` 和 `x` 模式没有可总结的文本，请用 `search`。
 - `list_sources()`：查看插件报告的来源可用状态。
 
 Ollama 默认不允许浏览器扩展跨源访问。使用时请启动 Ollama 并设置：
@@ -84,4 +84,4 @@ OLLAMA_ORIGINS="chrome-extension://*" ollama serve
 
 ## 合规说明
 
-Kiwi Search 只在用户自己的浏览器中执行，由用户本人或用户自己的 Agent 主动发起；不会自动破解验证码，遇到验证时会把对应页面切到前台交由用户完成；各来源分别排队并限速。搜索引擎服务条款通常禁止自动化查询，这些措施不代表搜索引擎授权。请自行承担使用风险，仅供个人使用，并遵守当地法律及各来源的服务条款。
+Kiwi Search 只在用户自己的浏览器中执行，由用户本人或用户自己的 Agent 主动发起；不会自动破解验证码，遇到验证时只在搜索页上提示，由你需要时再点“去验证”，不会自动弹出窗口；各来源分别排队并限速。搜索引擎服务条款通常禁止自动化查询，这些措施不代表搜索引擎授权。请自行承担使用风险，仅供个人使用，并遵守当地法律及各来源的服务条款。

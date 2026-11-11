@@ -4,6 +4,16 @@ import { isGoogleGotoUrl } from './engines/google';
 import type { Env, FusedResult, FusionConfig } from './types';
 
 const CONTENT_FETCH_DEADLINE_MS = 12000;
+/** Pages a plain fetch cannot use (a login wall, or Sogou's redirect interstitial), so the result's own excerpt is used. */
+const LOGIN_ONLY_HOST = /(^|\.)(zhihu|xiaohongshu|rednote|sogou)\.com$/;
+
+function isLoginOnly(url: string): boolean {
+  try {
+    return LOGIN_ONLY_HOST.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
 
 /** Fill in page text for results that don't already carry content. */
 export async function fetchContents(
@@ -30,7 +40,7 @@ export async function fetchContents(
     CONTENT_FETCH_DEADLINE_MS,
   );
   const tasks = results.map(async (r) => {
-    if (overall.signal.aborted || isGoogleGotoUrl(r.url)) return;
+    if (overall.signal.aborted || isGoogleGotoUrl(r.url) || isLoginOnly(r.url)) return;
     if (r.content && r.content.length > 400) {
       out.set(r.key, r.content.slice(0, maxCharsPerSource));
       return;

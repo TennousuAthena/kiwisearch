@@ -4,7 +4,7 @@ import { absoluteHttpUrl, cleanText } from './shared';
 export const yandex: BrowserEngine = {
   id: 'yandex',
   label: 'Yandex',
-  kind: 'web',
+  modes: ['web'],
   buildUrl: (query, count) => `https://yandex.com/search/?text=${encodeURIComponent(query)}&numdoc=${Math.min(count, 50)}`,
   matches: ['*://*.yandex.com/search*', '*://*.yandex.ru/search*', '*://*.yandex.com/showcaptcha*', '*://*.yandex.ru/showcaptcha*'],
   readySelector: 'li.serp-item',

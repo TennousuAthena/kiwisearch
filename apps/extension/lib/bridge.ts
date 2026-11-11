@@ -1,4 +1,4 @@
-import { runSearch, usableSources, type Env, type FusionConfig, type RunOptions, type SourceId } from '@kiwi-search/core';
+import { isSearchMode, runSearch, usableSources, type Env, type FusionConfig, type RunOptions, type SourceId } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
 import { loadBridge, loadConfig } from './settings';
 
@@ -10,7 +10,7 @@ interface BridgeRequest {
   id: string;
   type: 'search' | 'answer' | 'list_sources';
   query?: string;
-  options?: { sources?: SourceId[]; summarize?: boolean; limit?: number };
+  options?: { sources?: SourceId[]; summarize?: boolean; limit?: number; mode?: string };
 }
 
 let ws: WebSocket | null = null;
@@ -51,7 +51,7 @@ export async function ensureBridge(makeEnv: () => Env): Promise<void> {
 }
 
 function describeSources(config: FusionConfig) {
-  return usableSources(config, true).map(({ id, reason }) => ({ id, available: !reason, reason }));
+  return usableSources(config, true).map(({ id, reason, modes }) => ({ id, available: !reason, reason, modes }));
 }
 
 async function onMessage(sock: WebSocket, raw: string, makeEnv: () => Env) {
@@ -81,6 +81,7 @@ async function onMessage(sock: WebSocket, raw: string, makeEnv: () => Env) {
       throw new Error('MCP answer 需要 API 摘要提供方；请在 Kiwi Search 设置中选择 OpenAI 兼容 API。');
     }
     const opts: RunOptions = {
+      mode: isSearchMode(msg.options?.mode) ? msg.options.mode : undefined,
       sources: msg.options?.sources,
       summarize: msg.options?.summarize ?? msg.type === 'answer',
       limit: msg.options?.limit,

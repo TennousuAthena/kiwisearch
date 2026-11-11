@@ -18,7 +18,7 @@ interface DeepSeekSearchResponse {
 export const deepseek: SearchSource = {
   id: 'deepseek',
   label: 'DeepSeek',
-  kind: 'ai',
+  modes: ['web'],
   requiresKey: true,
   async search(query, { env, settings, count, signal }) {
     const data = await fetchJson<DeepSeekSearchResponse>(env.fetch, 'https://api.deepseek.com/v1/tools/search', {

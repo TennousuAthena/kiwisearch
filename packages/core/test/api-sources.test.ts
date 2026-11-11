@@ -5,6 +5,7 @@ import { exa } from '../src/sources/exa';
 import { openalex } from '../src/sources/openalex';
 import { searxng } from '../src/sources/searxng';
 import type { FetchLike, SearchSource } from '../src/types';
+import { sourceContext } from './helpers';
 
 function mockEnv(payload: unknown) {
   const calls: { url: string; init?: RequestInit }[] = [];
@@ -20,13 +21,7 @@ async function search(
   env: ReturnType<typeof mockEnv>['env'],
   settings: { enabled: boolean; apiKey?: string; baseUrl?: string },
 ) {
-  return source.search('fusion query', {
-    env,
-    settings,
-    count: 7,
-    signal: new AbortController().signal,
-    onBlocked: () => {},
-  });
+  return source.search('fusion query', sourceContext(env, settings));
 }
 
 describe('official API sources', () => {

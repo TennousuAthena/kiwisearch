@@ -9,8 +9,9 @@ interface SearxResponse {
 export const searxng: SearchSource = {
   id: 'searxng',
   label: 'SearXNG',
-  kind: 'web',
+  modes: ['web'],
   requiresKey: false,
+  requiresBaseUrl: true,
   async search(query, { env, settings, count, signal }) {
     if (!settings.baseUrl) throw new Error('SearXNG base URL not configured');
     const base = settings.baseUrl.replace(/\/+$/, '');

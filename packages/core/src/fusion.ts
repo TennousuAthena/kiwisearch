@@ -1,8 +1,10 @@
-import type { FusedResult, SearchHit, SourceId } from './types';
+import type { FusedResult, HitMeta, SearchHit, SourceId } from './types';
 import { isGoogleGotoUrl } from './engines/google';
 import { normalizeUrl } from './url';
 
 export const RRF_K = 60;
+
+type Weights = Partial<Record<SourceId, number>>;
 
 function normalizedHost(value: string): string {
   try {
@@ -39,20 +41,70 @@ function matchesWrapperPair(left: FusedResult, right: FusedResult): boolean {
   return !!host && !!title && normalizedHost(page.url) === host && titlesMatch(title, normalizedTitle(page.title));
 }
 
+/** Merge metadata with `primary` winning, ignoring keys that are explicitly undefined on either side. */
+function mergeMeta(primary: HitMeta, secondary: HitMeta): HitMeta {
+  const defined = (meta: HitMeta) => Object.fromEntries(Object.entries(meta).filter(([, value]) => value !== undefined));
+  return { ...defined(secondary), ...defined(primary) };
+}
+
+function definedOnly<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
+function isPaperLike(result: FusedResult): boolean {
+  return result.meta.year !== undefined || !!result.meta.authors?.length || !!result.meta.doi;
+}
+
+/** Whole-title key for papers: no site-suffix stripping, since subtitles often contain " - ". */
+function paperTitleKey(title: string): string {
+  return title.toLowerCase().replace(/[\p{P}\p{S}\s]/gu, '');
+}
+
+/**
+ * The same paper reached through different URLs (publisher page, arXiv, DOI, repository mirror):
+ * identical long title, compatible year, and both sides carrying academic metadata.
+ */
+function samePaper(left: FusedResult, right: FusedResult): boolean {
+  if (!isPaperLike(left) || !isPaperLike(right)) return false;
+  const key = paperTitleKey(left.title);
+  if (key.length < 20 || key !== paperTitleKey(right.title)) return false;
+  return left.meta.year === undefined || right.meta.year === undefined || left.meta.year === right.meta.year;
+}
+
+/** Fold `source` into `target`: union of source ranks, summed RRF, richest text and metadata. */
+function absorb(target: FusedResult, source: FusedResult, weights: Weights, k: number): void {
+  for (const entry of source.sources) {
+    if (target.sources.some((existing) => existing.source === entry.source)) continue;
+    target.sources.push({ ...entry });
+    target.rrfScore += (weights[entry.source] ?? 1) / (k + entry.rank);
+  }
+  target.host ??= source.host;
+  if (source.snippet.length > target.snippet.length) target.snippet = source.snippet;
+  if (!target.title && source.title) target.title = source.title;
+  if (source.content && (!target.content || source.content.length > target.content.length)) {
+    target.content = source.content;
+  }
+  target.publishedAt ??= source.publishedAt;
+  target.meta = mergeMeta(target.meta, source.meta);
+  if (source.image) target.image = target.image ? { ...source.image, ...definedOnly(target.image) } : source.image;
+  if (source.video) target.video = target.video ? { ...source.video, ...definedOnly(target.video) } : source.video;
+  if (source.note) target.note = target.note ? { ...source.note, ...definedOnly(target.note) } : source.note;
+  const citations = Math.max(target.meta.citations ?? 0, source.meta.citations ?? 0);
+  if (citations) target.meta.citations = citations;
+}
+
 /**
  * Merge per-source ranked lists with Reciprocal Rank Fusion:
  * score(d) = sum_s w_s / (k + rank_s(d)).
  */
-export function fuse(
-  lists: SearchHit[][],
-  weights: Partial<Record<SourceId, number>> = {},
-  k = RRF_K,
-): FusedResult[] {
+export function fuse(lists: SearchHit[][], weights: Weights = {}, k = RRF_K): FusedResult[] {
   const byKey = new Map<string, FusedResult>();
   for (const list of lists) {
     for (const hit of list) {
       if (!hit.url || !/^https?:/i.test(hit.url)) continue;
-      const key = normalizeUrl(hit.url);
+      if (hit.image && !/^https?:/i.test(hit.image.src)) continue;
+      // The same picture shows up under different pages, so images are identified by their file.
+      const key = hit.image ? `img:${normalizeUrl(hit.image.src)}` : normalizeUrl(hit.url);
       const w = weights[hit.source] ?? 1;
       const contribution = w / (k + hit.rank);
       const existing = byKey.get(key);
@@ -69,6 +121,9 @@ export function fuse(
           content: hit.content,
           publishedAt: hit.publishedAt,
           meta: { ...hit.meta },
+          ...(hit.image ? { image: hit.image } : {}),
+          ...(hit.video ? { video: hit.video } : {}),
+          ...(hit.note ? { note: hit.note } : {}),
         });
         continue;
       }
@@ -82,7 +137,10 @@ export function fuse(
         existing.content = hit.content;
       }
       existing.publishedAt ??= hit.publishedAt;
-      existing.meta = { ...hit.meta, ...existing.meta };
+      existing.meta = mergeMeta(existing.meta, hit.meta ?? {});
+      if (hit.image) existing.image = existing.image ? { ...hit.image, ...definedOnly(existing.image) } : hit.image;
+      if (hit.video) existing.video = existing.video ? { ...hit.video, ...definedOnly(existing.video) } : hit.video;
+      if (hit.note) existing.note = existing.note ? { ...hit.note, ...definedOnly(existing.note) } : hit.note;
     }
   }
   const values = [...byKey.values()];
@@ -90,33 +148,26 @@ export function fuse(
   const results = values.filter((result) => !isGoogleGotoUrl(result.url));
   for (const wrapper of wrappers) {
     const match = results.find((result) => matchesWrapperPair(wrapper, result));
-    if (!match) {
-      results.push(wrapper);
-      continue;
-    }
-    for (const source of wrapper.sources) {
-      if (match.sources.some((existing) => existing.source === source.source)) continue;
-      match.sources.push(source);
-      match.rrfScore += (weights[source.source] ?? 1) / (k + source.rank);
-    }
-    match.host ??= wrapper.host;
-    if (wrapper.snippet.length > match.snippet.length) match.snippet = wrapper.snippet;
-    if (wrapper.content && (!match.content || wrapper.content.length > match.content.length)) {
-      match.content = wrapper.content;
-    }
-    match.publishedAt ??= wrapper.publishedAt;
-    match.meta = { ...wrapper.meta, ...match.meta };
+    if (match) absorb(match, wrapper, weights, k);
+    else results.push(wrapper);
   }
   results.sort((a, b) => b.rrfScore - a.rrfScore);
-  const max = results[0]?.rrfScore ?? 1;
-  for (const r of results) r.score = r.rrfScore / max;
-  return results;
+  const deduped: FusedResult[] = [];
+  for (const result of results) {
+    const twin = deduped.find((kept) => samePaper(kept, result));
+    if (twin) absorb(twin, result, weights, k);
+    else deduped.push(result);
+  }
+  deduped.sort((a, b) => b.rrfScore - a.rrfScore);
+  const max = deduped[0]?.rrfScore ?? 1;
+  for (const r of deduped) r.score = r.rrfScore / max;
+  return deduped;
 }
 
 export function mergeLateHits(
   results: FusedResult[],
   hits: SearchHit[],
-  weights: Partial<Record<SourceId, number>> = {},
+  weights: Weights = {},
   k = RRF_K,
 ): FusedResult[] {
   const merged = results.map((result) => ({
@@ -126,17 +177,13 @@ export function mergeLateHits(
   }));
   for (const late of fuse([hits], weights, k)) {
     const existing = merged.find(
-      (result) => normalizeUrl(result.url) === late.key || matchesWrapperPair(result, late),
+      (result) => result.key === late.key || matchesWrapperPair(result, late) || samePaper(result, late),
     );
     if (!existing) {
       merged.push({ ...late, late: true, score: 0 });
       continue;
     }
-    for (const source of late.sources) {
-      if (existing.sources.some((current) => current.source === source.source)) continue;
-      existing.sources.push({ ...source });
-      existing.rrfScore += (weights[source.source] ?? 1) / (k + source.rank);
-    }
+    absorb(existing, late, weights, k);
   }
   return merged;
 }
