@@ -40,7 +40,7 @@ export function isEngineUrl(engine: BrowserEngine, url: string, ...hostnames: st
   }
 }
 
-export type BrowserEngineId = Extract<SourceId, 'google' | 'bing' | 'baidu' | 'duckduckgo' | 'scholar' | 'yandex' | 'youtube' | 'bilibili' | 'zhihu' | 'xiaohongshu' | 'rednote' | 'sogou' | 'weixin' | 'x'>;
+export type BrowserEngineId = Extract<SourceId, 'google' | 'bing' | 'baidu' | 'baiduxueshu' | 'cnki' | 'wos' | 'duckduckgo' | 'scholar' | 'yandex' | 'youtube' | 'bilibili' | 'zhihu' | 'xiaohongshu' | 'rednote' | 'sogou' | 'weixin' | 'x'>;
 
 /** "423", "8,485", "1.2 万", "10万+", "1.2K" → a number. Platforms print counts in their own style, so this is only for sorting and thresholds. */
 export function parseCount(raw: string | null | undefined): number | undefined {
