@@ -1,0 +1,25 @@
+<!-- HAND-WRITTEN, not captured from a live page: Web of Science needs an institutional IP or a login, and a clean headless profile is sent to access.clarivate.com (see wos-blocked.html, which IS real).
+     It follows the Angular result list as remembered: app-record cards, a title link to /wos/woscc/full-record/WOS:<id>, and data-ta attributes for authors, source, year, abstract and the Times Cited count.
+     The records are invented. Re-capture from a browser that has access and replace this file; the test then shows what the guess got wrong. -->
+<html><body><app-root><div class="summary-results">
+<app-record>
+<div class="summary-record">
+<a data-ta="summary-record-title-link" href="/wos/woscc/full-record/WOS:000000000000001" class="title title-link">An Example Study of Graph Neural Networks</a>
+<div class="authors"><a data-ta="summary-record-author-link-0" href="/wos/author/record/0000001">Doe, J.</a><a data-ta="summary-record-author-link-1" href="/wos/author/record/0000002">Roe, R.</a><a data-ta="summary-record-author-link-2">Poe, P.</a><a data-ta="summary-record-author-link-3" href="/wos/author/record/0000004">Moe, M.</a></div>
+<span data-ta="summary-record-source-title">JOURNAL OF EXAMPLE RESEARCH</span>
+<span data-ta="summary-record-pubdate">MAR 2021</span>
+<div data-ta="summary-record-abstract">We study an invented thing and report invented results.</div>
+<a data-ta="stat-number-citation-related-count" href="/wos/woscc/citing-summary/000000000000001">1,234</a>
+</div>
+</app-record>
+<app-record>
+<div class="summary-record">
+<a href="https://www.webofscience.com/wos/woscc/full-record/WOS:000000000000002" class="title">A Second Invented Paper</a>
+<div class="authors"><a data-ta="summary-record-author-link-0" href="/wos/author/record/0000005">Lee, K.</a></div>
+<span data-ta="summary-record-pubdate">2019</span>
+</div>
+</app-record>
+<app-record>
+<div class="summary-record"><span>A card with no link, as the app draws while a record is still loading</span></div>
+</app-record>
+</div></app-root></body></html>
