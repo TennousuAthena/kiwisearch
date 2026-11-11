@@ -93,6 +93,96 @@ function absorb(target: FusedResult, source: FusedResult, weights: Weights, k: n
   if (citations) target.meta.citations = citations;
 }
 
+/** Sites that mostly republish: when the same article is found on one of these and elsewhere, the other copy is shown. */
+const REPRINT_HOSTS = ['csdn.net', 'cnblogs.com', 'jianshu.com', 'sohu.com', 'baijiahao.baidu.com', 'mbd.baidu.com', 'toutiao.com', '163.com', '51cto.com', '360doc.com', 'sina.com.cn', 'sina.cn'];
+const isReprintHost = (host: string) => REPRINT_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+
+/** "标题_CSDN博客", "标题 - 知乎", "Title | Site" → the title part; a title with no separator is returned whole. */
+function articleTitleKey(title: string): string {
+  const head = title.split(/\s[-–—|｜]\s|[_｜|]/)[0] ?? title;
+  return paperTitleKey(head);
+}
+
+const bigrams = (text: string): Set<string> => {
+  const flat = text.toLowerCase().replace(/[\p{P}\p{S}\s]/gu, '');
+  const out = new Set<string>();
+  for (let i = 0; i < flat.length - 1; i++) out.add(flat.slice(i, i + 2));
+  return out;
+};
+
+/** How much of the shorter text's two-character pieces appear in the longer one: ~1 for the same text, ~0.1 for unrelated text. */
+function overlap(left: string, right: string): number {
+  const [a, b] = [bigrams(left), bigrams(right)].sort((x, y) => x.size - y.size);
+  if (a.size < 20) return 0; // too little text to tell
+  let shared = 0;
+  for (const piece of a) if (b.has(piece)) shared++;
+  return shared / a.size;
+}
+
+function reprintable(result: FusedResult): boolean {
+  return !result.image && !result.video && !result.note && !isPaperLike(result);
+}
+
+function hostOfResult(result: FusedResult): string {
+  if (result.host) return result.host.replace(/^www\./, '');
+  try {
+    return new URL(result.url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The same article posted on several sites (a WeChat article copied to CSDN and Zhihu) is one result: the copy that is
+ * probably the original is kept (not a republishing site, then the earliest date, then the best rank), the others are
+ * listed under it as `reprints`. Deliberately conservative: same title, different sites, AND the texts the engines showed
+ * overlap, so two different posts that happen to share a title stay apart. Keeps the order of the list.
+ */
+export function foldReprints(results: FusedResult[]): FusedResult[] {
+  const groups = new Map<string, FusedResult[]>();
+  for (const result of results) {
+    if (!reprintable(result)) continue;
+    const key = articleTitleKey(result.title);
+    if (key.length < 12) continue;
+    const bucket = groups.get(key) ?? [];
+    bucket.push(result);
+    groups.set(key, bucket);
+  }
+  const drop = new Set<FusedResult>();
+  const replace = new Map<FusedResult, FusedResult>();
+  for (const bucket of groups.values()) {
+    if (bucket.length < 2) continue;
+    // Members of one reprint family: a different site and a text that overlaps the first one's.
+    const family = [bucket[0]];
+    for (const other of bucket.slice(1)) {
+      const text = other.content || other.snippet;
+      if (family.some((member) => hostOfResult(member) !== hostOfResult(other) && overlap(member.content || member.snippet, text) >= 0.5)) family.push(other);
+    }
+    if (family.length < 2) continue;
+    const rank = (r: FusedResult) => results.indexOf(r);
+    const primary = [...family].sort((a, b) => {
+      const aggregator = Number(isReprintHost(hostOfResult(a))) - Number(isReprintHost(hostOfResult(b)));
+      if (aggregator) return aggregator;
+      if (a.publishedAt && b.publishedAt && a.publishedAt !== b.publishedAt) return a.publishedAt < b.publishedAt ? -1 : 1;
+      return rank(a) - rank(b);
+    })[0];
+    const others = family.filter((r) => r !== primary);
+    const best = Math.min(...family.map(rank));
+    const folded: FusedResult = { ...primary, rrfScore: Math.max(...family.map((r) => r.rrfScore)), reprints: [...(primary.reprints ?? []), ...others.map((r) => ({ url: r.url, host: hostOfResult(r) }))] };
+    // The folded result takes the best-ranked member's place; the other members go.
+    replace.set(results[best], folded);
+    for (const member of family) if (member !== results[best]) drop.add(member);
+  }
+  if (!replace.size && !drop.size) return results;
+  const out: FusedResult[] = [];
+  for (const result of results) {
+    const swap = replace.get(result);
+    if (swap) out.push(swap);
+    else if (!drop.has(result)) out.push(result);
+  }
+  return out;
+}
+
 /**
  * Merge per-source ranked lists with Reciprocal Rank Fusion:
  * score(d) = sum_s w_s / (k + rank_s(d)).
@@ -158,10 +248,11 @@ export function fuse(lists: SearchHit[][], weights: Weights = {}, k = RRF_K): Fu
     if (twin) absorb(twin, result, weights, k);
     else deduped.push(result);
   }
-  deduped.sort((a, b) => b.rrfScore - a.rrfScore);
-  const max = deduped[0]?.rrfScore ?? 1;
-  for (const r of deduped) r.score = r.rrfScore / max;
-  return deduped;
+  const folded = foldReprints(deduped);
+  folded.sort((a, b) => b.rrfScore - a.rrfScore);
+  const max = folded[0]?.rrfScore ?? 1;
+  for (const r of folded) r.score = r.rrfScore / max;
+  return folded;
 }
 
 export function mergeLateHits(
@@ -185,7 +276,7 @@ export function mergeLateHits(
     }
     absorb(existing, late, weights, k);
   }
-  return merged;
+  return foldReprints(merged);
 }
 
 /**

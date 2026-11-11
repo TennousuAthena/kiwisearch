@@ -1,5 +1,5 @@
 import type { FusedResult, SearchMode } from '@kiwi-search/core';
-import { useState, type ReactNode } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import { ChevronDownIcon } from '@/lib/icons';
 import { breadcrumb, clip, compactCount, hiddenLabel, iconHost, siteLabel } from '@/lib/results';
 import { Favicon } from './Favicon';
@@ -37,6 +37,20 @@ function WebResult({ result, highlighted, note, marks }: ItemProps) {
         <p className="snippet">
           {date && <span className="date">{date} — </span>}
           {result.snippet}
+        </p>
+      )}
+      {result.reprints && result.reprints.length > 0 && (
+        <p className="reprints">
+          同一篇还出现在{' '}
+          {result.reprints.slice(0, 3).map((copy, index) => (
+            <span key={copy.url}>
+              {index > 0 && '、'}
+              <a href={copy.url} target="_blank" rel="noreferrer">
+                {copy.host}
+              </a>
+            </span>
+          ))}
+          {result.reprints.length > 3 && ` 等 ${result.reprints.length} 处`}
         </p>
       )}
       {note && <p className="result-note">{note}</p>}
@@ -272,18 +286,27 @@ export function ResultList({
   mode,
   hoverCite,
   citedUrls,
+  between,
 }: {
   results: FusedResult[];
   mode: SearchMode;
   hoverCite: number | null;
   citedUrls: Map<string, number>;
+  /** A block placed after the first few results (the platform strip), when there are enough results to put it after. */
+  between?: { after: number; node: ReactNode };
 }) {
   return (
     <div className="result-list">
-      {results.map((result) => {
+      {results.map((result, index) => {
         const n = citedUrls.get(result.url);
-        return <Card key={result.key} mode={mode} result={result} highlighted={n !== undefined && n === hoverCite} />;
+        return (
+          <Fragment key={result.key}>
+            <Card mode={mode} result={result} highlighted={n !== undefined && n === hoverCite} />
+            {between && index + 1 === between.after && between.node}
+          </Fragment>
+        );
       })}
+      {between && results.length < between.after && between.node}
     </div>
   );
 }

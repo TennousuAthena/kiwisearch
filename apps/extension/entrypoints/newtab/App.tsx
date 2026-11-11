@@ -2,12 +2,13 @@ import type { SearchMode } from '@kiwi-search/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { SlidersIcon } from '@/lib/icons';
-import { MODE_LABELS, filterSince, modeHasOverview, parseMode, pickLandmarks, searchUrl, sinceYears, sortPapers, splitResults, type PaperSort } from '@/lib/results';
+import { MODE_LABELS, filterSince, modeHasOverview, parseMode, pickLandmarks, searchUrl, sinceYears, sortPapers, splitPlatforms, splitResults, type PaperSort } from '@/lib/results';
 import { decideSuggestion, type SuggestionAction } from '@/lib/suggestion';
 import { useSearchSession } from '@/lib/useSearchSession';
 import { Landmarks, PlanLine } from './AcademicPlan';
 import { ImageResults } from './ImageResults';
 import { ModeTabs } from './ModeTabs';
+import { PlatformStrip } from './PlatformStrip';
 import { NoteResults } from './NoteResults';
 import { Overview } from './Overview';
 import { HiddenResults, ResultList } from './Results';
@@ -123,6 +124,8 @@ export default function App() {
   const years = useMemo(() => sinceYears(), []);
 
   const shown = state?.mode === 'academic' ? papers : visible;
+  // In a general search, posts pulled in from Zhihu / Xiaohongshu / WeChat gather in one "各平台怎么说" block after the first few results.
+  const { platform: platformPosts, rest: listed } = useMemo(() => (state?.mode === 'web' ? splitPlatforms(shown) : { platform: [], rest: shown }), [state?.mode, shown]);
   const searching = !!state && (state.stage !== 'done' || state.running.length > 0) && !state.fatal;
   const liveStatus = !state
     ? ''
@@ -198,7 +201,13 @@ export default function App() {
                 ) : state.mode === 'xiaohongshu' ? (
                   <NoteResults results={shown} />
                 ) : (
-                  <ResultList results={shown} mode={state.mode} hoverCite={hoverCite} citedUrls={citedUrls} />
+                  <ResultList
+                results={listed}
+                mode={state.mode}
+                hoverCite={hoverCite}
+                citedUrls={citedUrls}
+                between={platformPosts.length ? { after: 3, node: <PlatformStrip key="platforms" results={platformPosts} hoverCite={hoverCite} citedUrls={citedUrls} onOpenTab={changeMode} /> } : undefined}
+              />
                 ))}
               {state.mode !== 'images' && <HiddenResults results={hidden} mode={state.mode} />}
             </div>

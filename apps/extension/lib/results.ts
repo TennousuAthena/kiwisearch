@@ -111,6 +111,37 @@ export function sinceYears(now = new Date()): number[] {
   return [year, year - 1, year - 4];
 }
 
+/** The community platforms whose posts a general search can pull in (each also has a tab of its own). */
+export type Platform = 'zhihu' | 'xiaohongshu' | 'wechat';
+
+export const PLATFORM_NAMES: Record<Platform, string> = { zhihu: '知乎', xiaohongshu: '小红书', wechat: '公众号' };
+
+/** Which platform a result is a post from; null for an ordinary page. Mirrors how `Results.tsx` picks a card. */
+export function platformOf(result: Pick<FusedResult, 'note' | 'meta'>): Platform | null {
+  if (result.note) return 'xiaohongshu';
+  if (result.meta.siteName === '知乎') return 'zhihu';
+  if (result.meta.siteName === '微信公众号') return 'wechat';
+  return null;
+}
+
+/**
+ * Pulls the community posts out of a general result list for the "各平台怎么说" block: at least `min` of them (a lone
+ * post stays where it ranked), at most `max` and `perPlatform` from any one platform so one voice doesn't fill it.
+ * What doesn't fit stays in the list, in its place.
+ */
+export function splitPlatforms(results: FusedResult[], { min = 2, max = 6, perPlatform = 3 } = {}): { platform: FusedResult[]; rest: FusedResult[] } {
+  const taken = new Map<Platform, number>();
+  const platform: FusedResult[] = [];
+  for (const result of results) {
+    const p = platformOf(result);
+    if (!p || platform.length >= max || (taken.get(p) ?? 0) >= perPlatform) continue;
+    taken.set(p, (taken.get(p) ?? 0) + 1);
+    platform.push(result);
+  }
+  if (platform.length < min) return { platform: [], rest: results };
+  return { platform, rest: results.filter((r) => !platform.includes(r)) };
+}
+
 /** Same whole-title key as core's `paperTitleKey` (this bundle doesn't import core's runtime). */
 const titleKey = (title: string) => title.toLowerCase().replace(/[\p{P}\p{S}\s]/gu, '');
 
@@ -141,6 +172,10 @@ export function sortPapers(results: FusedResult[], by: PaperSort): FusedResult[]
 export const MODE_LABELS: Record<SearchMode, string> = { web: '全部', images: '图片', video: '视频', academic: '学术', zhihu: '知乎', xiaohongshu: '小红书', wechat: '公众号', x: 'X' };
 /** Tab order; derived from the label table so a new mode can't be left out. */
 export const MODES = Object.keys(MODE_LABELS) as SearchMode[];
+
+/** The platform tabs, folded under one "社区" tab. */
+export const COMMUNITY_MODES: SearchMode[] = ['zhihu', 'xiaohongshu', 'wechat', 'x'];
+export const isCommunityMode = (mode: SearchMode): boolean => COMMUNITY_MODES.includes(mode);
 
 /** Whether the AI overview and the hidden-results fold apply. Mirrors `modeHasText` in core, which this bundle avoids importing. */
 export function modeHasOverview(mode: SearchMode): boolean {

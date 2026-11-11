@@ -344,3 +344,35 @@ a.cite:hover { background: var(--accent-solid); color: var(--on-accent); }
 .landmarks h2 { font-size: 1rem; font-weight: 650; }
 .landmarks .note { margin-top: 0.15rem; color: var(--fg-3); font-size: 0.8125rem; }
 .landmarks .result-list { gap: 1.25rem; margin-top: 0.75rem; }
+
+/* 各平台怎么说: posts from Zhihu / Xiaohongshu / WeChat that a general search pulled in, side by side */
+.platforms { margin: 0.25rem 0; padding: 0.875rem 0.875rem 0.5rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+.platforms h2 { font-size: 0.9375rem; font-weight: 650; }
+.pgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.625rem; margin-top: 0.625rem; }
+.pcard { position: relative; display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; padding: 0.625rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); transition: background-color 0.15s var(--ease-out), border-color 0.15s var(--ease-out); }
+.pcard:hover { border-color: var(--border-ctl); background: var(--surface-2); }
+.pcard.hl { background: var(--accent-soft); }
+.pcard-head { overflow: hidden; color: var(--fg-3); font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; }
+.pcard-body { display: flex; align-items: flex-start; gap: 0.625rem; }
+.pcard-text { min-width: 0; flex: 1; }
+.pcard h3 { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 0.9375rem; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.pcard h3 a { color: var(--link); text-decoration: none; }
+.pcard h3 a::after { content: ''; position: absolute; inset: 0; }
+.pcard h3 a:hover { text-decoration: underline; }
+.pcard-text p { display: -webkit-box; margin-top: 0.15rem; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--fg-2); font-size: 0.8125rem; line-height: 1.5; }
+.pcard-body img { flex: none; width: 3.5rem; height: 3.5rem; border-radius: 6px; background: var(--surface-2); object-fit: cover; }
+.pmore { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin-top: 0.5rem; padding-bottom: 0.25rem; }
+@media (max-width: 640px) { .pgrid { grid-template-columns: minmax(0, 1fr); } }
+
+/* 社区: the platform tabs folded into one */
+.tab-wrap { position: relative; display: inline-flex; }
+.tab-caret { margin-left: 0.2rem; width: 0.9em; height: 0.9em; vertical-align: -0.1em; }
+.tab[aria-expanded='true'] .tab-caret { transform: rotate(180deg); }
+.tab-menu { position: absolute; top: calc(100% + 0.125rem); left: 0; z-index: 15; display: grid; min-width: 8rem; padding: 0.25rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-1); }
+.tab-menu button { padding: 0.5rem 0.75rem; border: 0; border-radius: var(--radius-sm); background: none; color: var(--fg-2); font-size: 0.875rem; text-align: left; }
+.tab-menu button:hover { background: var(--surface-2); color: var(--fg); }
+.tab-menu button[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.page.idle .tab-menu { left: 50%; transform: translateX(-50%); }
+
+.reprints { margin-top: 0.15rem; color: var(--fg-3); font-size: 0.8125rem; }
+.reprints a { color: var(--fg-2); }
