@@ -1,24 +1,30 @@
 import type { FusedResult, SearchMode } from '@kiwi-search/core';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ChevronDownIcon } from '@/lib/icons';
 import { breadcrumb, clip, compactCount, hiddenLabel, iconHost, siteLabel } from '@/lib/results';
 import { Favicon } from './Favicon';
+import { SourceMarks } from './SourceMarks';
 
 interface ItemProps {
   result: FusedResult;
   highlighted?: boolean;
   /** Why this result was filtered out, when it is shown in the hidden section. */
   note?: string;
+  /** The engines that agree on this result; absent where the list doesn't show them. */
+  marks?: ReactNode;
 }
 
-function WebResult({ result, highlighted, note }: ItemProps) {
+function WebResult({ result, highlighted, note, marks }: ItemProps) {
   const date = result.publishedAt?.slice(0, 10);
   return (
     <article className={highlighted ? 'result hl' : 'result'}>
       <div className="site">
         <Favicon host={iconHost(result)} label={siteLabel(result)} />
         <div className="site-text">
-          <span className="site-name">{siteLabel(result)}</span>
+          <span className="site-line">
+            <span className="site-name">{siteLabel(result)}</span>
+            {marks}
+          </span>
           <cite>{breadcrumb(result)}</cite>
         </div>
       </div>
@@ -38,7 +44,7 @@ function WebResult({ result, highlighted, note }: ItemProps) {
   );
 }
 
-function PaperResult({ result, highlighted, note }: ItemProps) {
+function PaperResult({ result, highlighted, note, marks }: ItemProps) {
   const { authors, venue, year, citations, pdfUrl, doi } = result.meta;
   const byline = [authors?.length ? authors.slice(0, 5).join(', ') + (authors.length > 5 ? ' 等' : '') : '', venue, year]
     .filter(Boolean)
@@ -66,13 +72,14 @@ function PaperResult({ result, highlighted, note }: ItemProps) {
           </a>
         )}
         {citations !== undefined && <span>被引 {citations.toLocaleString()}</span>}
+        {marks}
       </div>
       {note && <p className="result-note">{note}</p>}
     </article>
   );
 }
 
-function VideoResult({ result, highlighted, note }: ItemProps) {
+function VideoResult({ result, highlighted, note, marks }: ItemProps) {
   const { video } = result;
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const byline = [siteLabel(result), video?.channel, video?.views, video?.published].filter(Boolean).join(' · ');
@@ -90,7 +97,12 @@ function VideoResult({ result, highlighted, note }: ItemProps) {
             {result.title}
           </a>
         </h3>
-        {byline && <p className="byline">{byline}</p>}
+        {byline && (
+          <p className="byline">
+            {byline}
+            {marks}
+          </p>
+        )}
         {result.snippet && <p className="snippet">{clip(result.snippet, 180)}</p>}
         {note && <p className="result-note">{note}</p>}
       </div>
@@ -104,7 +116,7 @@ function zhihuKind(url: string): string {
   return url.includes('zhuanlan.zhihu.com') ? '文章' : '问题';
 }
 
-function ZhihuResult({ result, highlighted, note }: ItemProps) {
+function ZhihuResult({ result, highlighted, note, marks }: ItemProps) {
   const { author, votes, comments, age, thumbnail } = result.meta;
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const byline = [
@@ -126,6 +138,7 @@ function ZhihuResult({ result, highlighted, note }: ItemProps) {
         <p className="byline">
           <span className="kind">{zhihuKind(result.url)}</span>
           {byline}
+          {marks}
         </p>
         {result.snippet && <p className="snippet">{clip(result.snippet, 240)}</p>}
         {note && <p className="result-note">{note}</p>}
@@ -140,7 +153,7 @@ function ZhihuResult({ result, highlighted, note }: ItemProps) {
 }
 
 /** A WeChat official-account article (found through Sogou): text first, the article's thumbnail on the right. */
-function WechatResult({ result, highlighted, note }: ItemProps) {
+function WechatResult({ result, highlighted, note, marks }: ItemProps) {
   const { author, thumbnail } = result.meta;
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const byline = [author, result.publishedAt?.slice(0, 10)].filter(Boolean).join(' · ');
@@ -155,6 +168,7 @@ function WechatResult({ result, highlighted, note }: ItemProps) {
         <p className="byline">
           <span className="kind">公众号</span>
           {byline}
+          {marks}
         </p>
         {result.snippet && <p className="snippet">{clip(result.snippet, 240)}</p>}
         {note && <p className="result-note">{note}</p>}
@@ -203,7 +217,7 @@ function XResult({ result, highlighted, note }: ItemProps) {
 }
 
 /** A Xiaohongshu note inside the general list: cover on the left, title and author line on the right. */
-function NoteRow({ result, highlighted, note }: ItemProps) {
+function NoteRow({ result, highlighted, note, marks }: ItemProps) {
   const info = result.note;
   const [coverFailed, setCoverFailed] = useState(false);
   const byline = ['小红书', info?.author, info?.time, info?.likes ? `${info.likes} 赞` : ''].filter(Boolean).join(' · ');
@@ -220,7 +234,10 @@ function NoteRow({ result, highlighted, note }: ItemProps) {
             {result.title}
           </a>
         </h3>
-        <p className="byline">{byline}</p>
+        <p className="byline">
+          {byline}
+          {marks}
+        </p>
         {note && <p className="result-note">{note}</p>}
       </div>
     </article>
@@ -244,9 +261,10 @@ const itemFor = (mode: SearchMode, result: FusedResult) => {
   return WebResult;
 };
 
-function Card({ mode, ...props }: ItemProps & { mode: SearchMode }) {
+/** `plain` leaves the engine marks off: the folded section lists what the filter hid, where they would only distract. */
+function Card({ mode, plain, ...props }: ItemProps & { mode: SearchMode; plain?: boolean }) {
   const Item = itemFor(mode, props.result);
-  return <Item {...props} />;
+  return <Item {...props} marks={plain ? undefined : <SourceMarks sources={props.result.sources} />} />;
 }
 
 export function ResultList({
@@ -283,7 +301,7 @@ export function HiddenResults({ results, mode }: { results: FusedResult[]; mode:
       {open && (
         <div className="result-list muted">
           {results.map((result) => (
-            <Card key={result.key} mode={mode} result={result} note={result.hidden ? hiddenLabel(result.hidden) : undefined} />
+            <Card key={result.key} mode={mode} result={result} note={result.hidden ? hiddenLabel(result.hidden) : undefined} plain />
           ))}
         </div>
       )}
