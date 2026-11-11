@@ -1,4 +1,4 @@
-import type { BlockReason, Citation, FusedResult, IntentSuggestion, PipelineEvent, SearchMode, SourceId } from '@kiwi-search/core';
+import type { AcademicPlan, BlockReason, Citation, FusedResult, IntentSuggestion, PipelineEvent, SearchMode, SourceId, VerifiedLandmark } from '@kiwi-search/core';
 
 export type SummaryStatus = 'idle' | 'loading' | 'starting' | 'streaming' | 'done' | 'error';
 
@@ -18,6 +18,10 @@ export interface SearchState {
   judgeError?: string;
   /** The tab the decision model thinks the user wants (images, video, academic), from a general search's verdict. */
   suggest?: IntentSuggestion;
+  /** Academic mode: what the user's model understood, the papers it named that were found to exist, or why there is no plan. */
+  plan?: AcademicPlan;
+  landmarks: VerifiedLandmark[];
+  planError?: string;
   citations: Citation[];
   summary: string;
   summaryStatus: SummaryStatus;
@@ -32,6 +36,7 @@ export const emptyState = (query: string, mode: SearchMode, now = Date.now()): S
   running: [],
   blocked: [],
   blockedBy: {},
+  landmarks: [],
   results: [],
   stage: 'searching',
   citations: [],
@@ -64,6 +69,8 @@ export function reduce(s: SearchState, e: PipelineEvent, now = Date.now()): Sear
       return { ...s, results: e.results };
     case 'routed':
       return e.suggest ? { ...s, suggest: e.suggest } : s;
+    case 'academic_plan':
+      return { ...s, plan: e.plan, landmarks: e.landmarks, planError: e.error };
     case 'judged':
       return { ...s, results: e.results, judgeError: e.error };
     case 'summary_start':

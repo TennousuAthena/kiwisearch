@@ -38,6 +38,7 @@ export function StatusLine({ state, visibleCount, onOpenWorker }: StatusProps) {
         </button>
       )}
       {done && state.judgeError && <span title={state.judgeError}>智能过滤未完全生效：{state.judgeError}</span>}
+      {done && state.mode === 'academic' && state.planError && <span title={state.planError}>智能检索未生效：{state.planError}</span>}
     </div>
   );
 }

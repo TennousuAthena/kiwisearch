@@ -56,7 +56,7 @@ function isPaperLike(result: FusedResult): boolean {
 }
 
 /** Whole-title key for papers: no site-suffix stripping, since subtitles often contain " - ". */
-function paperTitleKey(title: string): string {
+export function paperTitleKey(title: string): string {
   return title.toLowerCase().replace(/[\p{P}\p{S}\s]/gu, '');
 }
 

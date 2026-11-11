@@ -60,6 +60,42 @@ describe('MCP server smoke test', () => {
     await server.close();
   });
 
+  it('tells the agent how the query was understood and which named papers were confirmed', async () => {
+    hub = new BridgeHub('smoke-token', { port: 0, extensionId: 'smoke-extension' });
+    await hub.start();
+    extension = new WebSocket(`ws://127.0.0.1:${hub.port}/extension`, { origin: 'chrome-extension://smoke-extension' });
+    await new Promise<void>((resolve) => extension!.once('open', resolve));
+    const ready = new Promise<void>((resolve) => extension!.once('message', () => resolve()));
+    extension.send(JSON.stringify({ type: 'hello', token: 'smoke-token' }));
+    await ready;
+    extension.on('message', (data) => {
+      const request = JSON.parse(data.toString()) as { id: string; type: string; query?: string };
+      if (request.type !== 'search') return;
+      extension?.send(JSON.stringify({
+        id: request.id,
+        type: 'result',
+        result: {
+          query: request.query,
+          sourceStats: [],
+          plan: { intent: '想找 Transformer 的原始论文', keywords: ['transformer', 'self-attention'], queries: {} },
+          landmarks: [{ title: 'Attention Is All You Need', year: 2017 }],
+          results: [{ key: 'a', url: 'https://example.com/a', title: 'Attention Is All You Need', snippet: 's', sources: [{ source: 'openalex', rank: 1 }] }],
+        },
+      }));
+    });
+    const server = createMcpServer(hub);
+    const client = new Client({ name: 'smoke-client', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const result = await client.callTool({ name: 'search', arguments: { query: 'transformer', mode: 'academic' } });
+    expect(result.content).toEqual(expect.arrayContaining([expect.objectContaining({ text: expect.stringContaining('检索理解：想找 Transformer 的原始论文') })]));
+    expect(result.content).toEqual(expect.arrayContaining([expect.objectContaining({ text: expect.stringContaining('已核对存在的核心文献：Attention Is All You Need（2017）') })]));
+    expect(result.structuredContent).toMatchObject({ plan: { intent: '想找 Transformer 的原始论文' }, landmarks: [{ title: 'Attention Is All You Need' }] });
+    await client.close();
+    await server.close();
+  });
+
   it('keeps filtered results out of the list but reports them', async () => {
     hub = new BridgeHub('smoke-token', { port: 0, extensionId: 'smoke-extension' });
     await hub.start();

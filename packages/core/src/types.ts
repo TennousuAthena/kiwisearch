@@ -29,6 +29,22 @@ export type SearchMode = (typeof SEARCH_MODES)[number];
 export type Route = Extract<SearchMode, 'academic' | 'zhihu' | 'xiaohongshu' | 'wechat'>;
 
 /** The tabs a general search may point the user to, when the query looks like it wants them. */
+/** What the user's language model made of an academic query: what they probably want, and how to search for it. */
+export interface AcademicPlan {
+  /** One short sentence, in the language of the query. */
+  intent: string;
+  keywords: string[];
+  /** The text each API source was searched with in a second round (only those that ran with it). */
+  queries: Partial<Record<SourceId, string>>;
+}
+
+/** A paper the model named that was found to exist in a scholarly index; the rest of what it named is dropped. */
+export interface VerifiedLandmark {
+  title: string;
+  year?: number;
+  doi?: string;
+}
+
 /** Everything the intent request asks about. */
 export type IntentKey = Route | 'images' | 'video';
 
@@ -241,6 +257,14 @@ export interface FusionConfig {
     /** Stop waiting for the verdict after this long and search the general sources only. */
     timeoutMs: number;
   };
+  /** Smart academic search: the user's own language model reads the query and names the papers it is probably after. Needs a usable `llm`. */
+  academic: {
+    smart: boolean;
+    /** Give up on the plan, and on checking the papers it names, after this long. */
+    timeoutMs: number;
+    /** How many papers to ask for. */
+    landmarks: number;
+  };
   rerank: {
     provider: RerankProvider;
     apiKey?: string;
@@ -340,6 +364,7 @@ export type PipelineEvent =
   | { type: 'late_results'; source: SourceId; results: FusedResult[] }
   | { type: 'fused'; results: FusedResult[]; /** More sources are still running. */ partial?: boolean }
   | { type: 'reranked'; results: FusedResult[]; provider: RerankProvider; error?: string }
+  | { type: 'academic_plan'; plan?: AcademicPlan; /** In the order the model gave them, most canonical first. */ landmarks: VerifiedLandmark[]; /** Set when no plan could be had. */ error?: string }
   | { type: 'routed'; routes: Route[]; scores: Partial<Record<IntentKey, number>>; suggest?: IntentSuggestion; /** Set when no verdict could be had. */ error?: string }
   | { type: 'judged'; results: FusedResult[]; /** Set when some or all judgments failed. */ error?: string }
   | { type: 'summary_start'; citations: Citation[] }
@@ -363,6 +388,9 @@ export interface PipelineResult {
   citations: Citation[];
   /** `blocked`: waiting on a captcha; `late`: still running past the soft deadline. Both merge in later. */
   sourceStats: { source: SourceId; count: number; ms: number; error?: string; status?: 'blocked' | 'late'; /** Set with `status: 'blocked'`. */ blockedReason?: BlockReason }[];
+  /** Academic mode with smart search on: what the model understood, and the papers it named that were found to exist. */
+  plan?: AcademicPlan;
+  landmarks?: VerifiedLandmark[];
 }
 
 export interface RunOptions {

@@ -1,4 +1,4 @@
-import type { FusionConfig } from '@kiwi-search/core';
+import { llmUsable, type FusionConfig } from '@kiwi-search/core';
 import { useState } from 'react';
 import { browser } from 'wxt/browser';
 import { CheckIcon, CircleAlertIcon } from '@/lib/icons';
@@ -96,6 +96,20 @@ export function AiSection({ config, onChange }: Props) {
             )}
           </div>
         )}
+      </div>
+
+      <div className="card">
+        <SwitchRow
+          checked={config.academic.smart}
+          disabled={!llmUsable(config.llm)}
+          onChange={(smart) => onChange((c) => ({ ...c, academic: { ...c.academic, smart } }))}
+          title="智能学术搜索"
+          hint={
+            llmUsable(config.llm)
+              ? '搜“学术”时，让你的 AI 模型先理解你要找什么：写出检索式，点名最可能要找的论文（比如搜 transformer，把《Attention Is All You Need》排在最前）。点名的每一篇都会在文献库里核对，查不到的直接丢掉，不会凭空出现。多花 2 到 4 秒。'
+              : '需要先在下面的“AI 概览”里配置好 AI 模型。'
+          }
+        />
       </div>
 
       <div className="card">

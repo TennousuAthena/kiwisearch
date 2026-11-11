@@ -1,7 +1,8 @@
 import { DEFAULT_CONFIG, resultCount, sourcesForRoutes, usableSources } from './config';
+import { landmarksOf, planAcademicQuery, planSourceIds, searchWithPlan, verifyPapers } from './academic';
 import { fetchContents } from './content';
 import { applyRerank, fuse, mergeLateHits } from './fusion';
-import { errorMessage } from './http';
+import { errorMessage, withTimeout } from './http';
 import { judgeIntent } from './intent';
 import { applyDomainRules, applyJudgments, flagInjectedContents, judgeEnabled, judgeResults } from './judge';
 import { chatStream, llmUsable } from './llm';
@@ -9,7 +10,7 @@ import { rerank } from './rerank';
 import { SOURCES } from './sources';
 import { buildCitations, buildSummaryMessages } from './summarize';
 import { modeHasText } from './types';
-import type { BlockReason, Env, FusedResult, FusionConfig, PipelineEvent, PipelineResult, RunOptions, SearchHit, SourceId } from './types';
+import type { AcademicPlan, BlockReason, Env, FusedResult, FusionConfig, PipelineEvent, PipelineResult, RunOptions, SearchHit, SourceId, VerifiedLandmark } from './types';
 
 /** How long a browser source may sit behind other requests for its engine before it counts as stuck. */
 const QUEUE_WAIT_MS = 60_000;
@@ -204,10 +205,14 @@ export async function runSearch(
 
   const hitsBySource = new Map<SourceId, SearchHit[]>();
   const settled = new Set<SourceId>();
-  const collected = () => active.map((id) => hitsBySource.get(id) ?? []);
+  // From the academic plan: the papers the model named that were found to exist (first, so their rank counts even when a source also returned them), and the second-round lists (its own search text, the most-cited pass).
+  let foundPapers: SearchHit[] = [];
+  const extraLists: SearchHit[][] = [];
+  const collected = () => [...(foundPapers.length ? [foundPapers] : []), ...active.map((id) => hitsBySource.get(id) ?? []), ...extraLists];
   let cutoff = false;
   let pending = 0;
   let intentPending = false;
+  let planPending = false;
   let resolveFirstHits!: () => void;
   const firstHits = new Promise<void>((resolve) => {
     resolveFirstHits = resolve;
@@ -251,7 +256,7 @@ export async function runSearch(
       textSeen = true;
       resolveFirstText();
     }
-    if (pending > 0 || intentPending) emit({ type: 'fused', results: fuse(collected(), weights), partial: true });
+    if (pending > 0 || intentPending || planPending) emit({ type: 'fused', results: fuse(collected(), weights), partial: true });
   };
 
   const runs: SourceRun[] = [];
@@ -284,8 +289,42 @@ export async function runSearch(
         }
       })()
     : Promise.resolve();
+  // An academic search also asks the user's own model to read the query: what do they want, how should each database be asked,
+  // which papers are they after. Those papers are looked up in a bibliographic index and kept only if found. No usable model,
+  // an error or too slow just leaves the plain search.
+  let academicPlan: AcademicPlan | undefined;
+  let landmarks: VerifiedLandmark[] = [];
+  const planning = mode === 'academic' && !opts.sources && config.academic.smart && llmUsable(config.llm);
+  planPending = planning;
+  const planDone: Promise<void> = planning
+    ? (async () => {
+        const deadline = withTimeout(signal, config.academic.timeoutMs);
+        try {
+          const { parsed, error } = await planAcademicQuery(query, config, env, deadline.signal);
+          if (!parsed) {
+            emit({ type: 'academic_plan', landmarks: [], error });
+            return;
+          }
+          const ids = planSourceIds(config).filter((id) => active.includes(id));
+          const [found, second] = await Promise.all([
+            verifyPapers(parsed.papers, config, env, deadline.signal),
+            searchWithPlan(query, parsed.plan, ids, config, env, resultCount(config, mode), deadline.signal),
+          ]);
+          academicPlan = { ...parsed.plan, queries: second.used };
+          landmarks = landmarksOf(found);
+          foundPapers = found;
+          extraLists.push(...second.lists);
+          emit({ type: 'academic_plan', plan: academicPlan, landmarks });
+        } catch (e) {
+          if (!signal?.aborted) emit({ type: 'academic_plan', landmarks: [], error: errorMessage(deadline.signal.aborted ? deadline.signal.reason : e) });
+        } finally {
+          deadline.cancel();
+          planPending = false;
+        }
+      })()
+    : Promise.resolve();
   const settledAll = (async () => {
-    await intentDone;
+    await Promise.all([intentDone, planDone]);
     await Promise.all(settles);
   })();
   // The overview is written from what has arrived when the soft deadline passes; a source that reports later never starts one.
@@ -302,6 +341,8 @@ export async function runSearch(
     clearTimeout(deadline);
     // Past the deadline with nothing to show: keep waiting for the first source that has results.
     if (!hitsBySource.size) await Promise.race([settledAll, firstHits]);
+    // The plan has its own limit (`academic.timeoutMs`); its papers belong in the first full list, not in a late one.
+    if (planPending) await planDone;
     // If the quick sources brought nothing it can use (DuckDuckGo's results carry no text), wait for one that has, or the overview is lost for good.
     if (summaryWanted && !textSeen) await Promise.race([settledAll, firstText]);
   } else {
@@ -350,7 +391,7 @@ export async function runSearch(
 
   const visible = results.filter((r) => !r.hidden);
   const limited = opts.limit ? [...visible.slice(0, opts.limit), ...results.filter((r) => r.hidden)] : results;
-  const result: PipelineResult = { query, mode, results: limited, citations: [], sourceStats };
+  const result: PipelineResult = { query, mode, results: limited, citations: [], sourceStats, ...(academicPlan ? { plan: academicPlan, landmarks } : {}) };
 
   /** Page text is untrusted: withhold pages that look like they instruct the summarizing model. */
   const readPages = async (top: FusedResult[]) => {

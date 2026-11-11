@@ -10,6 +10,7 @@ import {
   iconHost,
   modeHasOverview,
   parseMode,
+  pickLandmarks,
   searchUrl,
   siteLabel,
   sinceYears,
@@ -117,5 +118,19 @@ describe('result helpers', () => {
     expect(parseMode(null)).toBe('web');
     expect(searchUrl('chrome-extension://abc/newtab.html?m=images', 'a b', 'web')).toBe('chrome-extension://abc/newtab.html?q=a+b');
     expect(searchUrl('chrome-extension://abc/newtab.html', 'a', 'academic')).toBe('chrome-extension://abc/newtab.html?q=a&m=academic');
+  });
+});
+
+describe('pickLandmarks', () => {
+  const list = [paper('Other paper on attention', { year: 2020 }), paper('Attention Is All You Need', { year: 2017, doi: '10.1/abc' }), paper('BERT: Pre-training', { year: 2018 })];
+  it('finds the results that are the named papers, in the order they were named', () => {
+    const picked = pickLandmarks(list, [{ title: 'BERT: Pre-training' }, { title: 'attention is all you need!', year: 2017 }]);
+    expect(picked.map((r) => r.title)).toEqual(['BERT: Pre-training', 'Attention Is All You Need']);
+  });
+
+  it('prefers the DOI, skips a paper that is not in the list, and never picks one result twice', () => {
+    expect(pickLandmarks(list, [{ title: 'Some other spelling', doi: '10.1/ABC' }]).map((r) => r.title)).toEqual(['Attention Is All You Need']);
+    expect(pickLandmarks(list, [{ title: 'Not here at all' }])).toEqual([]);
+    expect(pickLandmarks(list, [{ title: 'BERT: Pre-training' }, { title: 'BERT Pre-training' }])).toHaveLength(1);
   });
 });

@@ -327,3 +327,20 @@ a.cite:hover { background: var(--accent-solid); color: var(--on-accent); }
 .note-row .video-thumb { aspect-ratio: 3 / 4; }
 .zhihu-body .snippet.tweet-text { -webkit-line-clamp: 6; white-space: pre-line; }
 .note-sk { break-inside: avoid; margin-bottom: 0.75rem; border-radius: 0.75rem; }
+
+/* Smart academic search: how the query was understood, and the papers the model named that the index confirmed */
+.plan { margin-top: 0.5rem; }
+.plan-intent { display: flex; align-items: flex-start; gap: 0.4rem; color: var(--fg-2); font-size: 0.875rem; line-height: 1.6; }
+.plan-intent svg { flex: none; margin-top: 0.25em; color: var(--accent); }
+.plan-details { margin-top: 0.25rem; font-size: 0.8125rem; }
+.plan-details > summary { width: fit-content; color: var(--fg-3); cursor: pointer; }
+.plan-details > summary:hover { color: var(--fg); }
+.plan-details dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.25rem 0.875rem; margin: 0.5rem 0 0; padding: 0.625rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--fg-2); }
+.plan-details dt { color: var(--fg-3); }
+.plan-details dd { margin: 0; overflow-wrap: anywhere; }
+.plan-details .plan-query { display: contents; }
+.plan-details code { font-size: 0.8125rem; }
+.landmarks { margin-top: 1rem; padding: 0.75rem 0 1.25rem; border-bottom: 1px solid var(--border); }
+.landmarks h2 { font-size: 1rem; font-weight: 650; }
+.landmarks .note { margin-top: 0.15rem; color: var(--fg-3); font-size: 0.8125rem; }
+.landmarks .result-list { gap: 1.25rem; margin-top: 0.75rem; }

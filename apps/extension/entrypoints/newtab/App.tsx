@@ -2,9 +2,10 @@ import type { SearchMode } from '@kiwi-search/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { SlidersIcon } from '@/lib/icons';
-import { MODE_LABELS, filterSince, modeHasOverview, parseMode, searchUrl, sinceYears, sortPapers, splitResults, type PaperSort } from '@/lib/results';
+import { MODE_LABELS, filterSince, modeHasOverview, parseMode, pickLandmarks, searchUrl, sinceYears, sortPapers, splitResults, type PaperSort } from '@/lib/results';
 import { decideSuggestion, type SuggestionAction } from '@/lib/suggestion';
 import { useSearchSession } from '@/lib/useSearchSession';
+import { Landmarks, PlanLine } from './AcademicPlan';
 import { ImageResults } from './ImageResults';
 import { ModeTabs } from './ModeTabs';
 import { NoteResults } from './NoteResults';
@@ -113,7 +114,12 @@ export default function App() {
   const idle = !state;
   const { visible, hidden } = useMemo(() => splitResults(state?.results ?? []), [state?.results]);
   const citedUrls = useMemo(() => new Map(state?.citations.map((c) => [c.url, c.n]) ?? []), [state?.citations]);
-  const papers = useMemo(() => sortPapers(filterSince(visible, since), sort), [visible, since, sort]);
+  // The papers the model named sit in their own block; the filters below apply to the rest.
+  const landmarkResults = useMemo(() => (state?.mode === 'academic' ? pickLandmarks(visible, state.landmarks) : []), [state?.mode, state?.landmarks, visible]);
+  const papers = useMemo(() => {
+    const named = new Set(landmarkResults.map((r) => r.key));
+    return sortPapers(filterSince(visible.filter((r) => !named.has(r.key)), since), sort);
+  }, [visible, landmarkResults, since, sort]);
   const years = useMemo(() => sinceYears(), []);
 
   const shown = state?.mode === 'academic' ? papers : visible;
@@ -147,7 +153,7 @@ export default function App() {
         <main className="content" aria-busy={state.stage !== 'done'}>
           <StatusLine
             state={state}
-            visibleCount={shown.length}
+            visibleCount={shown.length + landmarkResults.length}
             onOpenWorker={(source) => void browser.runtime.sendMessage({ type: 'kiwi:focus-worker', source })}
           />
           <SuggestionLine moved={state.query === moved?.query && state.mode === moved?.mode ? moved : null} offer={moved ? null : suggestion?.kind === 'offer' ? suggestion.mode : null} onStayOnWeb={stayOnWeb} onSwitch={changeMode} />
@@ -161,7 +167,10 @@ export default function App() {
               </div>
             )}
             <div className="results">
-              {state.mode === 'academic' && visible.length > 0 && (
+              {state.mode === 'academic' && state.plan && <PlanLine plan={state.plan} />}
+          {state.mode === 'academic' && <Landmarks results={landmarkResults} citedUrls={citedUrls} />}
+
+          {state.mode === 'academic' && visible.length > 0 && (
                 <div className="toolbar" role="group" aria-label="筛选">
                   <div className="chips">
                     <button type="button" className="chip" aria-pressed={since === undefined} onClick={() => setSince(undefined)}>
