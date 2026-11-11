@@ -33,6 +33,11 @@ const MARKS = {
   pubmed: { slug: 'pubmed' },
   europepmc: { letter: 'P', color: '#1A7F5A' },
   dblp: { slug: 'dblp' },
+  // Not Baidu's own glyph: two marks that look the same for two engines would read as one engine counted twice.
+  baiduxueshu: { letter: '学', color: '#2932E1' },
+  cnki: { letter: '知', color: '#C8161D' },
+  // Not Clarivate's glyph: that is the company's mark, not the product's.
+  wos: { letter: 'W', color: '#5E33BF' },
   youtube: { slug: 'youtube' },
   bilibili: { slug: 'bilibili' },
   zhihu: { slug: 'zhihu' },
