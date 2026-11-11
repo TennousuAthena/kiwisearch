@@ -9,7 +9,7 @@ import { rerank } from './rerank';
 import { SOURCES } from './sources';
 import { buildCitations, buildSummaryMessages } from './summarize';
 import { modeHasText } from './types';
-import type { Env, FusedResult, FusionConfig, PipelineEvent, PipelineResult, RunOptions, SearchHit, SourceId } from './types';
+import type { BlockReason, Env, FusedResult, FusionConfig, PipelineEvent, PipelineResult, RunOptions, SearchHit, SourceId } from './types';
 
 /** How long a browser source may sit behind other requests for its engine before it counts as stuck. */
 const QUEUE_WAIT_MS = 60_000;
@@ -27,6 +27,7 @@ interface SourceRun {
   /** Resolves if the source reports a captcha or block page. */
   blocked: Promise<void>;
   wasBlocked: () => boolean;
+  blockedReason: () => BlockReason;
 }
 
 export async function runSearch(
@@ -102,6 +103,7 @@ export async function runSearch(
         task: Promise.resolve({ kind: 'done', hits: cached, ms: 0 }),
         blocked: new Promise<void>(() => {}),
         wasBlocked: () => false,
+        blockedReason: () => 'captcha',
       };
     }
 
@@ -126,15 +128,17 @@ export async function runSearch(
     if (signal?.aborted) parentAbort();
 
     let blocked = false;
+    let blockedReason: BlockReason = 'captcha';
     let resolveBlocked!: () => void;
     const blockedSignal = new Promise<void>((resolve) => {
       resolveBlocked = resolve;
     });
-    const onBlocked = (message: string) => {
+    const onBlocked = (message: string, reason: BlockReason = 'captcha') => {
       if (blocked || signal?.aborted) return;
       blocked = true;
+      blockedReason = reason;
       arm(BLOCKED_TIMEOUT_MS, `timeout after ${BLOCKED_TIMEOUT_MS}ms`);
-      emit({ type: 'source_blocked', source: id, message });
+      emit({ type: 'source_blocked', source: id, message, reason });
       resolveBlocked();
     };
 
@@ -160,7 +164,7 @@ export async function runSearch(
         signal?.removeEventListener('abort', parentAbort);
       }
     })();
-    return { id, started, task, blocked: blockedSignal, wasBlocked: () => blocked };
+    return { id, started, task, blocked: blockedSignal, wasBlocked: () => blocked, blockedReason: () => blockedReason };
   };
 
   /** Merge one late source into the finished results; judged like the rest when the decision model is on. */
@@ -222,7 +226,7 @@ export async function runSearch(
     if (raced.kind === 'blocked' || run.wasBlocked()) {
       settled.add(run.id);
       pending -= 1;
-      recordStat({ source: run.id, count: 0, ms: Date.now() - run.started, status: 'blocked' });
+      recordStat({ source: run.id, count: 0, ms: Date.now() - run.started, status: 'blocked', blockedReason: run.blockedReason() });
       deferLate(run);
       return;
     }

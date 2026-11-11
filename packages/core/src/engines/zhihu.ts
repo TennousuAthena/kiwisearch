@@ -20,11 +20,14 @@ export const zhihu: BrowserEngine = {
   label: '知乎',
   modes: ['zhihu'],
   buildUrl: (query) => `https://www.zhihu.com/search?type=content&q=${encodeURIComponent(query)}`,
-  matches: ['*://www.zhihu.com/search*', '*://www.zhihu.com/signin*'],
+  matches: ['*://www.zhihu.com/search*', '*://www.zhihu.com/signin*', '*://www.zhihu.com/account/*'],
   readySelector: '.ContentItem',
   // Both are guesses: the sign-in page was seen once, but no logged-out search page was captured.
-  blockedSelector: '.SignFlow',
-  isBlockedUrl: (url) => /^\/signin(?:\/|$)/.test(new URL(url).pathname),
+  loginSelector: '.SignFlow',
+  isLoginUrl: (url) => /^\/signin(?:\/|$)/.test(new URL(url).pathname),
+  // Zhihu's own verification page; the path is from memory and was never captured.
+  blockedSelector: ':not(*)',
+  isBlockedUrl: (url) => /^\/account\/unhuman(?:\/|$)/.test(new URL(url).pathname),
   extract(doc, pageUrl) {
     const hits: ReturnType<BrowserEngine['extract']> = [];
     const seen = new Set<string>();

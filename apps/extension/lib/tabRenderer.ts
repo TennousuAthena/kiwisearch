@@ -1,4 +1,4 @@
-import type { BrowserEngine, BrowserRunOptions, SearchHit, SearchMode, SourceId } from '@kiwi-search/core';
+import type { BlockReason, BrowserEngine, BrowserRunOptions, SearchHit, SearchMode, SourceId } from '@kiwi-search/core';
 import type { Browser } from 'wxt/browser';
 import { browser } from 'wxt/browser';
 import { createAsyncLock, mergeRendererState, workerIdentity, type RendererState } from './rendererState';
@@ -13,7 +13,7 @@ interface PendingRequest {
   focusOnCaptcha: boolean;
   resolve: (hits: SearchHit[]) => void;
   reject: (error: Error) => void;
-  onBlocked: (message: string) => void;
+  onBlocked: (message: string, reason?: BlockReason) => void;
   restoreWindowId?: number;
   focusedForCaptcha: boolean;
   cleanup: () => void;
@@ -288,7 +288,7 @@ export function workerForTab(
 }
 
 export async function handleWorkerMessage(message: unknown, sender: Browser.runtime.MessageSender): Promise<unknown> {
-  const msg = message as { type?: string; requestId?: string; source?: string; hits?: Omit<SearchHit, 'source'>[] };
+  const msg = message as { type?: string; requestId?: string; source?: string; reason?: BlockReason; hits?: Omit<SearchHit, 'source'>[] };
   const tabId = sender.tab?.id;
   if (msg?.type === 'kiwi:worker?') {
     const pending = workerForTab(tabId);
@@ -298,8 +298,10 @@ export async function handleWorkerMessage(message: unknown, sender: Browser.runt
     const request = pendingById.get(msg.requestId ?? '');
     if (request && request.tabId === tabId) {
       const state = await withStateLock(() => readState());
-      request.onBlocked('需要在搜索引擎页面手动完成验证');
-      if (state) await focusForCaptcha(request, state, request.focusOnCaptcha);
+      const reason: BlockReason = msg.reason === 'login' ? 'login' : 'captcha';
+      request.onBlocked(reason === 'login' ? '需要在这个浏览器里登录' : '需要在搜索引擎页面手动完成验证', reason);
+      // Only a captcha may bring the window forward by itself; a login wall waits for the user to ask.
+      if (state) await focusForCaptcha(request, state, request.focusOnCaptcha && reason === 'captcha');
     }
     return { ok: true };
   }

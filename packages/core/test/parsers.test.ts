@@ -45,10 +45,10 @@ describe('browser engine extraction fixtures', () => {
           const window = new Window();
           window.document.write(html);
           const isBlockedUrl = engine.isBlockedUrl?.(blockedUrl[id] ?? 'https://yandex.com/showcaptcha');
-          expect(isBlockedUrl || window.document.querySelector(engine.blockedSelector)).toBeTruthy();
+          expect(isBlockedUrl || engine.isLoginUrl?.(blockedUrl[id] ?? 'https://yandex.com/showcaptcha') || window.document.querySelector(engine.blockedSelector)).toBeTruthy();
         } catch (error) {
           if (!(error instanceof Error) || !('code' in error && error.code === 'ENOENT')) throw error;
-          expect(engine.isBlockedUrl?.(blockedUrl[id] ?? 'https://yandex.com/showcaptcha')).toBeTruthy();
+          expect(engine.isBlockedUrl?.(blockedUrl[id] ?? 'https://yandex.com/showcaptcha') || engine.isLoginUrl?.(blockedUrl[id] ?? 'https://yandex.com/showcaptcha')).toBeTruthy();
         }
       });
     }

@@ -1,4 +1,4 @@
-import type { Citation, FusedResult, PipelineEvent, SearchMode, SourceId } from '@kiwi-search/core';
+import type { BlockReason, Citation, FusedResult, PipelineEvent, SearchMode, SourceId } from '@kiwi-search/core';
 
 export type SummaryStatus = 'idle' | 'loading' | 'starting' | 'streaming' | 'done' | 'error';
 
@@ -9,8 +9,9 @@ export interface SearchState {
   finishedAt?: number;
   /** Sources still running. Only used to tell whether more results may arrive; never shown by name. */
   running: SourceId[];
-  /** Sources waiting on a captcha; the page offers one "verify" action for the first of them. */
+  /** Sources waiting on a captcha or a login; the page offers one action per kind. */
   blocked: SourceId[];
+  blockedBy: Partial<Record<SourceId, BlockReason>>;
   results: FusedResult[];
   stage: 'searching' | 'refining' | 'done';
   /** Set when the decision model failed or timed out; results fall back to the plain fused order. */
@@ -28,6 +29,7 @@ export const emptyState = (query: string, mode: SearchMode, now = Date.now()): S
   startedAt: now,
   running: [],
   blocked: [],
+  blockedBy: {},
   results: [],
   stage: 'searching',
   citations: [],
@@ -37,14 +39,18 @@ export const emptyState = (query: string, mode: SearchMode, now = Date.now()): S
 
 const add = (list: SourceId[], id: SourceId) => (list.includes(id) ? list : [...list, id]);
 const remove = (list: SourceId[], id: SourceId) => list.filter((existing) => existing !== id);
-const settled = (s: SearchState, id: SourceId) => ({ running: remove(s.running, id), blocked: remove(s.blocked, id) });
+const withoutBlock = (by: SearchState['blockedBy'], id: SourceId) => Object.fromEntries(Object.entries(by).filter(([source]) => source !== id)) as SearchState['blockedBy'];
+const settled = (s: SearchState, id: SourceId) => ({ running: remove(s.running, id), blocked: remove(s.blocked, id), blockedBy: withoutBlock(s.blockedBy, id) });
+
+/** The first source blocked for `reason`, for the page's one action per kind. */
+export const firstBlocked = (s: Pick<SearchState, 'blocked' | 'blockedBy'>, reason: BlockReason): SourceId | undefined => s.blocked.find((id) => s.blockedBy[id] === reason);
 
 export function reduce(s: SearchState, e: PipelineEvent, now = Date.now()): SearchState {
   switch (e.type) {
     case 'source_start':
       return { ...s, running: add(s.running, e.source) };
     case 'source_blocked':
-      return { ...s, running: remove(s.running, e.source), blocked: add(s.blocked, e.source) };
+      return { ...s, running: remove(s.running, e.source), blocked: add(s.blocked, e.source), blockedBy: { ...s.blockedBy, [e.source]: e.reason } };
     case 'source_done':
     case 'source_error':
       return { ...s, ...settled(s, e.source) };

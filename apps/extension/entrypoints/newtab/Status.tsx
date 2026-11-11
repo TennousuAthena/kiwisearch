@@ -1,16 +1,19 @@
-import type { SearchMode } from '@kiwi-search/core';
+import type { SearchMode, SourceId } from '@kiwi-search/core';
 import { CircleAlertIcon, RotateIcon, TriangleAlertIcon } from '@/lib/icons';
 import { formatDuration } from '@/lib/results';
-import type { SearchState } from '@/lib/searchState';
+import { firstBlocked, type SearchState } from '@/lib/searchState';
 
 interface StatusProps {
   state: SearchState;
   visibleCount: number;
-  onVerify: () => void;
+  /** Bring the blocked source's own page forward, to solve its captcha or sign in. */
+  onOpenWorker: (source: SourceId) => void;
 }
 
 /** One quiet line under the tabs: the count, plus the few things that need the user's attention. */
-export function StatusLine({ state, visibleCount, onVerify }: StatusProps) {
+export function StatusLine({ state, visibleCount, onOpenWorker }: StatusProps) {
+  const login = firstBlocked(state, 'login');
+  const captcha = firstBlocked(state, 'captcha');
   const done = state.stage === 'done' && !state.fatal;
   const loadingMore = state.stage === 'done' && state.running.length > 0;
   return (
@@ -21,8 +24,14 @@ export function StatusLine({ state, visibleCount, onVerify }: StatusProps) {
         </span>
       )}
       {loadingMore && <span>仍在加载更多结果…</span>}
-      {state.blocked.length > 0 && (
-        <button type="button" className="status-action" onClick={onVerify}>
+      {login && (
+        <button type="button" className="status-action warn" onClick={() => onOpenWorker(login)}>
+          <TriangleAlertIcon />
+          有来源需要先登录，暂时没有它的结果 · 去登录
+        </button>
+      )}
+      {captcha && (
+        <button type="button" className="status-action warn" onClick={() => onOpenWorker(captcha)}>
           <TriangleAlertIcon />
           有来源需要人机验证，暂时没有它的结果 · 去验证
         </button>
@@ -63,7 +72,7 @@ export function EmptyState({ mode, waitingForVerification, optionsUrl }: { mode:
   return (
     <div className="empty">
       <h3>没有找到相关结果</h3>
-      <p>{waitingForVerification ? '有来源正在等待验证。完成验证后，结果会自动补充到这里。' : EMPTY_HINTS[mode]}</p>
+      <p>{waitingForVerification ? '有来源正在等待验证或登录。完成后，结果会自动补充到这里。' : EMPTY_HINTS[mode]}</p>
       {!waitingForVerification && (
         <a href={optionsUrl} target="_blank" rel="noreferrer">
           打开设置

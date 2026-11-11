@@ -4,6 +4,8 @@ import { ensureBridge } from '@/lib/bridge';
 import type { PortMessage, SearchRequest } from '@/lib/messages';
 import { loadConfig } from '@/lib/settings';
 import { handleFaviconMessage } from '@/lib/faviconService';
+import { handleLlmTest } from '@/lib/llmTest';
+import { recordSourceStatus } from '@/lib/sourceStatus';
 import { collectIdleWorkers, forgetWorkerTab, handleWorkerMessage, runBrowserEngine } from '@/lib/tabRenderer';
 
 /** The new-tab page shows results once the fast sources are in; slower ones merge in afterwards. */
@@ -68,7 +70,8 @@ export default defineBackground(() => {
 
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (typeof (msg as { type?: string })?.type !== 'string' || !(msg as { type: string }).type.startsWith('kiwi:')) return false;
-    const reply = (msg as { type: string }).type === 'kiwi:favicon' ? handleFaviconMessage(msg) : handleWorkerMessage(msg, sender);
+    const type = (msg as { type: string }).type;
+    const reply = type === 'kiwi:favicon' ? handleFaviconMessage(msg) : type === 'kiwi:test-llm' ? handleLlmTest(msg) : handleWorkerMessage(msg, sender);
     void reply.then(sendResponse).catch((error) => sendResponse({ error: String(error) }));
     return true;
   });
@@ -109,6 +112,7 @@ export default defineBackground(() => {
           softDeadlineMs: UI_SOFT_DEADLINE_MS,
           signal: current.signal,
           onEvent: (event) => {
+            recordSourceStatus(event);
             if (event.type === 'source_blocked') deferredSources.add(event.source);
             // Sources still running at the soft deadline report after `done`; keep the port open for them.
             if (event.type === 'done') {

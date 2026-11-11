@@ -38,6 +38,34 @@ describe('runSearch', () => {
     expect(events.some((event) => event.type === 'source_done' && event.source === 'google')).toBe(true);
   });
 
+  it('tells a login wall from a captcha when the engine says which', async () => {
+    const events: PipelineEvent[] = [];
+    const env: Env = {
+      fetch: fetch,
+      runBrowserEngine: async (_engine, _query, opts) => {
+        opts.onBlocked('需要登录', 'login');
+        return [];
+      },
+    };
+    const result = await runSearch('query', configFor('google'), env, { onEvent: (event) => events.push(event) });
+    expect(events.find((event) => event.type === 'source_blocked')).toMatchObject({ source: 'google', reason: 'login' });
+    expect(result.sourceStats[0]).toMatchObject({ status: 'blocked', blockedReason: 'login' });
+  });
+
+  it('treats a block with no stated reason as a captcha', async () => {
+    const events: PipelineEvent[] = [];
+    const env: Env = {
+      fetch: fetch,
+      runBrowserEngine: async (_engine, _query, opts) => {
+        opts.onBlocked('请验证');
+        return [];
+      },
+    };
+    const result = await runSearch('query', configFor('google'), env, { onEvent: (event) => events.push(event) });
+    expect(events.find((event) => event.type === 'source_blocked')).toMatchObject({ reason: 'captcha' });
+    expect(result.sourceStats[0]).toMatchObject({ blockedReason: 'captcha' });
+  });
+
   it('returns main results before blocked results and merges late hits without rerunning the summary', async () => {
     const config = configFor('google', 'bing');
     config.summary.enabled = true;

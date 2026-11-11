@@ -1,6 +1,7 @@
 import { isSearchMode, runSearch, usableSources, type Env, type FusionConfig, type RunOptions, type SourceId } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
 import { loadBridge, loadConfig } from './settings';
+import { recordSourceStatus } from './sourceStatus';
 
 /**
  * WebSocket client that lets the local MCP server (packages/mcp) run searches
@@ -87,6 +88,7 @@ async function onMessage(sock: WebSocket, raw: string, makeEnv: () => Env) {
       limit: msg.options?.limit,
       signal: ctrl.signal,
       onEvent: (event) => {
+        recordSourceStatus(event);
         if (event.type === 'source_blocked') {
           blockedSources.add(event.source);
           send({ type: 'progress', event });

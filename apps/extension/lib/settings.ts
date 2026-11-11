@@ -26,3 +26,13 @@ export async function loadBridge(): Promise<BridgeSettings> {
 export async function saveBridge(bridge: BridgeSettings): Promise<void> {
   await browser.storage.local.set({ bridge });
 }
+
+/** Whether the "开始使用" guide on the settings page has been finished or dismissed. Not part of the search config. */
+export async function loadOnboardingDone(): Promise<boolean> {
+  const { onboarding } = await browser.storage.local.get('onboarding');
+  return !!(onboarding as { done?: boolean } | undefined)?.done;
+}
+
+export async function saveOnboardingDone(done: boolean): Promise<void> {
+  await browser.storage.local.set({ onboarding: { done } });
+}

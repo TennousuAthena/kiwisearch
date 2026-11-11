@@ -57,11 +57,13 @@ export default defineContentScript({
 
     function check() {
       if (finished || blockedSent) return;
-      if (engine.isBlockedUrl?.(location.href) || document.querySelector(engine.blockedSelector)) {
+      // A login wall is told apart from a captcha: the page then says "sign in" instead of "verify".
+      const login = !!engine.isLoginUrl?.(location.href) || (!!engine.loginSelector && !!document.querySelector(engine.loginSelector));
+      if (login || engine.isBlockedUrl?.(location.href) || document.querySelector(engine.blockedSelector)) {
         blockedSent = true;
         clearTimeout(settleTimer);
         clearTimeout(pageTimer);
-        void browser.runtime.sendMessage({ type: 'kiwi:blocked', requestId });
+        void browser.runtime.sendMessage({ type: 'kiwi:blocked', requestId, reason: login ? 'login' : 'captcha' });
         // After the user solves it the engine navigates and this script is injected afresh.
         pageTimer = setTimeout(stop, BLOCKED_TIMEOUT_MS);
         return;

@@ -26,10 +26,13 @@ function noteEngine(id: Extract<SourceId, 'xiaohongshu' | 'rednote'>, label: str
     label,
     modes: ['xiaohongshu'],
     buildUrl: (query) => `${origin}/search_result?keyword=${encodeURIComponent(query)}&source=web_search_result_notes`,
-    matches: [`*://${hostname}/search_result*`],
+    matches: [`*://${hostname}/search_result*`, `*://${hostname}/website-login/*`],
     readySelector: 'section.note-item',
     // A guess: the logged-out explore page shows a modal; no logged-out search page was captured.
-    blockedSelector: '.login-container',
+    loginSelector: '.login-container',
+    // The slider verification page; the path is from memory and was never captured.
+    blockedSelector: ':not(*)',
+    isBlockedUrl: (url) => /^\/website-login\/captcha(?:\/|$)/.test(new URL(url).pathname),
     extract(doc, pageUrl) {
       const hits: ReturnType<BrowserEngine['extract']> = [];
       const seen = new Set<string>();
