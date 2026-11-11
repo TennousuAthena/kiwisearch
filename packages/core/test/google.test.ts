@@ -3,6 +3,7 @@ import { Window } from 'happy-dom';
 import { google } from '../src/engines/google';
 import { makeBrowserSource } from '../src/engines/shared';
 import type { Env, FetchLike, SearchHit } from '../src/types';
+import { sourceContext } from './helpers';
 
 const hit = (url: string, rank = 1): SearchHit => ({
   url,
@@ -28,14 +29,14 @@ describe('Google result links', () => {
         <div class="MjjYud"><a href="/url?q=https%3A%2F%2Fexample.com%2Fdirect"><h3>Direct page</h3></a><cite>https://www.example.com</cite></div>
       </div>
     `);
-    const hits = google.extract(window.document as unknown as ParentNode, 'https://www.google.com/search');
+    const hits = google.extract(window.document as unknown as ParentNode, 'https://www.google.com/search', 'web');
     expect(hits.map((result) => result.host)).toEqual(['example.com', undefined, undefined]);
   });
 
   it('keeps unwrapping /url?q= links during extraction', () => {
     const window = new Window();
     window.document.write('<div id="search"><a href="/url?q=https%3A%2F%2Fexample.com%2Farticle"><h3>Article</h3></a></div>');
-    const hits = google.extract(window.document as unknown as ParentNode, 'https://www.google.com/search');
+    const hits = google.extract(window.document as unknown as ParentNode, 'https://www.google.com/search', 'web');
     expect(hits[0].url).toBe('https://example.com/article');
   });
 
@@ -117,13 +118,7 @@ describe('Google result links', () => {
       runBrowserEngine: async () => [hit(wrapper)],
     };
     const source = makeBrowserSource(google);
-    const hits = await source.search('query', {
-      env,
-      settings: { enabled: true },
-      count: 10,
-      signal: new AbortController().signal,
-      onBlocked: () => {},
-    });
+    const hits = await source.search('query', sourceContext(env, { enabled: true }, { count: 10 }));
     expect(hits[0].url).toBe('https://example.com/resolved');
     expect(hits[0].source).toBe('google');
     expect(hits[0].rank).toBe(1);

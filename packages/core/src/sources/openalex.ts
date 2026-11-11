@@ -10,7 +10,7 @@ interface OpenAlexWork {
   publication_date?: string | null;
   cited_by_count?: number;
   authorships?: { author: { display_name: string } }[];
-  primary_location?: { landing_page_url?: string | null; source?: { display_name?: string } | null } | null;
+  primary_location?: { landing_page_url?: string | null; pdf_url?: string | null; source?: { display_name?: string } | null } | null;
   abstract_inverted_index?: Record<string, number[]> | null;
 }
 
@@ -24,7 +24,7 @@ export function reconstructAbstract(index: Record<string, number[]> | null | und
 export const openalex: SearchSource = {
   id: 'openalex',
   label: 'OpenAlex',
-  kind: 'academic',
+  modes: ['academic'],
   requiresKey: false,
   async search(query, { env, settings, count, signal }) {
     const params = new URLSearchParams({
@@ -54,6 +54,7 @@ export const openalex: SearchSource = {
           year: w.publication_year ?? undefined,
           citations: w.cited_by_count,
           doi: w.doi?.replace(/^https?:\/\/doi\.org\//, ''),
+          pdfUrl: w.primary_location?.pdf_url ?? undefined,
         },
         source: 'openalex' as const,
         rank: i + 1,

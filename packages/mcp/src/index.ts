@@ -5,7 +5,7 @@ import { chmod, mkdir, open, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { BridgeHub, RelayClient } from './bridge';
+import { BridgeSession } from './session';
 import { createMcpServer } from './server';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
@@ -44,23 +44,13 @@ function configuredPort(): number {
 
 async function main(): Promise<void> {
   const token = await pairingToken();
-  const port = configuredPort();
-  const extensionId = process.env.KIWI_EXTENSION_ID;
-  const hub = new BridgeHub(token, { port, extensionId });
-  let bridge: BridgeHub | RelayClient;
-  try {
-    await hub.start();
-    bridge = hub;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
-    bridge = await RelayClient.connect(port, token);
-  }
-  const server = createMcpServer(bridge);
+  const session = new BridgeSession(token, { port: configuredPort(), extensionId: process.env.KIWI_EXTENSION_ID });
+  await session.start();
+  const server = createMcpServer(session);
   const transport = new StdioServerTransport();
   await server.connect(transport);
   const close = async () => {
-    if (bridge instanceof BridgeHub) await bridge.close();
-    else bridge.close();
+    await session.close();
     await server.close();
   };
   process.once('SIGINT', () => void close().finally(() => process.exit()));

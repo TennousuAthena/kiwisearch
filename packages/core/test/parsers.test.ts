@@ -11,17 +11,20 @@ describe('browser engine extraction fixtures', () => {
     baidu: 'https://wappass.baidu.com/',
     duckduckgo: 'https://duckduckgo.com/anomaly.js',
     scholar: 'https://scholar.google.com/sorry/',
+    youtube: 'https://consent.youtube.com/m?continue=https%3A%2F%2Fwww.youtube.com%2Fresults',
+    zhihu: 'https://www.zhihu.com/signin?next=%2F',
+    x: 'https://x.com/i/jf/onboarding/web',
   };
   for (const [id, engine] of Object.entries(BROWSER_ENGINES)) {
     const fixture = new URL(`./fixtures/${id}.html`, import.meta.url);
     const blockedFixture = new URL(`./fixtures/${id}-blocked.html`, import.meta.url);
-    const files = new Set(['google.html', 'bing.html', 'baidu.html', 'duckduckgo.html', 'scholar.html']);
+    const files = new Set(['google.html', 'bing.html', 'baidu.html', 'duckduckgo.html', 'scholar.html', 'youtube.html', 'bilibili.html', 'zhihu.html', 'rednote.html', 'weixin.html']);
     if (files.has(`${id}.html`)) {
       it(`${id} extracts ranked results from a real browser page`, () => {
         const html = readFileSync(fixture, 'utf8');
         const window = new Window();
         window.document.write(html);
-        const hits = engine.extract(window.document as unknown as ParentNode, `https://${id === 'scholar' ? 'scholar.google.com' : id === 'baidu' ? 'www.baidu.com' : `${id}.com`}/`);
+        const hits = engine.extract(window.document as unknown as ParentNode, `https://${id === 'scholar' ? 'scholar.google.com' : id === 'baidu' ? 'www.baidu.com' : `${id}.com`}/`, engine.modes[0]);
         expect(hits.length).toBeGreaterThanOrEqual(8);
         for (const hit of hits) {
           expect(hit.url).toMatch(/^https?:\/\//);
@@ -34,7 +37,8 @@ describe('browser engine extraction fixtures', () => {
         }
       });
     }
-    if (id !== 'yandex') {
+    // Yandex, Bilibili, Xiaohongshu and RedNote have no captured block page, and inventing one would only prove the guess.
+    if (!['yandex', 'bilibili', 'xiaohongshu', 'rednote', 'sogou', 'weixin'].includes(id)) {
       it(`${id} recognizes blocked pages when present`, () => {
         try {
           const html = readFileSync(blockedFixture, 'utf8');

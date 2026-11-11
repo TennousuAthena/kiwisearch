@@ -4,7 +4,7 @@ import { absoluteHttpUrl, cleanText } from './shared';
 export const baidu: BrowserEngine = {
   id: 'baidu',
   label: '百度',
-  kind: 'web',
+  modes: ['web'],
   buildUrl: (query, count) => `https://www.baidu.com/s?wd=${encodeURIComponent(query)}&rn=${Math.min(count, 50)}`,
   matches: ['*://*.baidu.com/s*', '*://wappass.baidu.com/*', '*://passport.baidu.com/*'],
   readySelector: '#content_left .result, #content_left .c-container',

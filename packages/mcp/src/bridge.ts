@@ -8,7 +8,7 @@ export const PAIRING_MISMATCH_MESSAGE = '配对令牌不匹配，请在 Kiwi Sea
 export interface BridgeRequest {
   type: 'search' | 'answer' | 'list_sources';
   query?: string;
-  options?: { sources?: string[]; limit?: number; summarize?: boolean };
+  options?: { sources?: string[]; limit?: number; summarize?: boolean; mode?: string };
 }
 
 export interface BridgeReply {
@@ -30,6 +30,15 @@ interface Pending {
 
 function asText(data: RawData): string {
   return typeof data === 'string' ? data : data.toString();
+}
+
+function parseMessage<T>(data: RawData): T | null {
+  try {
+    const value = JSON.parse(asText(data)) as unknown;
+    return value && typeof value === 'object' ? (value as T) : null;
+  } catch {
+    return null;
+  }
 }
 
 function constantTimeEqual(actual: string, expected: string): boolean {
@@ -130,6 +139,8 @@ export class BridgeHub {
       this.pending.delete(id);
     }
     this.extension?.close();
+    // With noServer, wss.close() leaves clients connected and httpServer.close() waits for them forever.
+    for (const client of this.wss.clients) client.terminate();
     this.wss.close();
     if (this.started) await new Promise<void>((resolve) => this.httpServer.close(() => resolve()));
     this.started = false;
@@ -269,18 +280,31 @@ export class BridgeHub {
 
 export class RelayClient {
   private readonly pending = new Map<string, Pending>();
-  private constructor(private readonly socket: WebSocket, private readonly timeoutMs: number) {
-    socket.on('message', (data) => this.receive(JSON.parse(asText(data)) as BridgeReply));
+  private constructor(
+    private readonly socket: WebSocket,
+    private readonly timeoutMs: number,
+    onClose?: () => void,
+  ) {
+    socket.on('message', (data) => {
+      const message = parseMessage<BridgeReply>(data);
+      if (message) this.receive(message);
+    });
     socket.on('close', () => {
       for (const [, pending] of this.pending) {
         clearTimeout(pending.timer);
         pending.reject(new Error(NOT_CONNECTED_MESSAGE));
       }
       this.pending.clear();
+      onClose?.();
     });
   }
 
-  static async connect(port: number, token: string, timeoutMs = 150000): Promise<RelayClient> {
+  isOpen(): boolean {
+    return this.socket.readyState === WebSocket.OPEN;
+  }
+
+  /** `onClose` fires when the hub goes away, so the caller can reconnect or take over. */
+  static async connect(port: number, token: string, timeoutMs = 150000, onClose?: () => void): Promise<RelayClient> {
     const socket = new WebSocket(`ws://127.0.0.1:${port}/mcp`, { origin: 'http://127.0.0.1' });
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -303,7 +327,8 @@ export class RelayClient {
         reject(new Error(reason.toString() || PAIRING_MISMATCH_MESSAGE));
       };
       const onMessage = (data: RawData) => {
-        const message = JSON.parse(asText(data)) as { type?: string; error?: string };
+        const message = parseMessage<{ type?: string; error?: string }>(data);
+        if (!message) return;
         if (message.type === 'ready') {
           cleanup();
           resolve();
@@ -319,11 +344,12 @@ export class RelayClient {
         socket.on('message', onMessage);
       });
     });
-    return new RelayClient(socket, timeoutMs);
+    return new RelayClient(socket, timeoutMs, onClose);
   }
 
   request(request: BridgeRequest, signal?: AbortSignal, onProgress?: (reply: BridgeReply) => void): Promise<BridgeReply> {
     if (signal?.aborted) return Promise.reject(signal.reason ?? new Error('MCP request cancelled'));
+    if (!this.isOpen()) return Promise.reject(new Error(NOT_CONNECTED_MESSAGE));
     const id = randomUUID();
     return new Promise<BridgeReply>((resolve, reject) => {
       const timer = setTimeout(() => {

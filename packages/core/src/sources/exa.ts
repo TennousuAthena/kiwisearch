@@ -9,7 +9,7 @@ interface ExaResponse {
 export const exa: SearchSource = {
   id: 'exa',
   label: 'Exa',
-  kind: 'ai',
+  modes: ['web'],
   requiresKey: true,
   async search(query, { env, settings, count, signal }) {
     const data = await fetchJson<ExaResponse>(env.fetch, 'https://api.exa.ai/search', {

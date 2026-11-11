@@ -88,7 +88,7 @@ async function resolveRedirect(
 export const google: BrowserEngine = {
   id: 'google',
   label: 'Google',
-  kind: 'web',
+  modes: ['web'],
   buildUrl: (query, count) => `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${Math.min(count, 20)}`,
   matches: ['*://*.google.com/search*', '*://*.google.com/sorry/*', '*://*.google.com.hk/search*'],
   readySelector: '#search a h3, #rso a h3',

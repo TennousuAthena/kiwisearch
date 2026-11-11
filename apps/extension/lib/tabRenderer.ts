@@ -1,4 +1,4 @@
-import type { BrowserEngine, SearchHit, SourceId } from '@kiwi-search/core';
+import type { BrowserEngine, BrowserRunOptions, SearchHit, SearchMode, SourceId } from '@kiwi-search/core';
 import type { Browser } from 'wxt/browser';
 import { browser } from 'wxt/browser';
 import { createAsyncLock, mergeRendererState, workerIdentity, type RendererState } from './rendererState';
@@ -8,10 +8,13 @@ interface PendingRequest {
   requestId: string;
   engine: BrowserEngine;
   tabId: number;
+  count: number;
+  mode: SearchMode;
+  focusOnCaptcha: boolean;
   resolve: (hits: SearchHit[]) => void;
   reject: (error: Error) => void;
   onBlocked: (message: string) => void;
-  restoreTabId?: number;
+  restoreWindowId?: number;
   focusedForCaptcha: boolean;
   cleanup: () => void;
 }
@@ -52,20 +55,24 @@ async function saveState(state: RendererState): Promise<void> {
   await browser.storage.session.set({ [STORAGE_KEY]: state });
 }
 
-async function normalWindow(): Promise<{ id: number; initialTabId?: number }> {
-  try {
-    const focused = await browser.windows.getLastFocused({ windowTypes: ['normal'] });
-    if (focused.id !== undefined && focused.type === 'normal' && !focused.incognito) return { id: focused.id };
-  } catch {
-    // The browser may not have a focused normal window.
-  }
-  const windows = await browser.windows.getAll({ populate: false });
-  const normal = windows.find((window) => window.id !== undefined && window.type === 'normal' && !window.incognito);
-  if (normal?.id !== undefined) return { id: normal.id };
+/** A window of its own, minimized, so search pages never show up in the window the user is working in. */
+async function createWorkerWindow(): Promise<{ id: number; initialTabId?: number }> {
   const created = await browser.windows.create({ url: 'about:blank', type: 'normal', state: 'minimized', focused: false });
-  if (created?.id === undefined) throw new Error('Unable to create a normal browser window for search workers');
+  if (created?.id === undefined) throw new Error('Unable to create a window for search workers');
+  // `state: 'minimized'` is ignored at creation on some platforms (macOS Chromium reports `normal`), so ask again once the window exists.
+  await browser.windows.update(created.id, { state: 'minimized' }).catch(() => {});
   const [tab] = await browser.tabs.query({ windowId: created.id });
   return { id: created.id, initialTabId: tab?.id };
+}
+
+/**
+ * Put tabs into the worker group (a new one in `windowId` without `groupId`), titled so it is recognizable if the window is ever brought forward.
+ * A new group is created in the *current* window unless `createProperties.windowId` says otherwise, which would pull the tabs into the user's window.
+ */
+async function groupWorkerTabs(tabIds: [number, ...number[]], windowId: number, groupId?: number): Promise<number> {
+  const id = await browser.tabs.group(groupId === undefined ? { tabIds, createProperties: { windowId } } : { tabIds, groupId });
+  await browser.tabGroups.update(id, { title: GROUP_TITLE, color: 'grey' });
+  return id;
 }
 
 async function validState(state: RendererState | null): Promise<RendererState | null> {
@@ -81,6 +88,7 @@ async function validState(state: RendererState | null): Promise<RendererState | 
     const group = await browser.tabGroups.get(state.groupId);
     if (group.windowId !== state.windowId) return null;
   } catch {
+    // The group is gone (the user ungrouped its tabs): group the worker tabs that are still in the window again.
     const remaining: number[] = [];
     for (const tabId of Object.values(state.tabs)) {
       if (tabId === undefined) continue;
@@ -92,13 +100,13 @@ async function validState(state: RendererState | null): Promise<RendererState | 
       }
     }
     if (!remaining.length) return null;
-    state.groupId = await browser.tabs.group({ tabIds: remaining as [number, ...number[]] });
-    await browser.tabGroups.update(state.groupId, { title: GROUP_TITLE, color: 'grey', collapsed: true });
+    state.groupId = await groupWorkerTabs(remaining as [number, ...number[]], state.windowId);
     await saveState(state);
   }
   for (const [id, tabId] of Object.entries(state.tabs) as [SourceId, number][]) {
     try {
       const tab = await browser.tabs.get(tabId);
+      // A tab the user dragged out of the worker window or its group is theirs now.
       if (tab.windowId !== state.windowId || tab.groupId !== state.groupId) delete state.tabs[id];
     } catch {
       delete state.tabs[id];
@@ -110,26 +118,15 @@ async function validState(state: RendererState | null): Promise<RendererState | 
 async function ensureState(engineId: SourceId): Promise<RendererState> {
   const existing = await validState(await readState());
   if (existing) return existing;
-  const { id: windowId, initialTabId } = await normalWindow();
-  const existingGroup = (await browser.tabGroups.query({ windowId })).find((group) => group.title === GROUP_TITLE);
-  let groupId = existingGroup?.id;
-  let tab = groupId === undefined
-    ? undefined
-    : (await browser.tabs.query({ windowId, groupId })).find((candidate) => candidate.id !== undefined);
-  if (!tab) {
-    tab = initialTabId === undefined
-      ? await browser.tabs.create({ windowId, url: 'about:blank', active: false })
-      : await browser.tabs.get(initialTabId);
-  }
-  if (tab.id === undefined) throw new Error('Unable to create a worker tab');
-  if (groupId === undefined) groupId = await browser.tabs.group({ tabIds: [tab.id] });
-  else if (tab.groupId !== groupId) await browser.tabs.group({ tabIds: [tab.id], groupId });
-  await browser.tabs.update(tab.id, { active: false, muted: true, autoDiscardable: false });
-  await browser.tabGroups.update(groupId, { title: GROUP_TITLE, color: 'grey', collapsed: true });
+  const { id: windowId, initialTabId } = await createWorkerWindow();
+  const tabId = initialTabId ?? (await browser.tabs.create({ windowId, url: 'about:blank', active: false })).id;
+  if (tabId === undefined) throw new Error('Unable to create a worker tab');
+  const groupId = await groupWorkerTabs([tabId], windowId);
+  await browser.tabs.update(tabId, { muted: true, autoDiscardable: false });
   const state: RendererState = {
     windowId,
     groupId,
-    tabs: { [engineId]: tab.id },
+    tabs: { [engineId]: tabId },
     lastUsed: Date.now(),
     lastUsedByEngine: {},
   };
@@ -150,9 +147,8 @@ async function ensureWorkerTab(state: RendererState, engineId: SourceId): Promis
   }
   const tab = await browser.tabs.create({ windowId: state.windowId, url: 'about:blank', active: false });
   if (tab.id === undefined) throw new Error(`Unable to create ${engineId} worker tab`);
-  await browser.tabs.group({ tabIds: [tab.id], groupId: state.groupId });
+  await groupWorkerTabs([tab.id], state.windowId, state.groupId);
   await browser.tabs.update(tab.id, { muted: true, autoDiscardable: false });
-  await browser.tabGroups.update(state.groupId, { title: GROUP_TITLE, color: 'grey', collapsed: true });
   state.tabs[engineId] = tab.id;
   await saveState(state);
   return tab.id;
@@ -187,20 +183,22 @@ function enqueue<T>(engineId: SourceId, task: () => Promise<T>): Promise<T> {
   return next;
 }
 
-async function restoreAfterCaptcha(request: PendingRequest): Promise<void> {
+/** Put the worker window back out of the way once a verification is done, and hand focus back to where the user was. */
+async function hideWorker(windowId: number, restoreWindowId?: number): Promise<void> {
   try {
-    const state = await readState();
-    if (state) await browser.tabGroups.update(state.groupId, { collapsed: true });
-    if (request.restoreTabId !== undefined) {
-      await browser.tabs.update(request.restoreTabId, { active: true });
-      const tab = await browser.tabs.get(request.restoreTabId);
-      await browser.windows.update(tab.windowId, { focused: true });
-    }
+    await browser.windows.update(windowId, { state: 'minimized' });
+    if (restoreWindowId !== undefined) await browser.windows.update(restoreWindowId, { focused: true });
   } catch {
-    // The original tab or worker group may have been closed.
+    // The worker window or the original window may have been closed.
   }
 }
 
+async function restoreAfterCaptcha(request: PendingRequest): Promise<void> {
+  const state = await readState();
+  if (state) await hideWorker(state.windowId, request.restoreWindowId);
+}
+
+/** Bring the worker window up so the user can finish a verification. Only when asked for, or when the user opted in. */
 async function focusForCaptcha(
   request: PendingRequest,
   state: RendererState,
@@ -208,37 +206,27 @@ async function focusForCaptcha(
   force = false,
 ): Promise<void> {
   if (!force && (!focusOnCaptcha || request.focusedForCaptcha)) return;
-  if (force) request.restoreTabId = undefined;
   try {
-    const previousWindow = await browser.windows.getLastFocused({ windowTypes: ['normal'] });
-    if (previousWindow.id !== undefined && !previousWindow.incognito) {
-      const tabs = await browser.tabs.query({ windowId: previousWindow.id, active: true });
-      request.restoreTabId = tabs.find((tab) => tab.id !== request.tabId)?.id;
-    }
-    await browser.tabGroups.update(state.groupId, { collapsed: false });
+    const previous = await browser.windows.getLastFocused({ windowTypes: ['normal'] });
+    request.restoreWindowId = previous.id !== undefined && previous.id !== state.windowId && !previous.incognito ? previous.id : undefined;
+    await browser.windows.update(state.windowId, { state: 'normal', focused: true });
     await browser.tabs.update(request.tabId, { active: true });
-    await browser.windows.update(state.windowId, { focused: true });
     request.focusedForCaptcha = true;
   } catch {
-    // Keep the request alive; the user can open the worker tab manually.
+    // Keep the request alive; the user can open the worker window manually.
   }
 }
 
-export function runBrowserEngine(
-  engine: BrowserEngine,
-  query: string,
-  opts: { count: number; signal: AbortSignal; onBlocked: (message: string) => void },
-): Promise<SearchHit[]> {
+export function runBrowserEngine(engine: BrowserEngine, query: string, opts: BrowserRunOptions): Promise<SearchHit[]> {
   return enqueue(engine.id, async () => {
-    const config = await loadConfig();
     const last = await withStateLock(async () => {
       const state = await ensureState(engine.id);
       return lastStarted.get(engine.id) ?? state.lastUsedByEngine[engine.id] ?? 0;
     });
-    const waitFor = config.renderer.minIntervalMs - (Date.now() - last);
+    const waitFor = Math.max(opts.renderer.minIntervalMs, engine.minIntervalMs ?? 0) - (Date.now() - last);
     if (waitFor > 0) await pause(waitFor, opts.signal);
     if (opts.signal.aborted) throw opts.signal.reason ?? new Error('Search cancelled');
-    const { tabId, groupId } = await withStateLock(async () => {
+    const tabId = await withStateLock(async () => {
       if (opts.signal.aborted) throw opts.signal.reason ?? new Error('Search cancelled');
       const currentState = await ensureState(engine.id);
       const tabId = await ensureWorkerTab(currentState, engine.id);
@@ -248,8 +236,10 @@ export function runBrowserEngine(
       currentState.lastUsed = now;
       currentState.lastUsedByEngine[engine.id] = now;
       await saveState(currentState);
-      return { tabId, groupId: currentState.groupId };
+      return tabId;
     });
+    // Queueing and rate limiting are over; the pipeline's per-source timeout runs from here.
+    opts.onStart();
     const requestId = crypto.randomUUID();
     return new Promise<SearchHit[]>((resolve, reject) => {
       const cleanup = () => {
@@ -264,6 +254,9 @@ export function runBrowserEngine(
         requestId,
         engine,
         tabId,
+        count: opts.count,
+        mode: opts.mode,
+        focusOnCaptcha: opts.renderer.focusOnCaptcha,
         resolve,
         reject,
         onBlocked: opts.onBlocked,
@@ -274,8 +267,7 @@ export function runBrowserEngine(
       pendingByTab.set(tabId, pending);
       opts.signal.addEventListener('abort', onAbort, { once: true });
       void browser.tabs
-        .update(tabId, { url: engine.buildUrl(query, opts.count), active: false, muted: true, autoDiscardable: false })
-        .then(() => browser.tabGroups.update(groupId, { title: GROUP_TITLE, color: 'grey', collapsed: true }))
+        .update(tabId, { url: engine.buildUrl(query, opts.count, opts.mode), active: false, muted: true, autoDiscardable: false })
         .catch((error) => {
           cleanup();
           pending.cleanup();
@@ -285,10 +277,14 @@ export function runBrowserEngine(
   });
 }
 
-export function workerForTab(tabId: number | undefined): { engine: SourceId; requestId: string } | null {
+export function workerForTab(
+  tabId: number | undefined,
+): { engine: SourceId; requestId: string; count: number; mode: SearchMode } | null {
   if (tabId === undefined) return null;
   const request = pendingByTab.get(tabId);
-  return request ? workerIdentity(request.engine.id, request.requestId) : null;
+  return request
+    ? { ...workerIdentity(request.engine.id, request.requestId), count: request.count, mode: request.mode }
+    : null;
 }
 
 export async function handleWorkerMessage(message: unknown, sender: Browser.runtime.MessageSender): Promise<unknown> {
@@ -302,9 +298,8 @@ export async function handleWorkerMessage(message: unknown, sender: Browser.runt
     const request = pendingById.get(msg.requestId ?? '');
     if (request && request.tabId === tabId) {
       const state = await withStateLock(() => readState());
-      const config = await loadConfig();
       request.onBlocked('需要在搜索引擎页面手动完成验证');
-      if (state) await focusForCaptcha(request, state, config.renderer.focusOnCaptcha);
+      if (state) await focusForCaptcha(request, state, request.focusOnCaptcha);
     }
     return { ok: true };
   }
@@ -328,9 +323,8 @@ export async function handleWorkerMessage(message: unknown, sender: Browser.runt
       if (request) {
         await focusForCaptcha(request, state, false, true);
       } else {
-        await browser.tabGroups.update(state.groupId, { collapsed: false });
+        await browser.windows.update(state.windowId, { state: 'normal', focused: true });
         await browser.tabs.update(tabId, { active: true });
-        await browser.windows.update(state.windowId, { focused: true });
       }
     }
     return { ok: !!tabId };

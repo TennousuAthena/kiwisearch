@@ -14,6 +14,19 @@ export function llmConfigured(settings: LlmSettings | undefined): boolean {
   return !!settings?.baseUrl && !!settings.model;
 }
 
+const LOCAL_HOST = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
+
+/** Callable as configured: needs a key unless it points at a local server such as Ollama. */
+export function llmUsable(settings: LlmSettings | undefined): boolean {
+  if (!settings || !llmConfigured(settings)) return false;
+  if (settings.apiKey) return true;
+  try {
+    return LOCAL_HOST.test(new URL(settings.baseUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
 export async function chat(
   fetch: FetchLike,
   settings: LlmSettings,

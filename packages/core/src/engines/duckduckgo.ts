@@ -13,10 +13,19 @@ function resultUrl(href: string, pageUrl: string): string | null {
   return absolute;
 }
 
+/** A dated snippet is `<span><span>Jun 8, 2026</span><span>text…</span></span>`; joined plainly the date runs into the text, so it is read as "date — text". */
+function snippetText(holder: Element | null): string {
+  const parts = Array.from(holder?.querySelector('span')?.children ?? [])
+    .map(cleanText)
+    .filter(Boolean);
+  if (parts.length === 2 && parts[0].length <= 24 && /\d/.test(parts[0])) return `${parts[0]} — ${parts[1]}`;
+  return cleanText(holder);
+}
+
 export const duckduckgo: BrowserEngine = {
   id: 'duckduckgo',
   label: 'DuckDuckGo',
-  kind: 'web',
+  modes: ['web'],
   buildUrl: (query, count) => `https://duckduckgo.com/?q=${encodeURIComponent(query)}&ia=web`,
   matches: ['*://duckduckgo.com/*', '*://*.duckduckgo.com/*', '*://duckduckgo.com/anomaly.js*'],
   readySelector: 'article[data-testid="result"], [data-testid="results"]',
@@ -31,7 +40,8 @@ export const duckduckgo: BrowserEngine = {
       const url = href ? resultUrl(href, pageUrl) : null;
       const title = cleanText(anchor);
       if (!url || !title || url.includes('duckduckgo.com/')) continue;
-      const snippet = cleanText(item.querySelector('[data-testid="result-snippet"], .result__snippet'));
+      // The snippet's marker has changed over time: `data-result="snippet"` on the current page, the others on older ones.
+      const snippet = snippetText(item.querySelector('[data-result="snippet"], [data-testid="result-snippet"], .result__snippet'));
       hits.push({ url, title, snippet, rank: hits.length + 1 });
     }
     return hits;

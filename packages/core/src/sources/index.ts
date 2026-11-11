@@ -1,8 +1,11 @@
 import type { SearchSource, SourceId } from '../types';
+import { arxiv } from './arxiv';
 import { brave } from './brave';
+import { crossref } from './crossref';
 import { deepseek } from './deepseek';
 import { exa } from './exa';
 import { openalex } from './openalex';
+import { openverse } from './openverse';
 import { searxng } from './searxng';
 import { browserSources } from '../engines';
 
@@ -12,6 +15,9 @@ export const SOURCES: Record<SourceId, SearchSource> = {
   exa,
   deepseek,
   openalex,
+  arxiv,
+  crossref,
+  openverse,
   searxng,
 };
 
