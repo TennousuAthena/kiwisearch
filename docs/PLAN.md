@@ -27,7 +27,7 @@
 | 小红书 | RedNote（rednote.com，默认开）、小红书国内站（xiaohongshu.com，默认关）；浏览器渲染，需登录 | 笔记卡片墙；不摘要、不判定；两个站的同一条笔记按笔记 ID 合并；链接保留打开笔记所需的 `xsec_token` |
 | 公众号 | 搜狗微信（weixin.sogou.com，浏览器渲染，不需登录）；搜狗网页搜索作为“全部”的可选来源，默认关 | 找微信公众号文章（普通搜索引擎基本搜不到）；走 Jev 过滤和 AI 概览，只用搜狗给的摘录；链接是搜狗的中转链接，不带 Referer 打开能跳到 mp.weixin.qq.com |
 | X | X（x.com，浏览器渲染，需登录） | 推文列表（作者、时间、正文、回复/转发/喜欢/浏览数、配图）；不摘要、不判定；只在用户打开“X”标签时搜索，不参与“全部”的自动选源；每次请求间隔至少 10 秒；长文只用标题和预览 |
-| 学术 | Google Scholar（浏览器渲染）；OpenAlex、Crossref、arXiv（API，免费） | 按 DOI / arXiv ID / 标题加年份去重；摘要用文献综述式提示词 |
+| 学术 | Google Scholar（浏览器渲染）；OpenAlex、Crossref、arXiv、PubMed、Europe PMC、DBLP（API，免费，无需 Key）；百度学术、知网、Web of Science（浏览器渲染，只返回用户自己的浏览器会话能看到的内容） | 按 DOI / arXiv ID / 标题加年份去重（DOI 相同即同一篇：PubMed 和 Europe PMC 链接自己的页面，靠这条与 OpenAlex、Crossref 合并）；摘要用文献综述式提示词。默认只开 PubMed，其余新增来源由用户自己打开 |
 
 同一个浏览器引擎的不同模式共用一个工作标签页和同一条限速队列，因为搜索引擎的风控按站点计算。
 
@@ -118,6 +118,7 @@ packages/mcp         stdio MCP Server：BridgeSession 在 hub / relay 之间自�
 | P9 搜狗与公众号 | `wechat` 模式；搜狗微信、搜狗网页两个引擎，夹具取自真实页面；公众号卡片；加入意图判定的第四路 | ✅（搜狗微信已在真实扩展里跑通） |
 | P6 视频 | `video` 模式；YouTube（读页面内联的 `ytInitialData`）和哔哩哔哩（读渲染后的卡片 DOM）两个引擎，夹具取自真实页面；视频列表；MCP `mode=video` | ✅（哔哩哔哩已在真实扩展里跑通；YouTube 的整条流程没跑通过，见下） |
 | P7 知乎与小红书 | `zhihu`、`xiaohongshu` 两个模式；知乎、小红书国内站、RedNote 三个引擎，夹具取自已登录的真实页面；知乎列表与笔记卡片墙；MCP 支持 | ✅（知乎和小红书国内站已在真实扩展里跑通；RedNote 因网络不通没跑通，见下） |
+| P11 学术来源 | PubMed（E-utilities，可选自带 Key）、Europe PMC、DBLP 三个 API 来源；百度学术、知网、Web of Science 三个浏览器引擎；DOI 相同即合并；设置页标签和结果角标 | ✅（PubMed、Europe PMC 对照真实响应；百度学术结果页对照真实页面；DBLP、知网和 Web of Science 的结果解析是手写的，见下） |
 | P10 X（推特） | `x` 模式；X 引擎（推文、互动数、长文、转推引用只取自己的话）；引擎级最小请求间隔 `minIntervalMs`；推文卡片与紧凑数字；MCP `mode=x` | ✅（真实扩展里跑通，见下） |
 
 已知缺口：
@@ -143,10 +144,17 @@ packages/mcp         stdio MCP Server：BridgeSession 在 hub / relay 之间自�
 - **X 一次只能拿到首屏的 4–6 条。** 真实扩展里搜“Claude Code”出 4 条（约 8 秒），互动数和配图正常，工作窗口保持最小化。X 的列表是虚拟化的，窗口最小化时页面不可见（`visibilityState: hidden`），X 不再渲染新推文，在工作页里滚动也没有用。要拿更多只能把窗口调出来，这和“不打扰用户”冲突，所以没做。
 - X 的 10 秒间隔按请求*开始*时间算。X 整页读取本身要 8–9 秒，连续手动搜索基本不会额外等待，它主要防 MCP 或多个标签同时发起；这条逻辑只读过代码，没单独观察到等待。
 - X 的未登录页只见过 `/i/jf/onboarding/web` 这个跳转；`loginButton`/`signupButton` 选择器是猜的，只验证过不会误命中已登录的页面。长文（Article）的结构是在真实页面上看过再写的，但测试里那条是手写的，夹具里没有长文。X 对自动化使用管得很严，账号有被限制的风险。
+- **学术来源的核实情况（2026-11-12，六个来源各不相同）：**
+  - **PubMed：对照真实响应。** esearch（JSON）加 efetch（XML）都是真实抓取；夹具里去掉了每篇的参考文献列表。用 efetch 而不是 esummary，因为只有 XML 带摘要，一次搜索 2 个请求（无 Key 限 3 次/秒；限流时 NCBI 返回 200 加 `error` 字段，已当错误抛出）。`HitMeta` 没有 `pmid` 字段，没加；靠链接相同和 DOI 相同合并。
+  - **Europe PMC：对照真实响应**（5 条 MED、4 条预印本）。PMC 来源和专利（`PAT`）记录没抓到样本，映射是通用的；开放获取 PDF 链接（`documentStyle: 'pdf'`）没有真实样本，测试里那条是手改的。
+  - **DBLP：未验证，没有真实 JSON。** dblp.org、dblp.uni-trier.de、dblp.dagstuhl.de 对这台机器的所有请求都返回 Anubis 工作量证明挑战页（HTTP 202 的 HTML；curl 和浏览器 UA 一样，绕开代理也一样）。没有去解这个挑战。夹具 `dblp.json` 是按官方文档的结构手写的（文件里有 `_note`），书目内容凭记忆；真实挑战页存为 `dblp-challenge.html`，来源遇到它会报“需要机器人验证”而不是返回空结果。用户自己的浏览器会不会也被挑战，没验证；若会，这个来源对那些用户就一直报错。
+  - **百度学术：结果页对照真实页面。** `/s?wd=` 会在页面内跳到 `/ndscholar/browse/search`，卡片是 `div.paper-wrap.result`（10 条，期刊 9、图书 1）。干净的无头 profile 冷启动同一个地址会得到“百度安全验证”点选验证码（`baiduxueshu-blocked.html`，真实），先打开首页再搜就出结果。验证码页和结果页地址相同，只能靠验证码库的 `BiocFacade.js` / `BiocCaptcha.css` 识别；`wappass.baidu.com` 的地址判断是照搬百度网页搜索的，xueshu 没遇到过。列表里没有 DOI，结果链接是百度学术自己的详情页（不是中转链接）。学位、专利、会议卡片的结构没见过。
+  - **知网：只有验证码页是真实的。** 无头 profile 搜两次（含先开首页）都被重定向到 `kns.cnki.net/verify/home?captchaType=blockPuzzle`（滑块验证码），没有去解。结果表格的解析（`table.result-table-list`、`td.name / author / source / date / data / quote`）凭记忆手写，夹具 `cnki.html` 是手写的、记录是编造的；列表视图本身没有摘要。搜索地址只确认了会被送到验证码，没确认 `korder` 和 `kw` 参数被识别。
+  - **Web of Science：只有“没有权限”这条路是真实的。** 无头 profile 打开 `webofscience.com/wos/woscc/basic-search` 被送到 `access.clarivate.com/login?app=wos&…`（邮箱登录加“机构登录”），夹具 `wos-blocked.html` 是真实的（去掉了脚本和客户端 IP）。登录页在另一个域名，所以它在引擎的 `matches` 里，`isBlockedUrl` 认这个域名，来源会立刻报“被拦”而不是等超时。有权限时的一切都没验证：搜索地址（`general-summary?query=TS=(…)`）、`app-record` 卡片和 `data-ta` 属性都是凭记忆写的，夹具 `wos.html` 是手写的；标题链接另外按 `/full-record/` 路径找，属性变了只会少字段。页面渲染慢，而内容脚本只给 12 秒。需要在有权限的浏览器里手测一次。
 - **网站图标。** 原来用 Chrome 的 `_favicon` 接口，它只返回浏览器已经有的图标（访问过或加了书签的站点），其他站点一律给同一个占位地球（实测 GitHub、Stack Overflow、Wikipedia 和一个编造的域名返回的 646 字节图片完全相同），所以大多数结果没有图标。现在改为：浏览器已有的图标 → 站点自己的 `/favicon.ico` 和首页 `<link rel="icon">` → 字母徽标，结果按域名缓存在 `storage.local`。真实扩展里 25 条网页结果有 18 个显示了图标，其余 7 个是字母徽标，没有破图。已知限制：Stack Overflow（403）和 CSDN（521）对不带 cookie 的请求返回风控挑战页，拿不到图标，只能显示字母徽标；没有测过 Firefox（`_favicon` 是 Chrome 的接口，那一层会直接跳过）；没有给“向没访问过的站点请求图标”做开关，没有接第三方图标服务（那样每条结果的域名都会发给第三方）。
 
 ## 9. 待确认
 
 1. 摘要模型：用户自带 LLM Key（默认 DeepSeek），另有 Chrome 内置模型作为免 Key 选项。
-2. 默认开启哪些来源：浏览器引擎全开；OpenAlex、Crossref、arXiv、Openverse 无需 Key，默认开；Brave、Exa、DeepSeek 填了 Key 才参与。
+2. 默认开启哪些来源：浏览器引擎全开；OpenAlex、Crossref、arXiv、PubMed、Openverse 无需 Key，默认开（Europe PMC、DBLP、百度学术、知网、Web of Science 默认关）；Brave、Exa、DeepSeek 填了 Key 才参与。
 3. 是否需要把 LLM 重排彻底移除：现在默认关闭，保留为没有 Jev Key 时的备选。
