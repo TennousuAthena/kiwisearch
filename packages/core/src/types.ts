@@ -28,6 +28,20 @@ export type SearchMode = (typeof SEARCH_MODES)[number];
 /** The kinds of extra source the decision model can switch on during a general search. They are modes of their own too. */
 export type Route = Extract<SearchMode, 'academic' | 'zhihu' | 'xiaohongshu' | 'wechat'>;
 
+/** The tabs a general search may point the user to, when the query looks like it wants them. */
+/** Everything the intent request asks about. */
+export type IntentKey = Route | 'images' | 'video';
+
+export type SuggestMode = Extract<SearchMode, 'images' | 'video' | 'academic'>;
+
+/** What the decision model's verdict said about the tab the user probably wants. */
+export interface IntentSuggestion {
+  mode: SuggestMode;
+  score: number;
+  /** Sure enough (and switching enabled) for the page to move there by itself while no results are on screen yet; otherwise it only offers. */
+  strong: boolean;
+}
+
 export function isSearchMode(value: unknown): value is SearchMode {
   return typeof value === 'string' && (SEARCH_MODES as readonly string[]).includes(value);
 }
@@ -216,11 +230,14 @@ export interface FusionConfig {
     /** Natural-language descriptions of results to hide, e.g. "scraped copies of Stack Overflow answers". */
     rules: string[];
   };
-  /** Let the decision model choose, during a general search, which of academic / Zhihu / Xiaohongshu to search as well. Needs the judge. */
+  /** Let the decision model choose, during a general search, which of academic / Zhihu / Xiaohongshu to search as well, and whether the user wants the images, video or academic tab instead. Needs the judge. */
   intent: {
     enabled: boolean;
-    /** Probability at or above which a route is switched on. */
+    /** Probability at or above which a route is switched on, or a tab is offered. */
     threshold: number;
+    /** Move to the suggested tab by itself when at least this sure (and no results are showing yet). */
+    switchThreshold: number;
+    autoSwitch: boolean;
     /** Stop waiting for the verdict after this long and search the general sources only. */
     timeoutMs: number;
   };
@@ -323,7 +340,7 @@ export type PipelineEvent =
   | { type: 'late_results'; source: SourceId; results: FusedResult[] }
   | { type: 'fused'; results: FusedResult[]; /** More sources are still running. */ partial?: boolean }
   | { type: 'reranked'; results: FusedResult[]; provider: RerankProvider; error?: string }
-  | { type: 'routed'; routes: Route[]; scores: Partial<Record<Route, number>>; /** Set when no verdict could be had. */ error?: string }
+  | { type: 'routed'; routes: Route[]; scores: Partial<Record<IntentKey, number>>; suggest?: IntentSuggestion; /** Set when no verdict could be had. */ error?: string }
   | { type: 'judged'; results: FusedResult[]; /** Set when some or all judgments failed. */ error?: string }
   | { type: 'summary_start'; citations: Citation[] }
   | { type: 'summary_prompt'; citations: Citation[]; messages: import('./llm').ChatMessage[] }

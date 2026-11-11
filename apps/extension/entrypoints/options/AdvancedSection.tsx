@@ -74,7 +74,9 @@ export function AdvancedSection({ open, onOpenChange, config, bridge, health, on
             <NumberField label="等待判定的最长时间（毫秒）" value={config.judge.timeoutMs} min={1000} step={500} onChange={(timeoutMs) => setJudge({ timeoutMs })} />
             <NumberField label="自动补搜的把握阈值" hint="决策模型觉得需要同时搜学术、知乎等的把握不低于这个值才补搜。" value={config.intent.threshold} min={0.3} max={0.95} step={0.05} onChange={(threshold) => setIntent({ threshold })} />
             <NumberField label="等待补搜判断的最长时间（毫秒）" value={config.intent.timeoutMs} min={500} step={500} onChange={(timeoutMs) => setIntent({ timeoutMs })} />
+            <NumberField label="自动切换标签的把握阈值" hint="想找图片、视频或论文的把握不低于这个值，且页面上还没有结果时，直接切到对应标签；低于它只给一行提示。" value={config.intent.switchThreshold} min={0.5} max={0.99} step={0.05} onChange={(switchThreshold) => setIntent({ switchThreshold })} />
           </div>
+          <SwitchRow checked={config.intent.autoSwitch} onChange={(autoSwitch) => setIntent({ autoSwitch })} title="把握很大时自动切换标签" hint="关闭后只在结果上方给一行提示，由你决定切不切。" />
         </div>
 
         <div className="adv-block">

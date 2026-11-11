@@ -1,4 +1,4 @@
-import type { BlockReason, Citation, FusedResult, PipelineEvent, SearchMode, SourceId } from '@kiwi-search/core';
+import type { BlockReason, Citation, FusedResult, IntentSuggestion, PipelineEvent, SearchMode, SourceId } from '@kiwi-search/core';
 
 export type SummaryStatus = 'idle' | 'loading' | 'starting' | 'streaming' | 'done' | 'error';
 
@@ -16,6 +16,8 @@ export interface SearchState {
   stage: 'searching' | 'refining' | 'done';
   /** Set when the decision model failed or timed out; results fall back to the plain fused order. */
   judgeError?: string;
+  /** The tab the decision model thinks the user wants (images, video, academic), from a general search's verdict. */
+  suggest?: IntentSuggestion;
   citations: Citation[];
   summary: string;
   summaryStatus: SummaryStatus;
@@ -61,7 +63,7 @@ export function reduce(s: SearchState, e: PipelineEvent, now = Date.now()): Sear
     case 'reranked':
       return { ...s, results: e.results };
     case 'routed':
-      return s;
+      return e.suggest ? { ...s, suggest: e.suggest } : s;
     case 'judged':
       return { ...s, results: e.results, judgeError: e.error };
     case 'summary_start':
