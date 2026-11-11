@@ -193,3 +193,38 @@ describe('applyRerank', () => {
     expect(out[0].rerankScore).toBe(0.9);
   });
 });
+
+describe('the same paper from sources that link different pages', () => {
+  const paper = (source: SearchHit['source'], url: string, title: string, year: number | undefined, doi?: string): SearchHit => ({
+    source,
+    url,
+    title,
+    snippet: '',
+    rank: 1,
+    meta: { authors: ['A B'], year, doi },
+  });
+
+  it('merges a PubMed hit with the OpenAlex hit for the same DOI even when title and year differ', () => {
+    const fused = fuse([
+      [paper('pubmed', 'https://pubmed.ncbi.nlm.nih.gov/38786024/', 'CRISPR-Based Gene Therapies: From Preclinical to Clinical Treatments', 2024, '10.3390/cells13100800')],
+      [paper('openalex', 'https://doi.org/10.3390/cells13100800', 'CRISPR-based gene therapies', 2023, '10.3390/cells13100800')],
+      [paper('europepmc', 'https://pubmed.ncbi.nlm.nih.gov/38786024/', 'CRISPR-Based Gene Therapies: From Preclinical to Clinical Treatments', 2024, '10.3390/CELLS13100800')],
+    ]);
+    expect(fused).toHaveLength(1);
+    expect(fused[0].sources.map((s) => s.source).sort()).toEqual(['europepmc', 'openalex', 'pubmed']);
+  });
+
+  it('merges by DOI only on an equal DOI: different DOIs and different titles stay apart', () => {
+    const fused = fuse([
+      [paper('pubmed', 'https://pubmed.ncbi.nlm.nih.gov/1/', 'A first long paper title about something', 2020, '10.1/a')],
+      [paper('openalex', 'https://doi.org/10.1/b', 'A completely different long paper title', 2020, '10.1/b')],
+    ]);
+    expect(fused).toHaveLength(2);
+  });
+
+  it('still merges a preprint and its journal version (different DOIs, same title)', () => {
+    const title = 'A long enough title to be the same paper';
+    const fused = fuse([[paper('europepmc', 'https://europepmc.org/article/PPR/PPR1', title, 2024, '10.1101/x')], [paper('crossref', 'https://doi.org/10.1/journal', title, 2024, '10.1/journal')]]);
+    expect(fused).toHaveLength(1);
+  });
+});

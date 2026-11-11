@@ -48,6 +48,12 @@ export const SOURCE_INFO: Record<SourceId, SourceInfo> = {
   scholar: { group: 'academic', blurb: 'Google 学术，覆盖最全' },
   openalex: { group: 'academic', blurb: '开放学术图谱，带引用数；不填 Key 也能用', key: 'optional', keyUrl: 'https://openalex.org/settings/api' },
   arxiv: { group: 'academic', blurb: '预印本，计算机和物理的最新论文' },
+  pubmed: { group: 'academic', blurb: '生物医学文献（NCBI 官方接口）；填你自己的 Key 可以提高速率', key: 'optional', keyUrl: 'https://account.ncbi.nlm.nih.gov/settings/' },
+  europepmc: { group: 'academic', blurb: '欧洲生命科学文献，含预印本和开放获取全文' },
+  dblp: { group: 'academic', blurb: '计算机领域的论文和会议（有的网络下会被它的验证页挡住）' },
+  baiduxueshu: { group: 'academic', blurb: '百度学术，中文文献覆盖好；偶尔要人机验证' },
+  cnki: { group: 'academic', blurb: '知网：中文期刊和学位论文，用你自己的校园网或账号；常要滑块验证' },
+  wos: { group: 'academic', blurb: 'Web of Science：用你所在机构的访问权限或你的账号登录后才有结果', login: true, loginUrl: 'https://www.webofscience.com' },
   crossref: { group: 'academic', blurb: '出版商登记的元数据和 DOI' },
   youtube: { group: 'video', blurb: '全球视频' },
   bilibili: { group: 'video', blurb: '中文视频' },
@@ -72,5 +78,10 @@ export interface SourcePreset {
 }
 
 export const GROUP_PRESETS: Partial<Record<SourceGroup, SourcePreset[]>> = {
-  academic: [{ id: 'general', label: '综合', on: ['scholar', 'openalex', 'arxiv', 'crossref'] }],
+  academic: [
+    { id: 'general', label: '综合', on: ['scholar', 'openalex', 'arxiv', 'crossref', 'pubmed'] },
+    { id: 'medicine', label: '医学', on: ['pubmed', 'europepmc', 'openalex', 'crossref', 'scholar'] },
+    { id: 'cs', label: '计算机', on: ['arxiv', 'dblp', 'openalex', 'scholar', 'crossref'] },
+    { id: 'chinese', label: '中文', on: ['baiduxueshu', 'cnki', 'scholar', 'openalex'] },
+  ],
 };
