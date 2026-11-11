@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createAsyncLock, mergeRendererState, workerIdentity, type RendererState } from '../lib/rendererState';
+import { createAsyncLock, isBrowserErrorPage, mergeRendererState, workerIdentity, type RendererState } from '../lib/rendererState';
 import type { SourceId } from '@kiwi-search/core';
 
 const engines: SourceId[] = ['google', 'bing', 'baidu', 'duckduckgo', 'scholar'];
@@ -55,5 +55,13 @@ describe('renderer state helpers', () => {
 
   it('returns the engine ID string in the worker handshake identity', () => {
     expect(workerIdentity('google', 'request-1')).toEqual({ engine: 'google', requestId: 'request-1' });
+  });
+});
+
+describe('isBrowserErrorPage', () => {
+  it('recognizes the page the browser shows when a navigation failed', () => {
+    expect(isBrowserErrorPage('chrome-error://chromewebdata/')).toBe(true);
+    expect(isBrowserErrorPage('https://x.com/search?q=1')).toBe(false);
+    expect(isBrowserErrorPage(undefined)).toBe(false);
   });
 });

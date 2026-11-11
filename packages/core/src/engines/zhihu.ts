@@ -28,6 +28,8 @@ export const zhihu: BrowserEngine = {
   // Zhihu's own verification page; the path is from memory and was never captured.
   blockedSelector: ':not(*)',
   isBlockedUrl: (url) => /^\/account\/unhuman(?:\/|$)/.test(new URL(url).pathname),
+  // What a fresh headless browser got on the search URL (a JSON body, error code 40362): "your request looks abnormal, access limited for now".
+  refusedPattern: /您当前请求存在异常|暂时限制本次访问/,
   extract(doc, pageUrl) {
     const hits: ReturnType<BrowserEngine['extract']> = [];
     const seen = new Set<string>();

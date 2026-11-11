@@ -358,6 +358,8 @@ export interface BrowserEngine {
   /** A login wall: the engine only works in a browser signed in to the site. Checked before the captcha selector. */
   loginSelector?: string;
   isLoginUrl?(url: string): boolean;
+  /** Text on a page where the site refuses the request outright (a risk-control notice). There is nothing for the user to solve: the source fails with it. */
+  refusedPattern?: RegExp;
   /** A gap between requests to this engine that is longer than the global `renderer.minIntervalMs`. */
   minIntervalMs?: number;
   extract(doc: ParentNode, pageUrl: string, mode: SearchMode): Omit<SearchHit, 'source'>[];

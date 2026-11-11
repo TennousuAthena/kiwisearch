@@ -68,6 +68,12 @@ export default defineContentScript({
         pageTimer = setTimeout(stop, BLOCKED_TIMEOUT_MS);
         return;
       }
+      // The site refused the request outright: nothing to solve, so fail now instead of waiting for results that will not come.
+      if (engine.refusedPattern && engine.refusedPattern.test(document.body?.innerText ?? '')) {
+        stop();
+        void browser.runtime.sendMessage({ type: 'kiwi:refused', requestId, text: (document.body?.innerText ?? '').replace(/\s+/g, ' ').slice(0, 160) });
+        return;
+      }
       // The ready selector is a cheap test; only run the full extraction once results are rendering.
       if (!document.querySelector(engine.readySelector)) return;
       const hits = extract();

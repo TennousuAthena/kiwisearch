@@ -96,6 +96,8 @@ describe('Zhihu engine (real captured page, see the fixture header)', () => {
   it('builds the search URL, is matched on the search page, and sees the sign-in page as a login wall (not a captcha)', () => {
     expect(zhihu.buildUrl('红楼梦', 10, 'zhihu')).toBe('https://www.zhihu.com/search?type=content&q=%E7%BA%A2%E6%A5%BC%E6%A2%A6');
     expect(zhihu.matches).toContain('*://www.zhihu.com/search*');
+    expect(zhihu.refusedPattern?.test('{"error":{"message":"您当前请求存在异常，暂时限制本次访问。如有疑问，您可以通过手机摇一摇或登录后私信知乎小管家反馈。","code":40362}}')).toBe(true);
+    expect(zhihu.refusedPattern?.test('红楼梦 - 搜索结果')).toBe(false);
     expect(zhihu.isLoginUrl?.('https://www.zhihu.com/signin?next=%2Fsearch')).toBe(true);
     expect(zhihu.isLoginUrl?.(ZHIHU_PAGE)).toBe(false);
     expect(zhihu.isBlockedUrl?.('https://www.zhihu.com/signin?next=%2Fsearch')).toBe(false);
