@@ -1,7 +1,7 @@
 import type { BlockReason, BrowserEngine, BrowserRunOptions, SearchHit, SearchMode, SourceId } from '@kiwi-search/core';
 import type { Browser } from 'wxt/browser';
 import { browser } from 'wxt/browser';
-import { createAsyncLock, mergeRendererState, workerIdentity, type RendererState } from './rendererState';
+import { createAsyncLock, isBrowserErrorPage, mergeRendererState, workerIdentity, type RendererState } from './rendererState';
 import { loadConfig } from './settings';
 
 interface PendingRequest {
@@ -16,8 +16,13 @@ interface PendingRequest {
   onBlocked: (message: string, reason?: BlockReason) => void;
   restoreWindowId?: number;
   focusedForCaptcha: boolean;
+  /** The content script in the worker tab has said hello: the page loaded and is one the engine reads. */
+  handshaken?: boolean;
   cleanup: () => void;
 }
+
+/** How long after a worker page finished loading the content script may take to say hello. */
+const HANDSHAKE_GRACE_MS = 4000;
 
 const STORAGE_KEY = 'kiwiRenderer';
 const GROUP_TITLE = 'Kiwi Search';
@@ -242,7 +247,26 @@ export function runBrowserEngine(engine: BrowserEngine, query: string, opts: Bro
     opts.onStart();
     const requestId = crypto.randomUUID();
     return new Promise<SearchHit[]>((resolve, reject) => {
+      // A page that failed to load is the browser's error page, where no content script runs; without this the source would wait out its timeout.
+      const onTabUpdated = (updatedId: number, changeInfo: { status?: string; url?: string }, tab: { url?: string }) => {
+        if (updatedId !== tabId || !pendingById.has(requestId)) return;
+        if (changeInfo.status !== 'complete') return;
+        const fail = () => {
+          if (!pendingById.has(requestId)) return;
+          cleanup();
+          pending.cleanup();
+          reject(new Error('页面没有按预期打开：网络不通、网站拒绝了这次访问，或跳到了别的页面'));
+        };
+        if (isBrowserErrorPage(tab.url ?? changeInfo.url)) {
+          fail();
+          return;
+        }
+        // The content script says hello as soon as a page it reads has loaded; the browser's own error pages (an HTTP 403 keeps
+        // the requested address) and pages it doesn't read never do. Failing here beats waiting out the source's timeout.
+        setTimeout(() => !pending.handshaken && fail(), HANDSHAKE_GRACE_MS);
+      };
       const cleanup = () => {
+        browser.tabs.onUpdated.removeListener(onTabUpdated);
         pendingById.delete(requestId);
         pendingByTab.delete(tabId);
       };
@@ -261,11 +285,15 @@ export function runBrowserEngine(engine: BrowserEngine, query: string, opts: Bro
         reject,
         onBlocked: opts.onBlocked,
         focusedForCaptcha: false,
-        cleanup: () => opts.signal.removeEventListener('abort', onAbort),
+        cleanup: () => {
+          opts.signal.removeEventListener('abort', onAbort);
+          browser.tabs.onUpdated.removeListener(onTabUpdated);
+        },
       };
       pendingById.set(requestId, pending);
       pendingByTab.set(tabId, pending);
       opts.signal.addEventListener('abort', onAbort, { once: true });
+      browser.tabs.onUpdated.addListener(onTabUpdated);
       void browser.tabs
         .update(tabId, { url: engine.buildUrl(query, opts.count, opts.mode), active: false, muted: true, autoDiscardable: false })
         .catch((error) => {
@@ -288,8 +316,12 @@ export function workerForTab(
 }
 
 export async function handleWorkerMessage(message: unknown, sender: Browser.runtime.MessageSender): Promise<unknown> {
-  const msg = message as { type?: string; requestId?: string; source?: string; reason?: BlockReason; hits?: Omit<SearchHit, 'source'>[] };
+  const msg = message as { type?: string; requestId?: string; source?: string; reason?: BlockReason; text?: string; hits?: Omit<SearchHit, 'source'>[] };
   const tabId = sender.tab?.id;
+  if (msg?.type === 'kiwi:worker?' && tabId !== undefined) {
+    const waiting = pendingByTab.get(tabId);
+    if (waiting) waiting.handshaken = true;
+  }
   if (msg?.type === 'kiwi:worker?') {
     const pending = workerForTab(tabId);
     return pending ? { type: 'kiwi:worker!', ...pending } : { type: 'kiwi:not-worker' };
@@ -302,6 +334,16 @@ export async function handleWorkerMessage(message: unknown, sender: Browser.runt
       request.onBlocked(reason === 'login' ? '需要在这个浏览器里登录' : '需要在搜索引擎页面手动完成验证', reason);
       // Only a captcha may bring the window forward by itself; a login wall waits for the user to ask.
       if (state) await focusForCaptcha(request, state, request.focusOnCaptcha && reason === 'captcha');
+    }
+    return { ok: true };
+  }
+  if (msg?.type === 'kiwi:refused' && tabId !== undefined) {
+    const request = pendingById.get(msg.requestId ?? '');
+    if (request && request.tabId === tabId) {
+      pendingById.delete(request.requestId);
+      pendingByTab.delete(tabId);
+      request.cleanup();
+      request.reject(new Error(`网站拒绝了这次访问：${msg.text ?? ''}`));
     }
     return { ok: true };
   }

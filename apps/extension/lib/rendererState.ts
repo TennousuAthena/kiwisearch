@@ -8,6 +8,11 @@ export interface RendererState {
   lastUsedByEngine: Partial<Record<SourceId, number>>;
 }
 
+/** The page the browser shows when a navigation failed (no network, connection refused, the site answered 403 …). No content script runs there. */
+export function isBrowserErrorPage(url: string | undefined): boolean {
+  return !!url && url.startsWith('chrome-error://');
+}
+
 export function createAsyncLock() {
   let tail: Promise<void> = Promise.resolve();
   return async function withLock<T>(work: () => Promise<T>): Promise<T> {
