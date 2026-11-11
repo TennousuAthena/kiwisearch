@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createSourceCache } from '../src/cache';
 import { DEFAULT_CONFIG, sourcesForRoutes } from '../src/config';
-import { ROUTES, buildIntentRequest, judgeIntent } from '../src/intent';
+import { ROUTES, buildIntentRequest, judgeIntent, suggestionFrom } from '../src/intent';
 import { runSearch } from '../src/pipeline';
 import type { Env, FusionConfig, PipelineEvent, SearchHit } from '../src/types';
 
@@ -26,7 +26,7 @@ const hit = (source: SearchHit['source'], url: string, rank = 1, extra: Partial<
   ...extra,
 });
 
-type Verdict = Partial<Record<'academic' | 'zhihu' | 'xiaohongshu' | 'wechat', number>>;
+type Verdict = Partial<Record<'academic' | 'zhihu' | 'xiaohongshu' | 'wechat' | 'images' | 'video', number>>;
 
 /** A fake System One + OpenAlex. Intent requests (they carry the route questions) are answered from `verdict`; judging requests get a flat "relevant". */
 function world(verdict: Verdict, opts: { delayMs?: number; status?: number } = {}) {
@@ -51,7 +51,7 @@ function world(verdict: Verdict, opts: { delayMs?: number; status?: number } = {
     }
     if (opts.status) return new Response('nope', { status: opts.status });
     if (isIntent) {
-      const answers = Object.fromEntries(ROUTES.map((route) => [route, { type: 'noul', noul: verdict[route] ?? 0.02 }]));
+      const answers = Object.fromEntries([...ROUTES, 'images', 'video'].map((key) => [key, { type: 'noul', noul: verdict[key as keyof Verdict] ?? 0.02 }]));
       return new Response(JSON.stringify({ answers }));
     }
     return new Response(JSON.stringify({ answers: { relevance: { type: 'score', score: 3 }, junk: { type: 'noul', noul: 0.05 } } }));
@@ -69,11 +69,11 @@ function world(verdict: Verdict, opts: { delayMs?: number; status?: number } = {
 describe('judgeIntent', () => {
   const env = (verdict: Verdict): Env => world(verdict).env;
 
-  it('asks four independent yes/no questions about the query alone', () => {
+  it('asks six independent yes/no questions about the query alone', () => {
     const request = buildIntentRequest('如何评价红楼梦', 'jev-latest') as { model: string; state: unknown; questions: Record<string, { type: string; criteria?: unknown }> };
     expect(request.model).toBe('jev-latest');
     expect(request.state).toEqual({ query: '如何评价红楼梦' });
-    expect(Object.keys(request.questions)).toEqual(['academic', 'zhihu', 'xiaohongshu', 'wechat']);
+    expect(Object.keys(request.questions)).toEqual(['academic', 'zhihu', 'xiaohongshu', 'wechat', 'images', 'video']);
     for (const question of Object.values(request.questions)) expect(question.type).toBe('noul');
   });
 
@@ -81,8 +81,27 @@ describe('judgeIntent', () => {
     const config = configFor();
     expect(await judgeIntent('q', config, env({ academic: 0.59, zhihu: 0.6, xiaohongshu: 0.95 }))).toEqual({
       routes: ['zhihu', 'xiaohongshu'],
-      scores: { academic: 0.59, zhihu: 0.6, xiaohongshu: 0.95, wechat: 0.02 },
+      scores: { academic: 0.59, zhihu: 0.6, xiaohongshu: 0.95, wechat: 0.02, images: 0.02, video: 0.02 },
     });
+  });
+
+  it('points to the images, video or academic tab the user probably wants, and says whether it is sure enough to switch by itself', async () => {
+    const config = configFor();
+    expect((await judgeIntent('golden retriever puppy photos', config, env({ images: 0.93 }))).suggest).toEqual({ mode: 'images', score: 0.93, strong: true });
+    expect((await judgeIntent('q', config, env({ video: 0.7 }))).suggest).toEqual({ mode: 'video', score: 0.7, strong: false });
+    expect((await judgeIntent('transformer', config, env({ academic: 0.9 }))).suggest).toEqual({ mode: 'academic', score: 0.9, strong: true });
+    expect((await judgeIntent('weather', config, env({ images: 0.5, video: 0.3 }))).suggest).toBeUndefined();
+    config.intent.autoSwitch = false;
+    expect((await judgeIntent('q', config, env({ images: 0.99 }))).suggest).toMatchObject({ mode: 'images', strong: false });
+  });
+
+  it('picks the best-scoring tab, and the first of the list on a tie', () => {
+    const intent = { threshold: 0.6, switchThreshold: 0.85, autoSwitch: true };
+    expect(suggestionFrom({ images: 0.8, video: 0.9 }, intent)?.mode).toBe('video');
+    expect(suggestionFrom({ academic: 0.9, images: 0.9 }, intent)?.mode).toBe('academic');
+    expect(suggestionFrom({ zhihu: 0.99 }, intent)).toBeUndefined();
+    expect(suggestionFrom({ images: 0.85 }, intent)?.strong).toBe(true);
+    expect(suggestionFrom({ images: 0.8499 }, intent)?.strong).toBe(false);
   });
 
   it('treats a missing answer as a no, and a failure as "no verdict" instead of an error', async () => {
@@ -138,6 +157,14 @@ describe('a general search with routing', () => {
     expect(events.find((event) => event.type === 'fused')).toMatchObject({ partial: true });
     expect(events.find((event) => event.type === 'routed')).toMatchObject({ routes: ['zhihu'] });
     expect(result.sourceStats.map((s) => s.source).sort()).toEqual(['google', 'zhihu']);
+  });
+
+  it('reports the tab it suggests in the routed event, even when nothing extra is searched', async () => {
+    const { env, asked } = world({ images: 0.95 });
+    const events: PipelineEvent[] = [];
+    await runSearch('golden retriever puppy photos', configFor('google', 'zhihu'), env, { onEvent: (event) => events.push(event) });
+    expect(events.find((event) => event.type === 'routed')).toMatchObject({ routes: [], suggest: { mode: 'images', score: 0.95, strong: true } });
+    expect(asked.map((a) => a.engine)).toEqual(['google']);
   });
 
   it('starts the academic sources, API and browser alike', async () => {

@@ -1,8 +1,9 @@
 import type { SearchMode } from '@kiwi-search/core';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { SlidersIcon } from '@/lib/icons';
 import { MODE_LABELS, filterSince, modeHasOverview, parseMode, searchUrl, sinceYears, sortPapers, splitResults, type PaperSort } from '@/lib/results';
+import { decideSuggestion, type SuggestionAction } from '@/lib/suggestion';
 import { useSearchSession } from '@/lib/useSearchSession';
 import { ImageResults } from './ImageResults';
 import { ModeTabs } from './ModeTabs';
@@ -10,7 +11,7 @@ import { NoteResults } from './NoteResults';
 import { Overview } from './Overview';
 import { HiddenResults, ResultList } from './Results';
 import { SearchBox } from './SearchBox';
-import { EmptyState, FatalError, ListSkeleton, StatusLine } from './Status';
+import { EmptyState, FatalError, ListSkeleton, StatusLine, SuggestionLine } from './Status';
 
 type History = 'push' | 'replace' | 'none';
 
@@ -28,11 +29,18 @@ export default function App() {
   const [sort, setSort] = useState<PaperSort>('relevance');
   const { state, search, reset } = useSearchSession();
   const optionsUrl = browser.runtime.getURL('/options.html');
+  // A moved search: the page switched tabs by itself, and the line says so and offers the way back.
+  const [moved, setMoved] = useState<{ query: string; mode: SearchMode } | null>(null);
+  // Only a search the user typed (or the page was opened with) may move by itself, never a Back or a reload.
+  const autoAllowed = useRef(false);
+  const declinedQuery = useRef<string | null>(null);
 
   const go = useCallback(
-    (query: string, nextMode: SearchMode, history: History) => {
+    (query: string, nextMode: SearchMode, history: History, opts: { auto?: boolean; typed?: boolean } = {}) => {
       const q = query.trim();
       if (!q) return;
+      autoAllowed.current = !!opts.typed && nextMode === 'web';
+      if (!opts.auto) setMoved(null);
       setInput(q);
       setMode(nextMode);
       setHoverCite(null);
@@ -51,7 +59,7 @@ export default function App() {
   );
 
   useEffect(() => {
-    if (initial.query) go(initial.query, initial.mode, 'replace');
+    if (initial.query) go(initial.query, initial.mode, 'replace', { typed: true });
   }, [go, initial]);
 
   useEffect(() => {
@@ -74,6 +82,32 @@ export default function App() {
     if (next === mode) return;
     if (state) go(state.query, next, 'push');
     else setMode(next);
+  };
+
+  const suggestion: SuggestionAction | null = useMemo(
+    () =>
+      state
+        ? decideSuggestion(
+            { query: state.query, mode: state.mode, stage: state.stage, resultCount: state.results.length, suggest: state.suggest },
+            { autoAllowed: autoAllowed.current, declinedQuery: declinedQuery.current },
+          )
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state?.query, state?.mode, state?.stage, state?.results.length, state?.suggest],
+  );
+
+  // Sure enough, and nothing on screen to take away: move to the tab the user is after, replacing this history entry.
+  useEffect(() => {
+    if (suggestion?.kind !== 'switch' || !state) return;
+    setMoved({ query: state.query, mode: suggestion.mode });
+    go(state.query, suggestion.mode, 'replace', { auto: true });
+  }, [suggestion, state, go]);
+
+  const stayOnWeb = () => {
+    if (!moved) return;
+    declinedQuery.current = moved.query;
+    setMoved(null);
+    go(moved.query, 'web', 'replace');
   };
 
   const idle = !state;
@@ -99,7 +133,7 @@ export default function App() {
         <h1 className="brand">
           <a href={browser.runtime.getURL('/newtab.html')}>Kiwi</a>
         </h1>
-        <SearchBox value={input} onChange={setInput} onSubmit={() => go(input, mode, 'push')} />
+        <SearchBox value={input} onChange={setInput} onSubmit={() => go(input, mode, 'push', { typed: true })} />
         <a className="icon-btn settings" href={optionsUrl} target="_blank" rel="noreferrer" title="设置" aria-label="设置">
           <SlidersIcon />
         </a>
@@ -116,6 +150,7 @@ export default function App() {
             visibleCount={shown.length}
             onOpenWorker={(source) => void browser.runtime.sendMessage({ type: 'kiwi:focus-worker', source })}
           />
+          <SuggestionLine moved={state.query === moved?.query && state.mode === moved?.mode ? moved : null} offer={moved ? null : suggestion?.kind === 'offer' ? suggestion.mode : null} onStayOnWeb={stayOnWeb} onSwitch={changeMode} />
           {state.fatal && <FatalError message={state.fatal} onRetry={() => go(state.query, state.mode, 'replace')} />}
 
           {/* The overview comes first in the DOM: above the results when the page is narrow, in a column to their right when there is room (see .body in style.css). */}

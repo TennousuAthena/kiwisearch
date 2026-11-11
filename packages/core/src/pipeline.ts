@@ -275,7 +275,7 @@ export async function runSearch(
     ? (async () => {
         try {
           const verdict = await judgeIntent(query, config, env, signal);
-          emit({ type: 'routed', routes: verdict.routes, scores: verdict.scores, error: verdict.error });
+          emit({ type: 'routed', routes: verdict.routes, scores: verdict.scores, suggest: verdict.suggest, error: verdict.error });
           for (const id of sourcesForRoutes(config, !!env.runBrowserEngine, verdict.routes)) launch(id);
         } catch {
           // Aborted: the checks after the wait deal with it.

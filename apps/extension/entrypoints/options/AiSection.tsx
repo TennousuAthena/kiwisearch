@@ -64,8 +64,8 @@ export function AiSection({ config, onChange }: Props) {
               checked={config.intent.enabled}
               disabled={!jevReady}
               onChange={(enabled) => onChange((c) => ({ ...c, intent: { ...c.intent, enabled } }))}
-              title="自动判断要不要同时搜学术、知乎、小红书、公众号"
-              hint={jevReady ? '只搜通用来源也行；判断需要不到 3 秒，来不及或出错就只用通用来源。' : '需要先填上面的 Key。'}
+              title="自动判断你想搜什么"
+              hint={jevReady ? '搜“全部”时，让决策模型判断要不要同时搜学术、知乎、小红书、公众号，以及你是不是想找图片、视频或论文（把握很大时直接切到对应标签）。判断来不及或出错，就只搜通用来源。' : '需要先填上面的 Key。'}
             />
             <RuleList
               label="自定义过滤规则"

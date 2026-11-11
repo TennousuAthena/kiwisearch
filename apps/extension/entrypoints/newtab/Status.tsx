@@ -1,7 +1,8 @@
-import type { SearchMode, SourceId } from '@kiwi-search/core';
+import type { SearchMode, SourceId, SuggestMode } from '@kiwi-search/core';
 import { CircleAlertIcon, RotateIcon, TriangleAlertIcon } from '@/lib/icons';
-import { formatDuration } from '@/lib/results';
+import { MODE_LABELS, formatDuration } from '@/lib/results';
 import { firstBlocked, type SearchState } from '@/lib/searchState';
+import { offerText, suggestionName } from '@/lib/suggestion';
 
 interface StatusProps {
   state: SearchState;
@@ -37,6 +38,42 @@ export function StatusLine({ state, visibleCount, onOpenWorker }: StatusProps) {
         </button>
       )}
       {done && state.judgeError && <span title={state.judgeError}>智能过滤未完全生效：{state.judgeError}</span>}
+    </div>
+  );
+}
+
+/**
+ * One quiet line about the tab the decision model thinks the user wants: either "we moved you there" with the way back,
+ * or an offer to go. Nothing when there is nothing to say.
+ */
+export function SuggestionLine({
+  moved,
+  offer,
+  onStayOnWeb,
+  onSwitch,
+}: {
+  moved: { mode: SearchMode } | null;
+  offer: SuggestMode | null;
+  onStayOnWeb: () => void;
+  onSwitch: (mode: SuggestMode) => void;
+}) {
+  if (moved) {
+    return (
+      <div className="status suggestion">
+        <span>已为你切换到“{MODE_LABELS[moved.mode]}”</span>
+        <button type="button" className="status-action" onClick={onStayOnWeb}>
+          仍看网页结果
+        </button>
+      </div>
+    );
+  }
+  if (!offer) return null;
+  return (
+    <div className="status suggestion">
+      <span>{offerText(offer)}</span>
+      <button type="button" className="status-action" onClick={() => onSwitch(offer)}>
+        切到“{suggestionName(offer)}”
+      </button>
     </div>
   );
 }

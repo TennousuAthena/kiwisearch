@@ -56,7 +56,7 @@ export const DEFAULT_CONFIG: FusionConfig = {
     boostedDomains: [],
     rules: [],
   },
-  intent: { enabled: true, threshold: 0.6, timeoutMs: 3000 },
+  intent: { enabled: true, threshold: 0.6, timeoutMs: 3000, autoSwitch: true, switchThreshold: 0.85 },
   // Off by default: a blocking LLM call per search, and its min-max scores can't be used to filter.
   rerank: { provider: 'none', candidates: 30 },
   llm: { baseUrl: 'https://api.deepseek.com/v1', apiKey: '', model: 'deepseek-flash' },
