@@ -62,10 +62,14 @@ function paperTitleKey(title: string): string {
 
 /**
  * The same paper reached through different URLs (publisher page, arXiv, DOI, repository mirror):
- * identical long title, compatible year, and both sides carrying academic metadata.
+ * the same DOI, or an identical long title with a compatible year, and both sides carrying academic metadata.
+ * The DOI rule is for sources that link their own page (PubMed, Europe PMC) rather than `doi.org`, so the URL keys differ;
+ * it also survives a year that differs between print and online dates. Two different DOIs say nothing: a preprint and its
+ * published version have different ones, and the title rule still merges those.
  */
 function samePaper(left: FusedResult, right: FusedResult): boolean {
   if (!isPaperLike(left) || !isPaperLike(right)) return false;
+  if (left.meta.doi && right.meta.doi && left.meta.doi.toLowerCase() === right.meta.doi.toLowerCase()) return true;
   const key = paperTitleKey(left.title);
   if (key.length < 20 || key !== paperTitleKey(right.title)) return false;
   return left.meta.year === undefined || right.meta.year === undefined || left.meta.year === right.meta.year;
