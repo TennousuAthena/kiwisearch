@@ -13,6 +13,7 @@ describe('resetKeepingSecrets', () => {
     current.judge.llmShared = false;
     current.judge.rules = ['a rule'];
     current.judge.blockedDomains = ['x.com'];
+    current.judge.blocklists = { recommended: ['content-farm-terminator'], subscriptions: [{ id: 'custom-1', name: 'mine', url: 'https://lists.example/a.txt', enabled: true }], custom: 'spam.example' };
     current.llm.apiKey = 'llm-key';
     current.perSourceCount = 3;
     const next = resetKeepingSecrets(current);
@@ -24,6 +25,8 @@ describe('resetKeepingSecrets', () => {
     expect(next.judge.llmShared).toBe(true);
     expect(next.judge.rules).toEqual([]);
     expect(next.judge.blockedDomains).toEqual([]);
+    // Block lists and the user's own rules go back to the defaults with the other site rules.
+    expect(next.judge.blocklists).toEqual({ recommended: [], subscriptions: [], custom: '' });
     expect(next.perSourceCount).toBe(DEFAULT_CONFIG.perSourceCount);
   });
 

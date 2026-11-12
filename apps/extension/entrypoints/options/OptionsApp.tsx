@@ -1,6 +1,8 @@
 import { DEFAULT_CONFIG, type FusionConfig, type SourceId } from '@kiwi-search/core';
 import { useCallback, useEffect, useState } from 'react';
 import { CheckIcon, CircleAlertIcon } from '@/lib/icons';
+import { loadBlocklistMeta, watchBlocklistMeta } from '@/lib/blocklistService';
+import type { BlocklistMetaMap } from '@/lib/blocklistState';
 import { resetKeepingSecrets, tidyConfig } from '@/lib/configReset';
 import {
   DEFAULT_BRIDGE,
@@ -28,6 +30,7 @@ export default function OptionsApp() {
   const [config, setConfig] = useState<FusionConfig>(() => structuredClone(DEFAULT_CONFIG));
   const [bridge, setBridge] = useState<BridgeSettings>(DEFAULT_BRIDGE);
   const [health, setHealth] = useState<SourceHealthMap>({});
+  const [blocklistMeta, setBlocklistMeta] = useState<BlocklistMetaMap>({});
   const [loaded, setLoaded] = useState(false);
   const [onboardingDone, setOnboardingDone] = useState(true);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -42,7 +45,13 @@ export default function OptionsApp() {
       setOnboardingDone(done);
       setLoaded(true);
     });
-    return watchSourceStatus(setHealth);
+    void loadBlocklistMeta().then(setBlocklistMeta);
+    const stopHealth = watchSourceStatus(setHealth);
+    const stopBlocklists = watchBlocklistMeta(setBlocklistMeta);
+    return () => {
+      stopHealth();
+      stopBlocklists();
+    };
   }, []);
 
   // One value for the autosave to watch, so config and bridge are written together.
@@ -127,7 +136,7 @@ export default function OptionsApp() {
 
           <SourcesSection config={config} health={health} onUpdate={updateSource} onSetEnabled={setEnabled} onConfirmEnable={setConfirming} />
           <AiSection config={config} onChange={change} />
-          <FiltersSection config={config} onChange={change} />
+          <FiltersSection config={config} blocklistMeta={blocklistMeta} onChange={change} />
           <AdvancedSection
             open={advancedOpen}
             onOpenChange={setAdvancedOpen}
@@ -165,7 +174,7 @@ export default function OptionsApp() {
           }}
           onCancel={() => setResetting(false)}
         >
-          所有开关、规则和参数都会改回默认值，包括你屏蔽和优先的网站。你填的 Key 和地址、MCP 令牌会保留。
+          所有开关、规则和参数都会改回默认值，包括你屏蔽和优先的网站、订阅的屏蔽列表和自定义规则。你填的 Key 和地址、MCP 令牌会保留。
         </ConfirmDialog>
       )}
     </div>

@@ -163,7 +163,8 @@ export interface Judgment {
 }
 
 export type HiddenReason =
-  | { reason: 'blocked' }
+  /** `list` names the block list that matched; without it the user's own "sites I don't want" list did. */
+  | { reason: 'blocked'; list?: string }
   | { reason: 'junk' }
   | { reason: 'irrelevant' }
   | { reason: 'rule'; rule: string };
@@ -201,6 +202,46 @@ export interface SourceSettings {
   baseUrl?: string;
   /** RRF weight, default 1. */
   weight?: number;
+}
+
+/** One kind of rule per field, as parsed from a block list (see `blocklist.ts` for the syntaxes that produce them). */
+export interface BlockRuleSet {
+  /** `example.com`: the site and every subdomain of it. */
+  sites: string[];
+  /** Exactly this host (`news.example.com`; `www.` counts as the same host). */
+  hosts: string[];
+  /** Regular expression sources, tested case-insensitively against the whole address. */
+  patterns: string[];
+}
+
+/** What a block list says: sites to hide, and exceptions (`@@||example.com^`) that are never hidden by a list. */
+export interface BlockRules {
+  block: BlockRuleSet;
+  allow: BlockRuleSet;
+}
+
+/** Parsed rules with the name the page shows when one of them hides a result. */
+export interface NamedBlockRules {
+  id: string;
+  name: string;
+  rules: BlockRules;
+}
+
+/** A block list the user subscribed to by address. The recommended ones (`RECOMMENDED_BLOCKLISTS`) are only switched on or off, by id. */
+export interface BlocklistSubscription {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+}
+
+export interface BlocklistSettings {
+  /** Ids of the recommended lists that are switched on. */
+  recommended: string[];
+  /** Lists the user added by address. */
+  subscriptions: BlocklistSubscription[];
+  /** The user's own rules, one per line, in any syntax `parseBlocklist` reads. */
+  custom: string;
 }
 
 export type RerankProvider = 'none' | 'llm' | 'jina' | 'cohere';
@@ -266,6 +307,8 @@ export interface FusionConfig {
     blockedDomains: string[];
     /** Ranked higher; works without a decision model. */
     boostedDomains: string[];
+    /** Block lists: subscribed ones (fetched and kept by the extension) and the user's own rules. Work without a decision model. */
+    blocklists: BlocklistSettings;
     /** Natural-language descriptions of results to hide, e.g. "scraped copies of Stack Overflow answers". */
     rules: string[];
   };
@@ -335,6 +378,8 @@ export interface Env {
   fetch: FetchLike;
   runBrowserEngine?: (engine: BrowserEngine, query: string, opts: BrowserRunOptions) => Promise<SearchHit[]>;
   cache?: SourceCache;
+  /** The parsed rules of the subscribed block lists that are switched on, as the caller fetched and kept them. Without it only the user's own rules apply. */
+  loadBlocklists?: (settings: BlocklistSettings) => Promise<NamedBlockRules[]>;
 }
 
 export interface SourceContext {

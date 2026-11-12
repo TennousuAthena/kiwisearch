@@ -6,6 +6,7 @@ export * from './url';
 export * from './llm';
 export * from './rerank';
 export * from './decision';
+export * from './blocklist';
 export * from './judge';
 export * from './intent';
 export * from './content';

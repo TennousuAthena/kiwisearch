@@ -129,11 +129,11 @@ function detailLine(item: Record<string, unknown>): string {
 function formatSearchResult(result: Record<string, unknown>): { text: string; structured: Record<string, unknown> } {
   const all = Array.isArray(result.results) ? result.results as Record<string, unknown>[] : [];
   const results = all.filter((item) => !item.hidden);
-  const hidden = all.filter((item) => item.hidden).map((item) => ({
-    title: item.title,
-    url: item.url,
-    reason: (item.hidden as { reason?: unknown }).reason,
-  }));
+  const hidden = all.filter((item) => item.hidden).map((item) => {
+    const why = item.hidden as { reason?: unknown; list?: unknown };
+    // A result a block list hid says which list.
+    return { title: item.title, url: item.url, reason: why.reason, ...(typeof why.list === 'string' ? { list: why.list } : {}) };
+  });
   const blocked = blockedSourceIds(result);
   const entries = results.map((item, index) => {
     const title = String(item.title ?? '无标题');

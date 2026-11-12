@@ -114,6 +114,8 @@ describe('MCP server smoke test', () => {
           results: [
             { url: 'https://good.example/', title: 'Good', snippet: 's', sources: [] },
             { url: 'https://farm.example/', title: 'Farm', snippet: 's', sources: [], hidden: { reason: 'junk' } },
+            { url: 'https://listed.example/', title: 'Listed', snippet: 's', sources: [], hidden: { reason: 'blocked', list: 'Content Farm Terminator' } },
+            { url: 'https://mine.example/', title: 'Mine', snippet: 's', sources: [], hidden: { reason: 'blocked' } },
           ],
         },
       }));
@@ -127,12 +129,18 @@ describe('MCP server smoke test', () => {
     const text = (result.content as { text: string }[])[0].text;
     expect(text).toContain('Good');
     expect(text).not.toContain('Farm');
-    expect(text).toContain('1 条结果被过滤');
+    expect(text).toContain('3 条结果被过滤');
     expect(text).not.toContain('图片：');
     expect(result.structuredContent).toMatchObject({
       results: [{ title: 'Good', n: 1 }],
-      hidden: [{ title: 'Farm', url: 'https://farm.example/', reason: 'junk' }],
+      hidden: [
+        { title: 'Farm', url: 'https://farm.example/', reason: 'junk' },
+        // A block list says which one; the user's own site list has no name.
+        { title: 'Listed', url: 'https://listed.example/', reason: 'blocked', list: 'Content Farm Terminator' },
+        { title: 'Mine', url: 'https://mine.example/', reason: 'blocked' },
+      ],
     });
+    expect((result.structuredContent as { hidden: object[] }).hidden[2]).not.toHaveProperty('list');
     await client.close();
     await server.close();
   });

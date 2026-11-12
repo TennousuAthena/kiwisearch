@@ -1,6 +1,8 @@
 import { createSourceCache, runSearch, type Env, type SourceId } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
 import { ensureBridge } from '@/lib/bridge';
+import { handleBlocklistMessage, loadBlocklistRules, refreshDueBlocklists } from '@/lib/blocklistService';
+import { subscriptionsChanged } from '@/lib/blocklistState';
 import type { PortMessage, SearchRequest } from '@/lib/messages';
 import { loadConfig } from '@/lib/settings';
 import { handleFaviconMessage } from '@/lib/faviconService';
@@ -46,6 +48,7 @@ export default defineBackground(() => {
     fetch: (input, init) => fetch(input, init),
     runBrowserEngine,
     cache,
+    loadBlocklists: loadBlocklistRules,
   });
 
   browser.runtime.onInstalled.addListener(({ reason }) => {
@@ -54,6 +57,15 @@ export default defineBackground(() => {
   });
   browser.runtime.onStartup.addListener(registerSearchRedirectRule);
   registerSearchRedirectRule();
+
+  // Subscribed block lists: brought up to date whenever the worker starts (browser start included; a no-op unless one is due),
+  // every few hours by alarm, and when a subscription is switched on or added.
+  const refreshSubscribedLists = () => void refreshDueBlocklists().catch(() => {});
+  refreshSubscribedLists();
+  // `alarms.create` with a name in use starts that alarm over, and the worker is restarted more often than the alarm's period.
+  void browser.alarms.get('blocklist-refresh').then((alarm) => {
+    if (!alarm) browser.alarms.create('blocklist-refresh', { delayInMinutes: 60, periodInMinutes: 360 });
+  });
 
   browser.omnibox.setDefaultSuggestion({ description: '用 Kiwi Search 搜索：%s' });
   browser.omnibox.onInputEntered.addListener((text, disposition) => {
@@ -78,7 +90,9 @@ export default defineBackground(() => {
           ? handleLlmTest(msg)
           : type === 'kiwi:test-decision'
             ? handleDecisionTest(msg)
-            : handleWorkerMessage(msg, sender);
+            : type === 'kiwi:blocklist-refresh'
+              ? handleBlocklistMessage(msg)
+              : handleWorkerMessage(msg, sender);
     void reply.then(sendResponse).catch((error) => sendResponse({ error: String(error) }));
     return true;
   });
@@ -155,6 +169,10 @@ export default defineBackground(() => {
   browser.alarms.onAlarm.addListener((a) => {
     if (a.name === 'bridge') void ensureBridge(makeEnv);
     else if (a.name === 'fusion-worker-gc') void collectIdleWorkers();
+    else if (a.name === 'blocklist-refresh') refreshSubscribedLists();
   });
-  browser.storage.onChanged.addListener((changes) => changes.bridge && void ensureBridge(makeEnv));
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (changes.bridge) void ensureBridge(makeEnv);
+    if (area === 'local' && subscriptionsChanged(changes.config)) refreshSubscribedLists();
+  });
 });
