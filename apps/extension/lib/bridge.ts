@@ -1,5 +1,6 @@
 import { isSearchMode, runSearch, usableSources, type Env, type FusionConfig, type RunOptions, type SourceId } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
+import { t } from './i18n';
 import { loadBridge, loadConfig } from './settings';
 import { recordSourceStatus } from './sourceStatus';
 
@@ -79,7 +80,7 @@ async function onMessage(sock: WebSocket, raw: string, makeEnv: () => Env) {
   try {
     const config = await loadConfig();
     if (msg.type === 'answer' && config.summary.provider === 'chrome-builtin') {
-      throw new Error('MCP answer 需要 API 摘要提供方；请在 Kiwi Search 设置中选择 OpenAI 兼容 API。');
+      throw new Error(t('worker.bridge.answerNeedsApi'));
     }
     const opts: RunOptions = {
       mode: isSearchMode(msg.options?.mode) ? msg.options.mode : undefined,
@@ -97,7 +98,7 @@ async function onMessage(sock: WebSocket, raw: string, makeEnv: () => Env) {
         }
       },
     };
-    if (!msg.query) throw new Error('MCP 请求缺少 query');
+    if (!msg.query) throw new Error(t('worker.bridge.missingQuery'));
     const result = await runSearch(msg.query, config, makeEnv(), opts);
     ctrl.abort();
     send({ type: 'result', result });

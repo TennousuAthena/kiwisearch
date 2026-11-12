@@ -4,7 +4,7 @@ import { normalizeUrl } from './url';
 
 export const RRF_K = 60;
 
-type Weights = Partial<Record<SourceId, number>>;
+export type Weights = Partial<Record<SourceId, number>>;
 
 function normalizedHost(value: string): string {
   try {
@@ -76,7 +76,7 @@ function samePaper(left: FusedResult, right: FusedResult): boolean {
 }
 
 /** Fold `source` into `target`: union of source ranks, summed RRF, richest text and metadata. */
-function absorb(target: FusedResult, source: FusedResult, weights: Weights, k: number): void {
+export function absorb(target: FusedResult, source: FusedResult, weights: Weights, k: number): void {
   for (const entry of source.sources) {
     if (target.sources.some((existing) => existing.source === entry.source)) continue;
     target.sources.push({ ...entry });

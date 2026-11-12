@@ -45,14 +45,14 @@ describe('describeSource', () => {
   it('turns the last run into a status with something to do about it', () => {
     const c = config({ zhihu: { enabled: true }, google: { enabled: true } });
     expect(describeSource('zhihu', c, { state: 'login', at: NOW - 60_000 }, NOW)).toMatchObject({ tone: 'warn', label: '需要登录', action: 'login' });
-    expect(describeSource('google', c, { state: 'captcha', at: NOW }, NOW)).toMatchObject({ label: '遇到验证码', action: 'verify' });
+    expect(describeSource('google', c, { state: 'captcha', at: NOW }, NOW)).toMatchObject({ label: '需要人机验证', action: 'verify' });
     expect(describeSource('google', c, { state: 'error', at: NOW, message: 'timeout' }, NOW)).toMatchObject({ tone: 'bad', hint: 'timeout' });
     expect(describeSource('google', c, { state: 'ok', at: NOW - 120_000, count: 9 }, NOW)).toMatchObject({ tone: 'ok', label: '可用', hint: '2 分钟前 · 9 条' });
   });
 
   it('tells a platform that needs a login from one that does not, before any search', () => {
     const c = config({ zhihu: { enabled: true }, google: { enabled: true } });
-    expect(describeSource('zhihu', c)).toMatchObject({ label: '还没试过', action: 'login' });
+    expect(describeSource('zhihu', c)).toMatchObject({ label: '尚未尝试', action: 'login' });
     expect(describeSource('google', c)).toMatchObject({ label: '已就绪' });
   });
 });

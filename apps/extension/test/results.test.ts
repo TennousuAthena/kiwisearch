@@ -49,7 +49,7 @@ describe('result helpers', () => {
     expect(hiddenLabel({ reason: 'irrelevant' })).toMatch(/关系不大/);
     expect(hiddenLabel({ reason: 'rule', rule: '搬运文' })).toContain('搬运文');
     expect(hiddenLabel({ reason: 'blocked' })).toBe('来自你屏蔽的网站');
-    expect(hiddenLabel({ reason: 'blocked', list: 'Content Farm Terminator' })).toBe('命中屏蔽列表「Content Farm Terminator」');
+    expect(hiddenLabel({ reason: 'blocked', list: 'Content Farm Terminator' })).toBe('命中屏蔽列表“Content Farm Terminator”');
   });
 
   it('builds a Google-style address line', () => {
@@ -204,15 +204,15 @@ describe('decisionModelNotes', () => {
   it('puts one reason on one line when the same thing stopped both features', () => {
     const notes = decisionModelNotes({ mode: 'web', judgeError: nope, intentError: nope });
     expect(notes).toHaveLength(1);
-    expect(notes[0].text).toMatch(/^自动补搜知乎等平台、智能过滤没能用上：.*HTTP 451/);
+    expect(notes[0].text).toMatch(/^自动补搜、智能过滤未生效：.*HTTP 451/);
     expect(notes[0].title).toContain('Typesafe is not available');
   });
 
   it('keeps different reasons apart, and only blames the platform search in a general search', () => {
     expect(decisionModelNotes({ mode: 'web', judgeError: '超过 6000ms', intentError: nope }).map((n) => n.text)).toEqual([
-      expect.stringMatching(/^自动补搜知乎等平台没能用上：.*451/),
-      '智能过滤没能用上：超过 6000ms',
+      expect.stringMatching(/^自动补搜未生效：.*451/),
+      '智能过滤未生效：超过 6000ms',
     ]);
-    expect(decisionModelNotes({ mode: 'academic', judgeError: '超过 6000ms', intentError: nope }).map((n) => n.text)).toEqual(['智能过滤没能用上：超过 6000ms']);
+    expect(decisionModelNotes({ mode: 'academic', judgeError: '超过 6000ms', intentError: nope }).map((n) => n.text)).toEqual(['智能过滤未生效：超过 6000ms']);
   });
 });

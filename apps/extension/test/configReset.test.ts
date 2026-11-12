@@ -16,7 +16,10 @@ describe('resetKeepingSecrets', () => {
     current.judge.blocklists = { recommended: ['content-farm-terminator'], subscriptions: [{ id: 'custom-1', name: 'mine', url: 'https://lists.example/a.txt', enabled: true }], custom: 'spam.example' };
     current.llm.apiKey = 'llm-key';
     current.perSourceCount = 3;
+    current.judge.foldWikipediaEditions = false;
     const next = resetKeepingSecrets(current);
+    // Unset again, which is "on for a Chinese browser"; the choice is not something that is tedious to get back.
+    expect(next.judge.foldWikipediaEditions).toBeUndefined();
     expect(next.sources.google?.enabled).toBe(true);
     expect(next.sources.brave).toEqual({ ...DEFAULT_CONFIG.sources.brave, apiKey: 'brave-key' });
     expect(next.sources.searxng).toMatchObject({ baseUrl: 'https://searx.example', apiKey: 'bearer' });

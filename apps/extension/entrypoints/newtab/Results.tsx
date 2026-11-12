@@ -1,7 +1,9 @@
 import type { FusedResult, SearchMode } from '@kiwi-search/core';
 import { Fragment, useState, type ReactNode } from 'react';
+import { t } from '@/lib/i18n';
+import { tr } from '@/lib/i18n/rich';
 import { ChevronDownIcon } from '@/lib/icons';
-import { breadcrumb, clip, compactCount, hiddenLabel, iconHost, siteLabel } from '@/lib/results';
+import { WECHAT_SITE_NAME, ZHIHU_SITE_NAME, breadcrumb, clip, compactCount, hiddenLabel, iconHost, siteLabel } from '@/lib/results';
 import { Favicon } from './Favicon';
 import { SourceMarks } from './SourceMarks';
 
@@ -16,6 +18,14 @@ interface ItemProps {
 
 function WebResult({ result, highlighted, note, marks }: ItemProps) {
   const date = result.publishedAt?.slice(0, 10);
+  const reprintSites = (result.reprints ?? []).slice(0, 3).map((copy, index) => (
+    <span key={copy.url}>
+      {index > 0 && t('newtab.results.reprintSeparator')}
+      <a href={copy.url} target="_blank" rel="noreferrer">
+        {copy.host}
+      </a>
+    </span>
+  ));
   return (
     <article className={highlighted ? 'result hl' : 'result'}>
       <div className="site">
@@ -41,16 +51,9 @@ function WebResult({ result, highlighted, note, marks }: ItemProps) {
       )}
       {result.reprints && result.reprints.length > 0 && (
         <p className="reprints">
-          同一篇还出现在{' '}
-          {result.reprints.slice(0, 3).map((copy, index) => (
-            <span key={copy.url}>
-              {index > 0 && '、'}
-              <a href={copy.url} target="_blank" rel="noreferrer">
-                {copy.host}
-              </a>
-            </span>
-          ))}
-          {result.reprints.length > 3 && ` 等 ${result.reprints.length} 处`}
+          {result.reprints.length > 3
+            ? tr('newtab.results.reprintsMore', { tags: { sites: () => reprintSites }, params: { count: result.reprints.length } })
+            : tr('newtab.results.reprints', { tags: { sites: () => reprintSites } })}
         </p>
       )}
       {note && <p className="result-note">{note}</p>}
@@ -60,7 +63,8 @@ function WebResult({ result, highlighted, note, marks }: ItemProps) {
 
 function PaperResult({ result, highlighted, note, marks }: ItemProps) {
   const { authors, venue, year, citations, pdfUrl, doi } = result.meta;
-  const byline = [authors?.length ? authors.slice(0, 5).join(', ') + (authors.length > 5 ? ' 等' : '') : '', venue, year]
+  const authorList = authors?.slice(0, 5).join(', ') ?? '';
+  const byline = [authors && authors.length > 5 ? t('newtab.results.authorsMore', { authors: authorList }) : authorList, venue, year]
     .filter(Boolean)
     .join(' · ');
   // Source snippets repeat the byline in front of the abstract; the abstract alone reads better here.
@@ -85,7 +89,7 @@ function PaperResult({ result, highlighted, note, marks }: ItemProps) {
             DOI
           </a>
         )}
-        {citations !== undefined && <span>被引 {citations.toLocaleString()}</span>}
+        {citations !== undefined && <span>{t('newtab.results.cited', { count: citations.toLocaleString() })}</span>}
         {marks}
       </div>
       {note && <p className="result-note">{note}</p>}
@@ -126,8 +130,8 @@ function VideoResult({ result, highlighted, note, marks }: ItemProps) {
 
 /** What kind of Zhihu card this is, from its link. */
 function zhihuKind(url: string): string {
-  if (url.includes('/answer/')) return '回答';
-  return url.includes('zhuanlan.zhihu.com') ? '文章' : '问题';
+  if (url.includes('/answer/')) return t('newtab.results.zhihuKind.answer');
+  return url.includes('zhuanlan.zhihu.com') ? t('newtab.results.zhihuKind.article') : t('newtab.results.zhihuKind.question');
 }
 
 function ZhihuResult({ result, highlighted, note, marks }: ItemProps) {
@@ -135,8 +139,8 @@ function ZhihuResult({ result, highlighted, note, marks }: ItemProps) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const byline = [
     author,
-    votes !== undefined ? `${votes.toLocaleString()} 赞同` : '',
-    comments !== undefined ? `${comments.toLocaleString()} 评论` : '',
+    votes !== undefined ? t('newtab.results.votes', { count: votes.toLocaleString() }) : '',
+    comments !== undefined ? t('newtab.results.comments', { count: comments.toLocaleString() }) : '',
     age,
   ]
     .filter(Boolean)
@@ -180,7 +184,7 @@ function WechatResult({ result, highlighted, note, marks }: ItemProps) {
           </a>
         </h3>
         <p className="byline">
-          <span className="kind">公众号</span>
+          <span className="kind">{t('newtab.results.wechatKind')}</span>
           {byline}
           {marks}
         </p>
@@ -201,10 +205,10 @@ function XResult({ result, highlighted, note }: ItemProps) {
   const { comments, reposts, votes, views, thumbnail } = result.meta;
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const stats = [
-    comments !== undefined ? `${compactCount(comments)} 回复` : '',
-    reposts !== undefined ? `${compactCount(reposts)} 转发` : '',
-    votes !== undefined ? `${compactCount(votes)} 喜欢` : '',
-    views !== undefined ? `${compactCount(views)} 浏览` : '',
+    comments !== undefined ? t('newtab.results.xReplies', { count: compactCount(comments) }) : '',
+    reposts !== undefined ? t('newtab.results.xReposts', { count: compactCount(reposts) }) : '',
+    votes !== undefined ? t('newtab.results.xLikes', { count: compactCount(votes) }) : '',
+    views !== undefined ? t('newtab.results.xViews', { count: compactCount(views) }) : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -234,7 +238,7 @@ function XResult({ result, highlighted, note }: ItemProps) {
 function NoteRow({ result, highlighted, note, marks }: ItemProps) {
   const info = result.note;
   const [coverFailed, setCoverFailed] = useState(false);
-  const byline = ['小红书', info?.author, info?.time, info?.likes ? `${info.likes} 赞` : ''].filter(Boolean).join(' · ');
+  const byline = [t('newtab.results.noteKind'), info?.author, info?.time, info?.likes ? t('newtab.results.noteLikes', { likes: info.likes }) : ''].filter(Boolean).join(' · ');
   return (
     <article className={highlighted ? 'result video note-row hl' : 'result video note-row'}>
       <a className="video-thumb" href={result.url} target="_blank" rel="noreferrer" tabIndex={-1} aria-hidden="true">
@@ -269,8 +273,8 @@ const itemFor = (mode: SearchMode, result: FusedResult) => {
   if (mode === 'wechat') return WechatResult;
   if (mode === 'x') return XResult;
   if (result.note) return NoteRow;
-  if (result.meta.siteName === '知乎') return ZhihuResult;
-  if (result.meta.siteName === '微信公众号') return WechatResult;
+  if (result.meta.siteName === ZHIHU_SITE_NAME) return ZhihuResult;
+  if (result.meta.siteName === WECHAT_SITE_NAME) return WechatResult;
   if (result.meta.authors?.length && result.meta.year !== undefined) return PaperResult;
   return WebResult;
 };
@@ -316,9 +320,9 @@ export function HiddenResults({ results, mode }: { results: FusedResult[]; mode:
   const [open, setOpen] = useState(false);
   if (!results.length) return null;
   return (
-    <section className="hidden-results" aria-label="已隐藏的结果">
+    <section className="hidden-results" aria-label={t('newtab.results.hiddenLabel')}>
       <button type="button" className="disclosure" aria-expanded={open} onClick={() => setOpen(!open)}>
-        已隐藏 {results.length} 条结果 · {open ? '收起' : '显示'}
+        {open ? t('newtab.results.hiddenOpen', { count: results.length }) : t('newtab.results.hiddenClosed', { count: results.length })}
         <ChevronDownIcon className={open ? 'flip' : ''} />
       </button>
       {open && (

@@ -1,6 +1,7 @@
 import type { BlockReason, BrowserEngine, BrowserRunOptions, SearchHit, SearchMode, SourceId } from '@kiwi-search/core';
 import type { Browser } from 'wxt/browser';
 import { browser } from 'wxt/browser';
+import { t } from './i18n';
 import { createAsyncLock, isBrowserErrorPage, mergeRendererState, workerIdentity, type RendererState } from './rendererState';
 import { loadConfig } from './settings';
 
@@ -255,7 +256,7 @@ export function runBrowserEngine(engine: BrowserEngine, query: string, opts: Bro
           if (!pendingById.has(requestId)) return;
           cleanup();
           pending.cleanup();
-          reject(new Error('页面没有按预期打开：网络不通、网站拒绝了这次访问，或跳到了别的页面'));
+          reject(new Error(t('worker.renderer.pageNotOpened')));
         };
         if (isBrowserErrorPage(tab.url ?? changeInfo.url)) {
           fail();
@@ -331,7 +332,7 @@ export async function handleWorkerMessage(message: unknown, sender: Browser.runt
     if (request && request.tabId === tabId) {
       const state = await withStateLock(() => readState());
       const reason: BlockReason = msg.reason === 'login' ? 'login' : 'captcha';
-      request.onBlocked(reason === 'login' ? '需要在这个浏览器里登录' : '需要在搜索引擎页面手动完成验证', reason);
+      request.onBlocked(reason === 'login' ? t('worker.renderer.needsLogin') : t('worker.renderer.needsVerification'), reason);
       // Only a captcha may bring the window forward by itself; a login wall waits for the user to ask.
       if (state) await focusForCaptcha(request, state, request.focusOnCaptcha && reason === 'captcha');
     }
@@ -343,7 +344,7 @@ export async function handleWorkerMessage(message: unknown, sender: Browser.runt
       pendingById.delete(request.requestId);
       pendingByTab.delete(tabId);
       request.cleanup();
-      request.reject(new Error(`网站拒绝了这次访问：${msg.text ?? ''}`));
+      request.reject(new Error(t('worker.renderer.refused', { reason: msg.text ?? '' })));
     }
     return { ok: true };
   }

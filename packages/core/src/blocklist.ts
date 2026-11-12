@@ -1,3 +1,4 @@
+import { coreMessages } from './messages';
 import type { BlockRules, BlockRuleSet, BlocklistSettings, Env, FusionConfig, NamedBlockRules } from './types';
 
 /**
@@ -15,14 +16,16 @@ import type { BlockRules, BlockRuleSet, BlocklistSettings, Env, FusionConfig, Na
  * `www.` is not told apart from the bare domain, as with the user's own site lists.
  */
 
+/** Typed, so the settings page can keep one description per list in its message catalog and know none is missing. */
+export type RecommendedBlocklistId = 'content-farm-terminator' | 'ai-ublock-blacklist' | 'bad-website-blocklist';
+
+/** What each list covers is written for the reader, so it lives with the settings page's text (its message catalog), not here. */
 export interface RecommendedBlocklist {
-  id: string;
+  id: RecommendedBlocklistId;
   name: string;
   /** Where the list is fetched from. */
   url: string;
   homepage: string;
-  /** What it covers, in a line. */
-  description: string;
   /** The list's own licence, as far as it states one. Lists are fetched by the user's browser, never bundled. */
   license: string;
 }
@@ -39,7 +42,6 @@ export const RECOMMENDED_BLOCKLISTS: RecommendedBlocklist[] = [
     name: 'Content Farm Terminator',
     url: 'https://danny0838.github.io/content-farm-terminator/files/blocklist/content-farms.txt',
     homepage: 'https://github.com/danny0838/content-farm-terminator',
-    description: '中文内容农场，以繁体中文站点为主；其中有按博客作者屏蔽的规则。',
     license: 'MIT',
   },
   {
@@ -47,7 +49,6 @@ export const RECOMMENDED_BLOCKLISTS: RecommendedBlocklist[] = [
     name: 'AI uBlock Blacklist',
     url: 'https://raw.githubusercontent.com/alvi-se/ai-ublock-blacklist/master/list.txt',
     homepage: 'https://github.com/alvi-se/ai-ublock-blacklist',
-    description: 'AI 批量生成的垃圾内容站，以英文站点为主。',
     license: 'GPL-3.0',
   },
   {
@@ -55,7 +56,6 @@ export const RECOMMENDED_BLOCKLISTS: RecommendedBlocklist[] = [
     name: 'BadWebsiteBlocklist',
     url: 'https://raw.githubusercontent.com/popcar2/BadWebsiteBlocklist/main/uBlacklist.txt',
     homepage: 'https://github.com/popcar2/BadWebsiteBlocklist',
-    description: '拼凑文章、AI 垃圾站和误导性网站，以英文站点为主；有些规则只屏蔽站内某个栏目（如 /blog/）。',
     license: 'CC0',
   },
 ];
@@ -382,6 +382,6 @@ export async function loadBlocklist(config: FusionConfig, env: Env): Promise<Blo
   } catch {
     // Subscribed lists are an extra; the search goes on without them.
   }
-  if (blocklists.custom.trim()) lists.push({ id: 'custom', name: '自定义规则', rules: parseBlocklistCached(blocklists.custom).rules });
+  if (blocklists.custom.trim()) lists.push({ id: 'custom', name: coreMessages(env).customListName, rules: parseBlocklistCached(blocklists.custom).rules });
   return compileBlocklist(lists);
 }

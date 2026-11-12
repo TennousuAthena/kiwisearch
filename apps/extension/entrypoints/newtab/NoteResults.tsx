@@ -1,5 +1,6 @@
 import type { FusedResult } from '@kiwi-search/core';
 import { useState } from 'react';
+import { t } from '@/lib/i18n';
 import { HeartIcon } from '@/lib/icons';
 
 /** Cover shape limits, so one very tall or very flat picture can't dominate a column. */
@@ -29,7 +30,7 @@ function NoteCard({ result }: { result: FusedResult }) {
           <span>{byline}</span>
         </span>
         {note?.likes && (
-          <span className="note-likes" aria-label={`${note.likes} 赞`}>
+          <span className="note-likes" aria-label={t('newtab.notes.likes', { likes: note.likes })}>
             <HeartIcon />
             {note.likes}
           </span>

@@ -1,4 +1,5 @@
 import { DEFAULT_CONFIG, activeSubscriptions, mergeConfig, migrateConfig, type BlocklistSource, type ParsedBlocklist } from '@kiwi-search/core';
+import { getLocale, t } from './i18n';
 
 /**
  * The pure part of keeping subscribed block lists: what is remembered about each, when one is due, how a download is read
@@ -61,7 +62,7 @@ export function subscriptionsChanged(change: { oldValue?: unknown; newValue?: un
 
 /** The body as text, refusing to read more than `maxBytes` (a subscription address that points at something huge, or never ends). */
 export async function readTextLimited(response: Response, maxBytes = MAX_LIST_BYTES): Promise<string> {
-  const tooBig = () => new Error(`列表超过 ${Math.round(maxBytes / 1024 / 1024)} MB，不像是屏蔽列表`);
+  const tooBig = () => new Error(t('options.blocklist.error.tooBig', { megabytes: Math.round(maxBytes / 1024 / 1024) }));
   if (Number(response.headers.get('content-length')) > maxBytes) throw tooBig();
   const reader = response.body?.getReader();
   if (!reader) {
@@ -86,8 +87,8 @@ export async function readTextLimited(response: Response, maxBytes = MAX_LIST_BY
 }
 
 function explain(error: unknown): string {
-  if (error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError')) return `超过 ${DOWNLOAD_TIMEOUT_MS / 1000} 秒没有响应`;
-  if (error instanceof TypeError) return '连不上这个地址（网络不通，或对方不允许访问）';
+  if (error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError')) return t('options.blocklist.error.timeout', { seconds: DOWNLOAD_TIMEOUT_MS / 1000 });
+  if (error instanceof TypeError) return t('options.blocklist.error.unreachable');
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -105,7 +106,7 @@ export async function downloadList(fetchFn: FetchFn, url: string, etag?: string,
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (response.status === 304) return { kind: 'not-modified' };
-    if (!response.ok) throw new Error(`服务器返回 HTTP ${response.status}`);
+    if (!response.ok) throw new Error(t('options.blocklist.error.http', { status: response.status }));
     return { kind: 'text', text: await readTextLimited(response), etag: response.headers.get('etag') ?? undefined };
   } catch (error) {
     throw new Error(explain(error));
@@ -119,11 +120,11 @@ export function metaAfterDownload(url: string, parsed: ParsedBlocklist, etag: st
 
 export function formatAgo(from: number, now: number): string {
   const minutes = Math.max(0, Math.round((now - from) / 60_000));
-  if (minutes < 1) return '刚刚';
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 1) return t('options.blocklist.ago.now');
+  if (minutes < 60) return t('options.blocklist.ago.minutes', { minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 48) return `${hours} 小时前`;
-  return `${Math.round(hours / 24)} 天前`;
+  if (hours < 48) return t('options.blocklist.ago.hours', { hours });
+  return t('options.blocklist.ago.days', { days: Math.round(hours / 24) });
 }
 
 export interface BlocklistStatus {
@@ -131,23 +132,32 @@ export interface BlocklistStatus {
   text: string;
 }
 
-const count = (n: number) => n.toLocaleString('zh-CN');
+const count = (n: number) => n.toLocaleString(getLocale());
 
 /** The line under a subscribed list on the settings page. */
 export function blocklistStatus(meta: BlocklistMeta | undefined, now: number): BlocklistStatus {
-  if (isUpdating(meta, now)) return { tone: 'neutral', text: '正在下载…' };
-  const kept = meta?.fetchedAt ? `${count(meta.rules ?? 0)} 条规则，${formatAgo(meta.fetchedAt, now)}更新` : undefined;
-  if (meta?.error) return { tone: 'bad', text: kept ? `这次更新失败：${meta.error}。仍在用之前的版本（${kept}）` : `下载失败：${meta.error}` };
-  if (!kept) return { tone: 'neutral', text: '等待下载' };
-  const left = meta?.unsupported ? `，${count(meta.unsupported)} 行写法不支持，已跳过` : '';
-  return { tone: 'ok', text: `${kept}${left}` };
+  if (isUpdating(meta, now)) return { tone: 'neutral', text: t('options.blocklist.status.downloading') };
+  const kept = meta?.fetchedAt ? { rules: count(meta.rules ?? 0), ago: formatAgo(meta.fetchedAt, now) } : undefined;
+  if (meta?.error) return { tone: 'bad', text: kept ? t('options.blocklist.status.refreshFailed', { error: meta.error, ...kept }) : t('options.blocklist.status.failed', { error: meta.error }) };
+  if (!kept) return { tone: 'neutral', text: t('options.blocklist.status.waiting') };
+  return {
+    tone: 'ok',
+    text: meta?.unsupported ? t('options.blocklist.status.keptSkipped', { ...kept, skipped: count(meta.unsupported) }) : t('options.blocklist.status.kept', kept),
+  };
 }
 
 /** What the user's own rules came to: how many were understood, and what was left out. */
 export function describeCustomRules(stats: ParsedBlocklist['stats']): string {
   if (!stats.rules && !stats.unsupported && !stats.cosmetic) return '';
-  const parts = [`${count(stats.rules)} 条规则有效`];
-  if (stats.unsupported) parts.push(`${count(stats.unsupported)} 行没有用上${stats.examples.length ? `（例如 ${stats.examples.map((line) => `“${line}”`).join('、')}）` : ''}`);
-  if (stats.cosmetic) parts.push(`${count(stats.cosmetic)} 行是页面元素规则，不适用于搜索结果`);
-  return parts.join('；');
+  const parts = [t('options.blocklist.custom.valid', { count: count(stats.rules) })];
+  if (stats.unsupported) {
+    const examples = stats.examples.map((line) => t('options.blocklist.custom.example', { line })).join(t('options.listSeparator'));
+    parts.push(
+      stats.examples.length
+        ? t('options.blocklist.custom.unsupportedExamples', { count: count(stats.unsupported), examples })
+        : t('options.blocklist.custom.unsupported', { count: count(stats.unsupported) }),
+    );
+  }
+  if (stats.cosmetic) parts.push(t('options.blocklist.custom.cosmetic', { count: count(stats.cosmetic) }));
+  return parts.join(t('options.clauseSeparator'));
 }

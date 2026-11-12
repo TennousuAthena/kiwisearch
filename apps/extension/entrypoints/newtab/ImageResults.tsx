@@ -1,6 +1,7 @@
 import type { FusedResult } from '@kiwi-search/core';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeftIcon, ArrowRightIcon, CloseIcon, ExternalLinkIcon } from '@/lib/icons';
+import { t } from '@/lib/i18n';
 import { justifiedRows } from '@/lib/justify';
 import { hostOf } from '@/lib/results';
 
@@ -107,15 +108,15 @@ function ImagePreview({
   const size = image.width && image.height ? `${image.width} × ${image.height}` : '';
   const facts = [size, image.license, image.creator].filter(Boolean).join(' · ');
   return (
-    <aside className="preview" aria-label="图片预览">
+    <aside className="preview" aria-label={t('newtab.images.previewLabel')}>
       <div className="preview-bar">
-        <button type="button" className="icon-btn" onClick={onPrevious} disabled={!onPrevious} aria-label="上一张">
+        <button type="button" className="icon-btn" onClick={onPrevious} disabled={!onPrevious} aria-label={t('newtab.images.previous')}>
           <ArrowLeftIcon />
         </button>
-        <button type="button" className="icon-btn" onClick={onNext} disabled={!onNext} aria-label="下一张">
+        <button type="button" className="icon-btn" onClick={onNext} disabled={!onNext} aria-label={t('newtab.images.next')}>
           <ArrowRightIcon />
         </button>
-        <button type="button" className="icon-btn preview-close" onClick={onClose} aria-label="关闭预览">
+        <button type="button" className="icon-btn preview-close" onClick={onClose} aria-label={t('newtab.images.close')}>
           <CloseIcon />
         </button>
       </div>
@@ -131,11 +132,11 @@ function ImagePreview({
       {facts && <p className="preview-facts">{facts}</p>}
       <div className="preview-actions">
         <a className="btn btn-primary" href={result.url} target="_blank" rel="noreferrer">
-          访问 {hostOf(result.url)}
+          {t('newtab.images.visit', { host: hostOf(result.url) })}
           <ExternalLinkIcon />
         </a>
         <a className="btn" href={image.src} target="_blank" rel="noreferrer">
-          查看原图
+          {t('newtab.images.original')}
         </a>
       </div>
     </aside>

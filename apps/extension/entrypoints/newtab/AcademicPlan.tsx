@@ -1,6 +1,7 @@
 import type { AcademicPlan, FusedResult } from '@kiwi-search/core';
 import { SparkleIcon } from '@/lib/icons';
-import { SOURCE_MARKS } from '@/lib/sourceMarks';
+import { t } from '@/lib/i18n';
+import { SOURCE_MARKS, sourceName } from '@/lib/sourceMarks';
 import { ResultList } from './Results';
 
 /**
@@ -20,17 +21,17 @@ export function PlanLine({ plan }: { plan: AcademicPlan }) {
       )}
       {(plan.keywords.length > 0 || queries.length > 0) && (
         <details className="plan-details">
-          <summary>检索式</summary>
+          <summary>{t('newtab.plan.queries')}</summary>
           <dl>
             {plan.keywords.length > 0 && (
               <>
-                <dt>关键词</dt>
+                <dt>{t('newtab.plan.keywords')}</dt>
                 <dd>{plan.keywords.join(' · ')}</dd>
               </>
             )}
             {queries.map(([id, text]) => (
               <div key={id} className="plan-query">
-                <dt>{SOURCE_MARKS[id]?.name ?? id}</dt>
+                <dt>{sourceName(id)}</dt>
                 <dd>
                   <code>{text}</code>
                 </dd>
@@ -48,8 +49,8 @@ export function Landmarks({ results, citedUrls }: { results: FusedResult[]; cite
   if (!results.length) return null;
   return (
     <section className="landmarks" aria-labelledby="landmarks-title">
-      <h2 id="landmarks-title">核心文献</h2>
-      <p className="note">你的 AI 模型认为你最可能要找的论文；每一篇都在文献库里核对过，确实存在。</p>
+      <h2 id="landmarks-title">{t('newtab.plan.landmarksTitle')}</h2>
+      <p className="note">{t('newtab.plan.landmarksNote')}</p>
       <ResultList results={results} mode="academic" hoverCite={null} citedUrls={citedUrls} />
     </section>
   );

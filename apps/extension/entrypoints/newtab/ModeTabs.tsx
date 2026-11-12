@@ -1,7 +1,8 @@
 import type { SearchMode } from '@kiwi-search/core';
 import { useEffect, useRef, useState } from 'react';
+import { t } from '@/lib/i18n';
 import { ChevronDownIcon } from '@/lib/icons';
-import { COMMUNITY_MODES, MODES, MODE_LABELS, isCommunityMode } from '@/lib/results';
+import { COMMUNITY_MODES, MODES, isCommunityMode, modeLabel } from '@/lib/results';
 
 interface Props {
   mode: SearchMode;
@@ -28,19 +29,19 @@ export function ModeTabs({ mode, onChange }: Props) {
   }, [open]);
 
   return (
-    <nav className="tabs" aria-label="搜索类型">
+    <nav className="tabs" aria-label={t('newtab.tabs.label')}>
       {MODES.filter((id) => !isCommunityMode(id)).map((id) => (
         <button key={id} type="button" className="tab" aria-current={id === mode ? 'page' : undefined} onClick={() => onChange(id)}>
-          {MODE_LABELS[id]}
+          {modeLabel(id)}
         </button>
       ))}
       <span className="tab-wrap" ref={wrap}>
         <button type="button" className="tab" aria-current={inCommunity ? 'page' : undefined} aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
-          {inCommunity ? `社区 · ${MODE_LABELS[mode]}` : '社区'}
+          {inCommunity ? t('newtab.tabs.communityMode', { mode: modeLabel(mode) }) : t('newtab.tabs.community')}
           <ChevronDownIcon className="tab-caret" />
         </button>
         {open && (
-          <div className="tab-menu" role="group" aria-label="社区平台">
+          <div className="tab-menu" role="group" aria-label={t('newtab.tabs.communityMenuLabel')}>
             {COMMUNITY_MODES.map((id) => (
               <button
                 key={id}
@@ -51,7 +52,7 @@ export function ModeTabs({ mode, onChange }: Props) {
                   onChange(id);
                 }}
               >
-                {MODE_LABELS[id]}
+                {modeLabel(id)}
               </button>
             ))}
           </div>

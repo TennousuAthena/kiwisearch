@@ -77,6 +77,22 @@ describe('config migration 2 -> 3', () => {
   it('lists Baidu after every other browser engine', () => {
     expect(Object.keys(BROWSER_ENGINES).at(-1)).toBe('baidu');
   });
+
+  it('searches Brave through its web page with no key, while the API version of it still needs one', () => {
+    const reason = (id: string) => usableSources(DEFAULT_CONFIG, true, 'web').find((source) => source.id === id)?.reason;
+    expect(DEFAULT_CONFIG.sources.bravesearch?.enabled).toBe(true);
+    expect(reason('bravesearch')).toBeUndefined();
+    expect(reason('brave')).toBe('missing API key');
+    // Without the browser extension there is no page to read.
+    expect(usableSources(DEFAULT_CONFIG, false, 'web').find((source) => source.id === 'bravesearch')?.reason).toBe('needs browser extension');
+  });
+
+  it('gives a config saved before the Brave web source existed its default, and keeps what the user chose for the rest', () => {
+    const saved = mergeConfig(DEFAULT_CONFIG, migrateConfig({ version: 5, sources: { brave: { enabled: true, apiKey: 'k' }, google: { enabled: false } } }));
+    expect(saved.sources.bravesearch).toEqual({ enabled: true });
+    expect(saved.sources.brave).toEqual({ enabled: true, apiKey: 'k' });
+    expect(saved.sources.google?.enabled).toBe(false);
+  });
 });
 
 describe('usableSources', () => {

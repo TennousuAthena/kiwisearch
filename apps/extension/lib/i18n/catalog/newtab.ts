@@ -1,0 +1,192 @@
+/** Messages of the new-tab page (`entrypoints/newtab/`) and the helpers it alone uses. Keys start with `newtab.`, or with the name of the table they belong to (`mode.`, `platform.`, `site.`). */
+export const newtab = {
+  // Tables keyed by an enum: one entry per member, so a dynamic key such as `mode.${mode}` is checked for exhaustiveness.
+  'mode.web': '全部',
+  'mode.images': '图片',
+  'mode.video': '视频',
+  'mode.academic': '学术',
+  'mode.zhihu': '知乎',
+  'mode.xiaohongshu': '小红书',
+  'mode.wechat': '公众号',
+  'mode.x': 'X',
+
+  'platform.zhihu': '知乎',
+  'platform.xiaohongshu': '小红书',
+  'platform.wechat': '公众号',
+
+  // The name an engine answers to on hover over its mark (`SOURCE_MARKS` in `lib/sourceMarks.ts`).
+  'mark.google': 'Google',
+  'mark.bing': 'Bing',
+  'mark.baidu': '百度',
+  'mark.yandex': 'Yandex',
+  'mark.duckduckgo': 'DuckDuckGo',
+  'mark.scholar': 'Google 学术',
+  'mark.brave': 'Brave',
+  'mark.bravesearch': 'Brave',
+  'mark.exa': 'Exa',
+  'mark.deepseek': 'DeepSeek',
+  'mark.openalex': 'OpenAlex',
+  'mark.arxiv': 'arXiv',
+  'mark.crossref': 'Crossref',
+  'mark.openverse': 'Openverse',
+  'mark.pubmed': 'PubMed',
+  'mark.europepmc': 'Europe PMC',
+  'mark.dblp': 'DBLP',
+  'mark.baiduxueshu': '百度学术',
+  'mark.cnki': '知网',
+  'mark.wos': 'Web of Science',
+  'mark.youtube': 'YouTube',
+  'mark.bilibili': '哔哩哔哩',
+  'mark.zhihu': '知乎',
+  'mark.xiaohongshu': '小红书',
+  'mark.rednote': '小红书',
+  'mark.sogou': '搜狗',
+  'mark.weixin': '微信公众号',
+  'mark.x': 'X',
+  'mark.searxng': 'SearXNG',
+
+  // The Chinese names in `LOCALIZED_SITES` (`lib/results.ts`); a site whose name is the same in every language stays in code.
+  'site.zhihu': '知乎',
+  'site.bilibili': '哔哩哔哩',
+  'site.juejin': '掘金',
+  'site.cnblogs': '博客园',
+  'site.jianshu': '简书',
+  'site.douban': '豆瓣',
+  'site.baidu': '百度',
+  'site.weixin': '微信',
+  'site.sina': '新浪',
+  'site.sohu': '搜狐',
+
+  // lib/results.ts: why a result is hidden, a service's error in words, what the decision model could not do, durations.
+  'newtab.hidden.junk': '疑似内容农场或搬运内容',
+  'newtab.hidden.irrelevant': '与搜索内容关系不大',
+  'newtab.hidden.rule': '符合你的过滤规则：{rule}',
+  'newtab.hidden.blocked': '来自你屏蔽的网站',
+  'newtab.hidden.blockedList': '命中屏蔽列表“{list}”',
+
+  'newtab.duration.seconds': '{seconds} 秒',
+
+  'newtab.serviceError.region': '该服务在你当前的网络出口所在地区不可用（HTTP 451），请检查代理分流',
+  'newtab.serviceError.key': 'Key 无效，或没有权限（HTTP {status}）',
+  'newtab.serviceError.rateLimit': '请求过于频繁，已被服务限流（HTTP 429）',
+  'newtab.serviceError.network': '无法连接到这个服务，请检查网络或代理设置',
+
+  'newtab.decisionNote.intent': '自动补搜未生效：{reason}',
+  'newtab.decisionNote.judge': '智能过滤未生效：{reason}',
+  'newtab.decisionNote.both': '自动补搜、智能过滤未生效：{reason}',
+
+  // lib/suggestion.ts
+  'newtab.suggestion.name.images': '图片',
+  'newtab.suggestion.name.video': '视频',
+  'newtab.suggestion.name.academic': '学术',
+  'newtab.suggestion.offer.images': '这个搜索词可能更适合“图片”',
+  'newtab.suggestion.offer.video': '这个搜索词可能更适合“视频”',
+  'newtab.suggestion.offer.academic': '这个搜索词可能更适合“学术”',
+
+  // lib/sourceMarks.ts
+  'newtab.marks.one': '{name} 收录了这条结果',
+  'newtab.marks.many': '{names} 都收录了这条结果',
+  'newtab.marks.separator': '、',
+
+  // lib/useSearchSession.ts
+  'newtab.session.builtinModelTimeout': '浏览器内置模型在 60 秒内未返回首个内容块，请检查模型状态后重试。',
+  'newtab.session.builtinModelFailed': '浏览器内置模型启动或生成失败：{detail}',
+
+  // App.tsx
+  'newtab.app.liveFailed': '搜索失败：{error}',
+  'newtab.app.liveDone': '{mode}：共 {count} 条结果',
+  'newtab.app.liveSearching': '正在搜索',
+  'newtab.app.settings': '设置',
+  'newtab.app.filterLabel': '筛选',
+  'newtab.app.anyTime': '不限时间',
+  'newtab.app.sinceYear': '{year} 年以来',
+  'newtab.app.sortByCitations': '按被引次数排序',
+
+  // Status.tsx
+  'newtab.status.resultCount': '{count} 条结果（{duration}）',
+  'newtab.status.loadingMore': '仍在加载更多结果…',
+  'newtab.status.loginNeeded': '部分来源需要登录，暂无这些来源的结果 · 去登录',
+  'newtab.status.captchaNeeded': '部分来源需要人机验证，暂无这些来源的结果 · 去验证',
+  'newtab.status.planFailed': '智能学术搜索未生效：{error}',
+  'newtab.status.suggestionMoved': '已切换到“{mode}”',
+  'newtab.status.suggestionStay': '返回网页结果',
+  'newtab.status.suggestionSwitch': '切换到“{name}”',
+  'newtab.status.fatalTitle': '搜索失败',
+  'newtab.status.fatalRetry': '重试',
+  'newtab.status.emptyTitle': '没有找到相关结果',
+  'newtab.status.emptyWaiting': '部分来源正在等待人机验证或登录。完成后，结果会自动补充到这里。',
+  'newtab.status.openSettings': '打开设置',
+  'newtab.status.emptyHint.web': '试试换个关键词，或在设置里启用更多搜索来源。',
+  'newtab.status.emptyHint.images': '图片搜索需要启用 Bing（浏览器渲染）或 Openverse，可在设置里检查。',
+  'newtab.status.emptyHint.video': '视频搜索需要启用 YouTube 或哔哩哔哩（浏览器渲染），可在设置里检查。',
+  'newtab.status.emptyHint.zhihu': '知乎搜索需要在这个浏览器里登录知乎，并在设置里启用知乎。',
+  'newtab.status.emptyHint.x': 'X 搜索需要在这个浏览器里登录 X，并在设置里启用 X。X 限制自动化使用，请适度使用。',
+  'newtab.status.emptyHint.wechat': '公众号搜索需要启用“搜狗微信”（浏览器渲染），可在设置里检查。搜狗偶尔会要求人机验证。',
+  'newtab.status.emptyHint.xiaohongshu': '小红书搜索需要在这个浏览器里登录小红书（国内站或 RedNote），并在设置里启用你登录的那个站点。',
+  'newtab.status.emptyHint.academic': '试试用英文关键词或论文标题，也可以在设置里启用更多学术来源。',
+
+  // Results.tsx. `reprints` holds the list of links where `<sites></sites>` stands.
+  'newtab.results.reprints': '同一篇还出现在 <sites></sites>',
+  'newtab.results.reprintsMore': '同一篇还出现在 <sites></sites> 等 {count} 处',
+  'newtab.results.reprintSeparator': '、',
+  'newtab.results.authorsMore': '{authors} 等',
+  'newtab.results.cited': '被引 {count}',
+  'newtab.results.zhihuKind.answer': '回答',
+  'newtab.results.zhihuKind.article': '文章',
+  'newtab.results.zhihuKind.question': '问题',
+  'newtab.results.votes': '{count} 赞同',
+  'newtab.results.comments': '{count} 评论',
+  'newtab.results.wechatKind': '公众号',
+  'newtab.results.xReplies': '{count} 回复',
+  'newtab.results.xReposts': '{count} 转发',
+  'newtab.results.xLikes': '{count} 喜欢',
+  'newtab.results.xViews': '{count} 浏览',
+  'newtab.results.noteKind': '小红书',
+  'newtab.results.noteLikes': '{likes} 赞',
+  'newtab.results.hiddenLabel': '已隐藏的结果',
+  'newtab.results.hiddenClosed': '已隐藏 {count} 条结果 · 显示',
+  'newtab.results.hiddenOpen': '已隐藏 {count} 条结果 · 收起',
+
+  // Overview.tsx. `configureHint` has the link where `<link>…</link>` stands.
+  'newtab.overview.configureHint': '<link>设置 AI 模型</link>后，这里会显示带引用的 AI 概览。',
+  'newtab.overview.title': 'AI 概览',
+  'newtab.overview.loading': '正在读取前 {count} 篇来源…',
+  'newtab.overview.starting': '正在启动浏览器内置模型…',
+  'newtab.overview.openSettings': '前往设置',
+  'newtab.overview.collapse': '收起',
+  'newtab.overview.expand': '展开',
+
+  // ImageResults.tsx
+  'newtab.images.previewLabel': '图片预览',
+  'newtab.images.previous': '上一张',
+  'newtab.images.next': '下一张',
+  'newtab.images.close': '关闭预览',
+  'newtab.images.visit': '访问 {host}',
+  'newtab.images.original': '查看原图',
+
+  // PlatformStrip.tsx
+  'newtab.platforms.title': '各平台怎么说',
+  'newtab.platforms.votes': '{count} 赞同',
+  'newtab.platforms.noteLikes': '{likes} 赞',
+  'newtab.platforms.more': '在{platform}里看更多 →',
+
+  // AcademicPlan.tsx
+  'newtab.plan.queries': '检索式',
+  'newtab.plan.keywords': '关键词',
+  'newtab.plan.landmarksTitle': '核心文献',
+  'newtab.plan.landmarksNote': 'AI 模型推测你最可能要找的论文；每一篇都已在文献库核对，确实存在。',
+
+  // ModeTabs.tsx
+  'newtab.tabs.label': '搜索类型',
+  'newtab.tabs.community': '社区',
+  'newtab.tabs.communityMode': '社区 · {mode}',
+  'newtab.tabs.communityMenuLabel': '社区平台',
+
+  // NoteResults.tsx
+  'newtab.notes.likes': '{likes} 赞',
+
+  // SearchBox.tsx
+  'newtab.searchbox.label': '搜索',
+  'newtab.searchbox.clear': '清除',
+  'newtab.searchbox.submit': '搜索',
+} as const;

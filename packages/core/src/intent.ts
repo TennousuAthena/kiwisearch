@@ -1,5 +1,6 @@
 import { errorMessage, withTimeout } from './http';
 import { askDecision } from './decision';
+import { coreMessages } from './messages';
 import type { Env, FusionConfig, IntentKey, IntentSuggestion, Route, SuggestMode } from './types';
 
 /** The extra kinds of source a general search can switch on. */
@@ -100,7 +101,7 @@ export async function judgeIntent(query: string, config: FusionConfig, env: Env,
     return { routes: ROUTES.filter((route) => (scores[route] ?? 0) >= intent.threshold), scores, suggest: suggestionFrom(scores, intent) };
   } catch (e) {
     if (signal?.aborted) throw e;
-    return { routes: [], scores: {}, error: deadline.signal.aborted ? `超过 ${intent.timeoutMs}ms，只搜索通用来源` : errorMessage(e) };
+    return { routes: [], scores: {}, error: deadline.signal.aborted ? coreMessages(env).intentTimedOut(intent.timeoutMs) : errorMessage(e) };
   } finally {
     deadline.cancel();
   }

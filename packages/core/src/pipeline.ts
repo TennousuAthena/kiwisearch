@@ -5,12 +5,14 @@ import { fetchContents } from './content';
 import { applyRerank, fuse, mergeLateHits } from './fusion';
 import { errorMessage, withTimeout } from './http';
 import { judgeIntent } from './intent';
+import { overviewLanguage } from './language';
 import { applyDomainRules, applyJudgments, flagInjectedContents, judgeEnabled, judgeResults } from './judge';
 import { chatStream, llmUsable } from './llm';
 import { rerank } from './rerank';
 import { SOURCES } from './sources';
 import { buildCitations, buildSummaryMessages } from './summarize';
 import { modeHasText } from './types';
+import { foldWikipediaEditions, wikipediaFoldEnabled, wikipediaTarget } from './wikipedia';
 import type { AcademicPlan, BlockReason, Env, FusedResult, FusionConfig, PipelineEvent, PipelineResult, RunOptions, SearchHit, SourceId, VerifiedLandmark } from './types';
 
 /** How long a browser source may sit behind other requests for its engine before it counts as stuck. */
@@ -73,6 +75,9 @@ export async function runSearch(
   // Sources that are running or done. It grows when the decision model switches more on mid-search.
   const active: SourceId[] = [];
   const weights: Partial<Record<SourceId, number>> = {};
+  // The deterministic pass every list of results goes through: Wikipedia copies in other languages folded away, then domain rules and block lists.
+  const wikipedia = wikipediaFoldEnabled(config.judge.foldWikipediaEditions, env.browserLanguage) ? wikipediaTarget(env.browserLanguage) : undefined;
+  const tidy = (list: FusedResult[]): FusedResult[] => applyDomainRules(foldWikipediaEditions(list, wikipedia, weights), config.judge, lists);
   let currentResults: FusedResult[] = [];
   let resolveDone!: () => void;
   const done = new Promise<void>((resolve) => {
@@ -184,7 +189,7 @@ export async function runSearch(
     emit({ type: 'source_done', source: run.id, count: outcome.hits.length, ms: outcome.ms });
     if (signal?.aborted) return;
     await listsReady;
-    let merged = applyDomainRules(mergeLateHits(currentResults, outcome.hits, weights), config.judge, lists);
+    let merged = tidy(mergeLateHits(currentResults, outcome.hits, weights));
     if (judgeEnabled(config)) {
       const unjudged = merged.filter((r) => !r.judgment && !r.hidden).slice(0, config.judge.candidates);
       if (unjudged.length) {
@@ -266,7 +271,7 @@ export async function runSearch(
     }
     if (pending > 0 || intentPending || planPending) {
       await listsReady;
-      emit({ type: 'fused', results: applyDomainRules(fuse(collected(), weights), config.judge, lists), partial: true });
+      emit({ type: 'fused', results: tidy(fuse(collected(), weights)), partial: true });
     }
   };
 
@@ -369,7 +374,7 @@ export async function runSearch(
 
   await listsReady;
   signal?.throwIfAborted();
-  let results: FusedResult[] = applyDomainRules(fuse(collected(), weights), config.judge, lists);
+  let results: FusedResult[] = tidy(fuse(collected(), weights));
   emit({ type: 'fused', results });
 
   const textual = modeHasText(mode);
@@ -419,13 +424,14 @@ export async function runSearch(
   };
 
   const wantSummary = textual && (opts.summarize ?? config.summary.enabled);
+  const language = overviewLanguage(config.summary, env.browserLanguage);
   // A source with no text of its own (a Xiaohongshu note has only a title and photos) has nothing to cite.
   const top = visible.filter((r) => r.snippet || r.content).slice(0, config.summary.maxSources);
   if (wantSummary && top.length && config.summary.provider === 'chrome-builtin') {
     const citations = buildCitations(top);
     result.citations = citations;
     const contents = await readPages(top);
-    const messages = buildSummaryMessages(query, top, contents, config.summary.instructions, new Date(), mode);
+    const messages = buildSummaryMessages(query, top, contents, config.summary.instructions, new Date(), mode, language);
     emit({ type: 'summary_prompt', citations, messages });
   } else if (wantSummary && top.length && llmUsable(config.llm)) {
     const citations = buildCitations(top);
@@ -433,7 +439,7 @@ export async function runSearch(
     emit({ type: 'summary_start', citations });
     try {
       const contents = await readPages(top);
-      const messages = buildSummaryMessages(query, top, contents, config.summary.instructions, new Date(), mode);
+      const messages = buildSummaryMessages(query, top, contents, config.summary.instructions, new Date(), mode, language);
       let text = '';
       for await (const delta of chatStream(env.fetch, config.llm, messages, { signal })) {
         text += delta;

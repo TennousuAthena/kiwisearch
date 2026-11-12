@@ -1,6 +1,7 @@
 import { paperTitleKey } from './fusion';
 import { errorMessage, withTimeout } from './http';
 import { chat, llmUsable, type ChatMessage } from './llm';
+import { coreMessages } from './messages';
 import { searchOpenAlex } from './sources/openalex';
 import { SOURCES } from './sources';
 import type { AcademicPlan, Env, FusionConfig, SearchHit, SourceId, VerifiedLandmark } from './types';
@@ -101,12 +102,13 @@ export function planSourceIds(config: FusionConfig): SourceId[] {
 }
 
 export async function planAcademicQuery(query: string, config: FusionConfig, env: Env, signal?: AbortSignal): Promise<{ parsed?: ParsedPlan; error?: string }> {
-  if (!llmUsable(config.llm)) return { error: '没有可用的 AI 模型' };
+  const messages = coreMessages(env);
+  if (!llmUsable(config.llm)) return { error: messages.noAiModel };
   const sourceIds = planSourceIds(config);
   try {
     const text = await chat(env.fetch, config.llm, buildPlanMessages(query, sourceIds), { signal, json: true });
     const parsed = parsePlan(text, sourceIds, config.academic.landmarks);
-    return parsed ? { parsed } : { error: '模型的回复不是有效的检索计划' };
+    return parsed ? { parsed } : { error: messages.planInvalid };
   } catch (e) {
     if (signal?.aborted && !(signal.reason instanceof Error && /^timeout/.test(signal.reason.message))) throw e;
     return { error: errorMessage(signal?.aborted ? signal.reason : e) };

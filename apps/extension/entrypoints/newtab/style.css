@@ -119,9 +119,13 @@
 .src-mark picture, .src-mark img { display: block; width: 100%; height: 100%; }
 .src-mark img { padding: 0; border: 0; border-radius: 0; background: none; object-fit: contain; }
 .paper-links .src-marks { margin-left: 0; }
+/* One engine only: its logo, but faint, since it says where the result came from and corroborates nothing. Hover or focus brings it
+   up far enough to recognize. */
+.src-marks.solo { opacity: 0.5; transition: opacity 0.15s var(--ease-out); }
+.src-marks.solo:hover, .src-marks.solo:focus-visible { opacity: 0.85; }
 /* A black raster logo has no dark variant: invert it on the dark page. */
 @media (prefers-color-scheme: dark) { .src-mark img.inv { filter: invert(1); } }
-@media (prefers-reduced-motion: reduce) { .src-mark { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .src-mark, .src-marks.solo { transition: none; } }
 .site cite { overflow: hidden; color: var(--fg-3); font-size: 0.75rem; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
 .result-title { margin: 0.1rem 0 0.15rem; font-size: 1.25rem; font-weight: 400; line-height: 1.3; }
 .result-title a { color: var(--link); overflow-wrap: anywhere; text-decoration: none; }

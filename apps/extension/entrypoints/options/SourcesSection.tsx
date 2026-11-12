@@ -1,10 +1,11 @@
 import { BROWSER_ENGINES, type FusionConfig, type SourceId } from '@kiwi-search/core';
 import { useState } from 'react';
 import { browser } from 'wxt/browser';
+import { t } from '@/lib/i18n';
 import { ChevronDownIcon, ExternalLinkIcon, TriangleAlertIcon } from '@/lib/icons';
 import { GROUPS, GROUP_PRESETS, SOURCE_INFO, sourcesInGroup, type SourceGroup } from '@/lib/sourceCatalog';
 import type { SourceHealthMap } from '@/lib/sourceHealth';
-import { SOURCE_LABELS } from '@/lib/sourceMeta';
+import { sourceLabel } from '@/lib/sourceMeta';
 import { describeSource, type SourceBadge } from '@/lib/sourceView';
 import { Field, SecretInput, Switch } from './controls';
 
@@ -41,7 +42,7 @@ export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfi
   function row(id: SourceId) {
     const info = SOURCE_INFO[id];
     const settings = config.sources[id] ?? { enabled: false };
-    const label = SOURCE_LABELS[id];
+    const label = sourceLabel(id);
     const badge = describeSource(id, config, health[id]);
     const hasFields = !!info.key || !!info.baseUrl;
     // A source that can't run without its key opens its fields by itself once it is switched on.
@@ -57,12 +58,12 @@ export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfi
           />
           <div className="source-name">
             <strong>{label}</strong>
-            <span>{info.blurb}</span>
+            <span>{t(`source.blurb.${id}`)}</span>
           </div>
           <div className="source-side">
             {badge && <Badge badge={badge} onAction={(action) => (action === 'key' ? toggleOpen(id, true) : void openFor(id, action))} />}
             {hasFields && (
-              <button type="button" className="icon-btn small" aria-expanded={expanded} aria-label={`${label} 的 Key 与地址`} onClick={() => toggleOpen(id)}>
+              <button type="button" className="icon-btn small" aria-expanded={expanded} aria-label={t('options.sources.keyAndAddress', { source: label })} onClick={() => toggleOpen(id)}>
                 <ChevronDownIcon className={expanded ? 'flip' : ''} />
               </button>
             )}
@@ -71,22 +72,22 @@ export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfi
         {expanded && (
           <div className="source-fields">
             {info.baseUrl && (
-              <Field label="服务地址">
+              <Field label={t('options.sources.serviceAddress')}>
                 <input type="url" value={settings.baseUrl ?? ''} placeholder="https://searx.example" onChange={(event) => onUpdate(id, 'baseUrl', event.target.value)} />
               </Field>
             )}
             {info.key && (
               <Field
-                label={info.key === 'required' ? 'API Key' : 'API Key（可选）'}
+                label={info.key === 'required' ? t('options.sources.apiKeyRequired') : t('options.sources.apiKeyOptional')}
                 hint={
                   info.keyUrl && (
                     <a href={info.keyUrl} target="_blank" rel="noreferrer">
-                      获取 Key <ExternalLinkIcon />
+                      {t('options.sources.getKey')} <ExternalLinkIcon />
                     </a>
                   )
                 }
               >
-                <SecretInput label={`${label} API Key`} value={settings.apiKey ?? ''} placeholder="粘贴你自己的 Key" onChange={(next) => onUpdate(id, 'apiKey', next)} />
+                <SecretInput label={t('options.sources.apiKeyOf', { source: label })} value={settings.apiKey ?? ''} placeholder={t('options.sources.keyPlaceholder')} onChange={(next) => onUpdate(id, 'apiKey', next)} />
               </Field>
             )}
           </div>
@@ -97,8 +98,8 @@ export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfi
 
   return (
     <section className="section" id="sources" aria-labelledby="sources-title">
-      <h2 id="sources-title">搜索范围</h2>
-      <p className="lead">选择 Kiwi 去哪些地方搜。所有数据都来自你自己的浏览器和你自己填的 Key：Kiwi 不提供账号、Key 或服务器。</p>
+      <h2 id="sources-title">{t('options.sources.title')}</h2>
+      <p className="lead">{t('options.sources.lead')}</p>
       {GROUPS.map((group) => {
         const ids = sourcesInGroup(group.id);
         if (!ids.length) return null;
@@ -106,17 +107,17 @@ export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfi
         return (
           <div className="group" key={group.id}>
             <div className="group-head">
-              <h3>{group.title}</h3>
+              <h3>{t(`group.${group.id}.title`)}</h3>
               <span className="count">
-                已开 {enabled.length} / {ids.length}
+                {t('options.sources.enabledCount', { enabled: enabled.length, total: ids.length })}
               </span>
               <Presets group={group.id} ids={ids} enabled={enabled} onSetEnabled={onSetEnabled} />
             </div>
-            <p className="note">{group.lead}</p>
+            <p className="note">{t(`group.${group.id}.lead`)}</p>
             <ul className="sources">{ids.map(row)}</ul>
             {group.id === 'community' && (
               <p className="note">
-                小红书分国内站和国际站（RedNote），账号各自独立，勾选你登录的那个即可，同一条笔记会合并。X 对自动化使用管得很严，间隔也更长，仍有让账号被限制的风险，建议用小号。
+                {t('options.sources.communityNote')}
               </p>
             )}
           </div>
@@ -130,7 +131,7 @@ function Presets({ group, ids, enabled, onSetEnabled }: { group: SourceGroup; id
   const presets = GROUP_PRESETS[group];
   if (!presets?.length) return null;
   return (
-    <div className="presets" role="group" aria-label="一键选择">
+    <div className="presets" role="group" aria-label={t('options.sources.presetsLabel')}>
       {presets.map((preset) => {
         const active = preset.on.length === enabled.length && preset.on.every((id) => enabled.includes(id));
         return (
@@ -141,7 +142,7 @@ function Presets({ group, ids, enabled, onSetEnabled }: { group: SourceGroup; id
             aria-pressed={active}
             onClick={() => onSetEnabled(Object.fromEntries(ids.map((id) => [id, preset.on.includes(id)])) as Partial<Record<SourceId, boolean>>)}
           >
-            {preset.label}
+            {t(preset.labelKey)}
           </button>
         );
       })}
@@ -150,7 +151,8 @@ function Presets({ group, ids, enabled, onSetEnabled }: { group: SourceGroup; id
 }
 
 function Badge({ badge, onAction }: { badge: SourceBadge; onAction: (action: NonNullable<SourceBadge['action']>) => void }) {
-  const actionLabel = badge.action === 'login' ? '去登录' : badge.action === 'verify' ? '去验证' : badge.action === 'key' ? '填写' : '';
+  const actionLabel =
+    badge.action === 'login' ? t('options.sources.actionLogin') : badge.action === 'verify' ? t('options.sources.actionVerify') : badge.action === 'key' ? t('options.sources.actionKey') : '';
   return (
     <span className="status">
       <span className={`state state-${badge.tone}`} title={badge.hint}>

@@ -1,4 +1,5 @@
 import type { FusionConfig, SourceId } from '@kiwi-search/core';
+import { t } from './i18n';
 import { SOURCE_INFO } from './sourceCatalog';
 import { ageLabel, type SourceHealth } from './sourceHealth';
 
@@ -16,22 +17,22 @@ export function describeSource(id: SourceId, config: FusionConfig, health?: Sour
   const settings = config.sources[id];
   if (!settings?.enabled) return null;
   const info = SOURCE_INFO[id];
-  if (info.key === 'required' && !settings.apiKey) return { tone: 'warn', label: '需要 API Key', action: 'key' };
-  if (info.baseUrl && !settings.baseUrl) return { tone: 'warn', label: '需要填写地址', action: 'key' };
+  if (info.key === 'required' && !settings.apiKey) return { tone: 'warn', label: t('options.sourceStatus.needsKey'), action: 'key' };
+  if (info.baseUrl && !settings.baseUrl) return { tone: 'warn', label: t('options.sourceStatus.needsAddress'), action: 'key' };
   switch (health?.state) {
     case 'login':
-      return { tone: 'warn', label: '需要登录', hint: `${ageLabel(health.at, now)}试过`, action: 'login' };
+      return { tone: 'warn', label: t('options.sourceStatus.needsLogin'), hint: t('options.sourceStatus.triedAgo', { ago: ageLabel(health.at, now) }), action: 'login' };
     case 'captcha':
-      return { tone: 'warn', label: '遇到验证码', hint: `${ageLabel(health.at, now)}试过`, action: 'verify' };
+      return { tone: 'warn', label: t('options.sourceStatus.captcha'), hint: t('options.sourceStatus.triedAgo', { ago: ageLabel(health.at, now) }), action: 'verify' };
     case 'error':
-      return { tone: 'bad', label: '上次出错', hint: health.message };
+      return { tone: 'bad', label: t('options.sourceStatus.error'), hint: health.message };
     case 'ok':
-      return { tone: 'ok', label: '可用', hint: `${ageLabel(health.at, now)} · ${health.count} 条` };
+      return { tone: 'ok', label: t('options.sourceStatus.ok'), hint: t('options.sourceStatus.okHint', { ago: ageLabel(health.at, now), count: health.count }) };
     case 'empty':
-      return { tone: 'neutral', label: '上次没有结果', hint: ageLabel(health.at, now) };
+      return { tone: 'neutral', label: t('options.sourceStatus.empty'), hint: ageLabel(health.at, now) };
     default:
       return info.login
-        ? { tone: 'neutral', label: '还没试过', hint: '需要先在这个浏览器里登录', action: 'login' }
-        : { tone: 'neutral', label: '已就绪' };
+        ? { tone: 'neutral', label: t('options.sourceStatus.untried'), hint: t('options.sourceStatus.untriedHint'), action: 'login' }
+        : { tone: 'neutral', label: t('options.sourceStatus.ready') };
   }
 }

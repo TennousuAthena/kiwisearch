@@ -4,15 +4,15 @@ import { MARK_ART, type MarkArt } from '@/lib/sourceIcons';
 import { marksLabel, sourceMarks } from '@/lib/sourceMarks';
 
 /**
- * The engines that agree on a result, as a few small marks after its site name: three at most, fading to the right, the
- * rest folded until the row is hovered or focused (the fold and the fade are in style.css). Nothing for a result only
- * one engine returned.
+ * The engines that returned a result, as small round marks after its site name, stacked tight and fanning out when the row
+ * is hovered or focused (the stack is in style.css). A result only one engine returned gets that engine's mark alone,
+ * drawn faint (`solo`) so it does not compete with the title.
  */
 export function SourceMarks({ sources }: { sources: FusedResult['sources'] }) {
   const marks = sourceMarks(sources);
   if (!marks.length) return null;
   return (
-    <span className="src-marks" tabIndex={0} role="group" aria-label={marksLabel(marks)}>
+    <span className={marks.length === 1 ? 'src-marks solo' : 'src-marks'} tabIndex={0} role="group" aria-label={marksLabel(marks)}>
       {marks.map(({ mark, name }, i) => {
         const art: MarkArt = MARK_ART[mark];
         return (

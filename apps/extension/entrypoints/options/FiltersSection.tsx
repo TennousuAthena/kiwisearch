@@ -1,5 +1,6 @@
 import type { FusionConfig } from '@kiwi-search/core';
 import type { BlocklistMetaMap } from '@/lib/blocklistState';
+import { t } from '@/lib/i18n';
 import { BlocklistsPanel } from './BlocklistsPanel';
 import { DomainInput } from './controls';
 
@@ -14,18 +15,18 @@ export function FiltersSection({ config, blocklistMeta, onChange }: Props) {
   const setJudge = (patch: Partial<FusionConfig['judge']>) => onChange((c) => ({ ...c, judge: { ...c.judge, ...patch } }));
   return (
     <section className="section" id="filters" aria-labelledby="filters-title">
-      <h2 id="filters-title">屏蔽与偏好</h2>
-      <p className="lead">按网站调整结果，不需要任何 Key。输入域名后按回车，也可以直接粘贴一串。</p>
+      <h2 id="filters-title">{t('options.filters.title')}</h2>
+      <p className="lead">{t('options.filters.lead')}</p>
       <div className="card">
         <div className="card-body flat">
-          <DomainInput label="不想看到的网站" values={config.judge.blockedDomains} onChange={(blockedDomains) => setJudge({ blockedDomains })} placeholder="例如 example.com" />
-          <p className="note">这些网站的结果会被折叠到页面底部，可以展开查看。</p>
+          <DomainInput label={t('options.filters.blockedLabel')} values={config.judge.blockedDomains} onChange={(blockedDomains) => setJudge({ blockedDomains })} placeholder={t('options.filters.blockedPlaceholder')} />
+          <p className="note">{t('options.filters.blockedNote')}</p>
         </div>
       </div>
       <div className="card">
         <div className="card-body flat">
-          <DomainInput label="优先显示的网站" values={config.judge.boostedDomains} onChange={(boostedDomains) => setJudge({ boostedDomains })} placeholder="例如 wikipedia.org" />
-          <p className="note">这些网站的结果排名会提高，也不会被屏蔽列表折叠。</p>
+          <DomainInput label={t('options.filters.boostedLabel')} values={config.judge.boostedDomains} onChange={(boostedDomains) => setJudge({ boostedDomains })} placeholder={t('options.filters.boostedPlaceholder')} />
+          <p className="note">{t('options.filters.boostedNote')}</p>
         </div>
       </div>
       <BlocklistsPanel config={config} meta={blocklistMeta} onChange={onChange} />

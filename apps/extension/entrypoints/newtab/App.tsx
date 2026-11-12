@@ -1,8 +1,9 @@
 import type { SearchMode } from '@kiwi-search/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
+import { t } from '@/lib/i18n';
 import { SlidersIcon } from '@/lib/icons';
-import { MODE_LABELS, filterSince, modeHasOverview, parseMode, pickLandmarks, searchUrl, sinceYears, sortPapers, splitPlatforms, splitResults, type PaperSort } from '@/lib/results';
+import { filterSince, modeHasOverview, modeLabel, parseMode, pickLandmarks, searchUrl, sinceYears, sortPapers, splitPlatforms, splitResults, type PaperSort } from '@/lib/results';
 import { decideSuggestion, type SuggestionAction } from '@/lib/suggestion';
 import { useSearchSession } from '@/lib/useSearchSession';
 import { Landmarks, PlanLine } from './AcademicPlan';
@@ -130,10 +131,10 @@ export default function App() {
   const liveStatus = !state
     ? ''
     : state.fatal
-      ? `搜索失败：${state.fatal}`
+      ? t('newtab.app.liveFailed', { error: state.fatal })
       : state.stage === 'done'
-        ? `${MODE_LABELS[state.mode]}：共 ${visible.length} 条结果`
-        : '正在搜索';
+        ? t('newtab.app.liveDone', { mode: modeLabel(state.mode), count: visible.length })
+        : t('newtab.app.liveSearching');
 
   return (
     <div className={`page${idle ? ' idle' : ''}${state ? ` mode-${state.mode}` : ''}`}>
@@ -143,7 +144,7 @@ export default function App() {
           <a href={browser.runtime.getURL('/newtab.html')}>Kiwi</a>
         </h1>
         <SearchBox value={input} onChange={setInput} onSubmit={() => go(input, mode, 'push', { typed: true })} />
-        <a className="icon-btn settings" href={optionsUrl} target="_blank" rel="noreferrer" title="设置" aria-label="设置">
+        <a className="icon-btn settings" href={optionsUrl} target="_blank" rel="noreferrer" title={t('newtab.app.settings')} aria-label={t('newtab.app.settings')}>
           <SlidersIcon />
         </a>
       </header>
@@ -174,19 +175,19 @@ export default function App() {
           {state.mode === 'academic' && <Landmarks results={landmarkResults} citedUrls={citedUrls} />}
 
           {state.mode === 'academic' && visible.length > 0 && (
-                <div className="toolbar" role="group" aria-label="筛选">
+                <div className="toolbar" role="group" aria-label={t('newtab.app.filterLabel')}>
                   <div className="chips">
                     <button type="button" className="chip" aria-pressed={since === undefined} onClick={() => setSince(undefined)}>
-                      不限时间
+                      {t('newtab.app.anyTime')}
                     </button>
                     {years.map((year) => (
                       <button key={year} type="button" className="chip" aria-pressed={since === year} onClick={() => setSince(year)}>
-                        {year} 年以来
+                        {t('newtab.app.sinceYear', { year })}
                       </button>
                     ))}
                   </div>
                   <button type="button" className="chip" aria-pressed={sort === 'citations'} onClick={() => setSort(sort === 'citations' ? 'relevance' : 'citations')}>
-                    按被引次数排序
+                    {t('newtab.app.sortByCitations')}
                   </button>
                 </div>
               )}

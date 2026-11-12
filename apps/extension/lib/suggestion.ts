@@ -1,4 +1,5 @@
 import type { IntentSuggestion, SearchMode, SuggestMode } from '@kiwi-search/core';
+import { t } from './i18n';
 
 /** The state a decision needs; a slice of `SearchState`. */
 export interface SuggestionContext {
@@ -31,10 +32,9 @@ export function decideSuggestion(ctx: SuggestionContext, opts: { autoAllowed: bo
   return { kind: 'offer', mode: suggest.mode };
 }
 
-const NAMES: Record<SuggestMode, string> = { images: '图片', video: '视频', academic: '学术' };
-export const suggestionName = (mode: SuggestMode): string => NAMES[mode];
+export const suggestionName = (mode: SuggestMode): string => t(`newtab.suggestion.name.${mode}`);
 
 /** "看起来你在找图片" and its siblings, for the offer line. */
 export function offerText(mode: SuggestMode): string {
-  return mode === 'academic' ? '看起来你在找论文' : mode === 'video' ? '看起来你想看视频' : '看起来你在找图片';
+  return t(`newtab.suggestion.offer.${mode}`);
 }

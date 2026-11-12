@@ -1,17 +1,21 @@
 import type { FusionConfig, SourceId } from '@kiwi-search/core';
 import { useState } from 'react';
 import { browser } from 'wxt/browser';
+import { t } from '@/lib/i18n';
+import { tr } from '@/lib/i18n/rich';
 import { CheckIcon, CopyIcon } from '@/lib/icons';
 import { SOURCE_INFO } from '@/lib/sourceCatalog';
 import type { SourceHealthMap } from '@/lib/sourceHealth';
-import { SOURCE_LABELS } from '@/lib/sourceMeta';
+import { sourceLabel } from '@/lib/sourceMeta';
 import { describeSource } from '@/lib/sourceView';
 
 const DEFAULT_SEARCH_FIELDS = [
-  { id: 'name', label: '名称', value: 'Kiwi Search' },
-  { id: 'keyword', label: '快捷字词', value: 'kiwi' },
-  { id: 'url', label: '网址', value: 'https://s.kiwi.moe/s?q=%s' },
+  { id: 'name', labelKey: 'options.start.fieldName', value: 'Kiwi Search' },
+  { id: 'keyword', labelKey: 'options.start.fieldKeyword', value: 'kiwi' },
+  { id: 'url', labelKey: 'options.start.fieldUrl', value: 'https://s.kiwi.moe/s?q=%s' },
 ] as const;
+
+const SEARCH_ENGINES_URL = 'chrome://settings/searchEngines';
 
 interface Props {
   config: FusionConfig;
@@ -44,7 +48,7 @@ export function StartSection({ config, health, onDone }: Props) {
   async function openSearchEngineSettings() {
     setSettingsFallback(false);
     try {
-      await browser.tabs.create({ url: 'chrome://settings/searchEngines' });
+      await browser.tabs.create({ url: SEARCH_ENGINES_URL });
     } catch {
       setSettingsFallback(true);
     }
@@ -54,23 +58,23 @@ export function StartSection({ config, health, onDone }: Props) {
     <div className="start">
       <ol className="start-steps">
         <li>
-          <h3>把 Kiwi 设为默认搜索</h3>
-          <p className="note">Chrome 不允许扩展替你改默认搜索引擎，需要手动加一次。不改也行：在地址栏输入 <code>k</code> 加空格就能用 Kiwi。</p>
+          <h3>{t('options.start.defaultTitle')}</h3>
+          <p className="note">{tr('options.start.defaultNote', { tags: { code: (text) => <code>{text}</code> } })}</p>
           <div className="copy-grid">
-            {DEFAULT_SEARCH_FIELDS.map(({ id, label, value }) => (
+            {DEFAULT_SEARCH_FIELDS.map(({ id, labelKey, value }) => (
               <div className="copy-item" key={id}>
-                <span>{label}</span>
+                <span>{t(labelKey)}</span>
                 <code>{value}</code>
-                <button type="button" className="btn small" aria-label={`复制${label}`} onClick={() => void copy(id, value)}>
+                <button type="button" className="btn small" aria-label={t('options.start.copyField', { field: t(labelKey) })} onClick={() => void copy(id, value)}>
                   {copied === id ? (
                     <>
                       <CheckIcon />
-                      已复制
+                      {t('options.start.copyDone')}
                     </>
                   ) : (
                     <>
                       <CopyIcon />
-                      复制
+                      {t('options.start.copy')}
                     </>
                   )}
                 </button>
@@ -79,56 +83,56 @@ export function StartSection({ config, health, onDone }: Props) {
           </div>
           {copyError && (
             <p className="note" role="alert">
-              复制失败，请手动选中上面的内容复制。
+              {t('options.start.copyFailed')}
             </p>
           )}
           <p className="note">
-            打开搜索引擎设置，在“网站搜索”旁点“添加”，填入上面三项，再在该条目的 ⋮ 菜单里选“设为默认”。
+            {t('options.start.addSteps')}
           </p>
           <button type="button" className="btn" onClick={() => void openSearchEngineSettings()}>
-            打开 Chrome 搜索引擎设置
+            {t('options.start.openSettings')}
           </button>
           {settingsFallback && (
             <p className="note">
-              无法自动打开，请把 <code>chrome://settings/searchEngines</code> 复制到地址栏。
+              {tr('options.start.openFailed', { tags: { code: (text) => <code>{text}</code> }, params: { url: SEARCH_ENGINES_URL } })}
             </p>
           )}
         </li>
         <li>
-          <h3>登录你想搜的平台</h3>
-          <p className="note">知乎、小红书、X 只有登录后才有结果。Kiwi 用的是你自己浏览器里的登录状态，不保存也不上传你的账号。</p>
+          <h3>{t('options.start.loginTitle')}</h3>
+          <p className="note">{t('options.start.loginNote')}</p>
           {platforms.length ? (
             <ul className="start-platforms">
               {platforms.map((id) => {
                 const badge = describeSource(id, config, health[id]);
                 return (
                   <li key={id}>
-                    <span>{SOURCE_LABELS[id]}</span>
+                    <span>{sourceLabel(id)}</span>
                     {badge && <span className={`state state-${badge.tone}`}>{badge.label}</span>}
                     <a className="btn small" href={SOURCE_INFO[id].loginUrl} target="_blank" rel="noreferrer">
-                      去登录
+                      {t('options.start.loginAction')}
                     </a>
                   </li>
                 );
               })}
             </ul>
           ) : (
-            <p className="note">你没有开启需要登录的平台，这一步可以跳过。</p>
+            <p className="note">{t('options.start.noPlatforms')}</p>
           )}
         </li>
         <li>
-          <h3>需要的话，再填 Key</h3>
+          <h3>{t('options.start.keysTitle')}</h3>
           <p className="note">
-            <a href="#ai">AI 概览、智能学术搜索和决策模型</a>要用你自己的模型 Key（决策模型推荐配一个专用的，更快）；<a href="#sources">搜索范围</a>里 Brave、Exa 等来源也需要各自的 Key。都是可选的。
+            {tr('options.start.keys', { tags: { aiLink: (text) => <a href="#ai">{text}</a>, sourcesLink: (text) => <a href="#sources">{text}</a> } })}
           </p>
         </li>
       </ol>
       {onDone && (
         <div className="start-done">
           <button type="button" className="btn btn-primary" onClick={onDone}>
-            完成，不再显示
+            {t('options.start.done')}
           </button>
-          <span className="note">之后可以在“高级”里重新打开。</span>
+          <span className="note">{t('options.start.doneNote')}</span>
         </div>
       )}
     </div>
