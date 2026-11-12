@@ -1,20 +1,24 @@
 import { HttpError, fetchJson } from './http';
-import { chat, llmUsable, type ChatMessage } from './llm';
+import { chat, isLocalUrl, llmUsable, type ChatMessage } from './llm';
 import type { Env, FusionConfig, LlmSettings } from './types';
 
 /**
  * The decision model: whatever answers the small yes/no and score questions the search asks about a query or a result
  * (is it a paper search? is this page filler?). Code owns the policy (thresholds, what gets hidden, what gets searched); the
- * model only supplies the judgments, so any provider that can answer them can stand in:
+ * model only supplies the judgments. Providers:
  *
- * - `typesafe`: TypeSafe's System One (Jev), a model built for exactly this, one cheap request per question set.
- * - `llm`: any OpenAI-compatible chat model the user points it at (DeepSeek, OpenAI, OpenRouter, a local Ollama …), either the
- *   same one that writes the AI overview or a separate, faster one.
+ * - `systemone` (recommended): a dedicated decision model behind an endpoint that speaks System One's request and response (see
+ *   docs/DECISION-PROVIDERS.md). TypeSafe's Jev is the preset; anyone's service that implements the protocol can be pointed at, so
+ *   Kiwi is not tied to one vendor. Fast (a few hundred ms) and cheap, because it is built to answer exactly these questions.
+ * - `llm`: the user's own OpenAI-compatible chat model (DeepSeek, OpenAI, OpenRouter, a local Ollama …), the AI overview's or a
+ *   separate one. Slower (seconds), so it is the fallback: it stands in when no dedicated model is set up, or when that one fails
+ *   outright (a 451 from a proxy exit, a bad key), if `judge.fallbackToLlm`.
  *
  * Both answer in System One's shape, so everything downstream (`judge.ts`, `intent.ts`) is the same for either.
  */
 
-const ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
+/** TypeSafe's System One endpoint: the preset for the `systemone` provider. */
+export const DEFAULT_SYSTEMONE_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 const RETRY_STATUSES = new Set([429, 529]);
 
 interface Answer {
@@ -46,27 +50,50 @@ export function decisionLlm(config: FusionConfig): LlmSettings {
   return config.judge.llmShared ? config.llm : config.judge.llm;
 }
 
-/** Whether a decision model is set up well enough to ask. */
+/** Whether the dedicated decision model is set up: an endpoint, and a key unless the service runs on this machine. */
+export function systemOneUsable(judge: Pick<FusionConfig['judge'], 'endpoint' | 'apiKey'>): boolean {
+  return !!judge.endpoint && (!!judge.apiKey || isLocalUrl(judge.endpoint));
+}
+
+/** The chat model can stand in for a dedicated model that is missing or fails. */
+export function canFallBack(config: FusionConfig): boolean {
+  return config.judge.provider === 'systemone' && config.judge.fallbackToLlm && llmUsable(decisionLlm(config));
+}
+
+/** Which model would answer right now: the dedicated one if set up, else (if allowed) the chat model, else none. */
+export function resolveDecisionProvider(config: FusionConfig): 'systemone' | 'llm' | null {
+  const { judge } = config;
+  if (judge.provider === 'systemone') return systemOneUsable(judge) ? 'systemone' : canFallBack(config) ? 'llm' : null;
+  if (judge.provider === 'llm') return llmUsable(decisionLlm(config)) ? 'llm' : null;
+  return null;
+}
+
+/** Whether some decision model can answer. */
 export function decisionModelUsable(config: FusionConfig): boolean {
-  const { judge } = config;
-  if (judge.provider === 'typesafe') return !!judge.apiKey;
-  if (judge.provider === 'llm') return llmUsable(decisionLlm(config));
-  return false;
+  return resolveDecisionProvider(config) !== null;
 }
 
-/** A name for the model in use, for messages. */
+/**
+ * A failure that asking again, or waiting longer, will not fix and that costs no time to find out: a refusal (401 bad key, 403,
+ * 451 region, 404 wrong address) or no connection. A timeout is not one (the time is spent) and neither is a rate limit or a 5xx.
+ */
+export function isHardFailure(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return false;
+  if (error instanceof HttpError) return error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429;
+  return error instanceof TypeError;
+}
+
+/** A name for the model that would answer, for messages. */
 export function decisionModelName(config: FusionConfig): string {
-  const { judge } = config;
-  if (judge.provider === 'typesafe') return `TypeSafe ${judge.model}`;
-  if (judge.provider === 'llm') return decisionLlm(config).model;
-  return '';
+  const via = resolveDecisionProvider(config);
+  return via === 'systemone' ? config.judge.model : via === 'llm' ? decisionLlm(config).model : '';
 }
 
-export async function postSystemOne<T>(env: Env, judge: FusionConfig['judge'], body: unknown, signal: AbortSignal): Promise<T> {
+export async function postSystemOne<T>(env: Env, judge: Pick<FusionConfig['judge'], 'endpoint' | 'apiKey'>, body: unknown, signal: AbortSignal): Promise<T> {
   const send = () =>
-    fetchJson<T>(env.fetch, ENDPOINT, {
+    fetchJson<T>(env.fetch, judge.endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${judge.apiKey}` },
+      headers: { 'Content-Type': 'application/json', ...(judge.apiKey ? { Authorization: `Bearer ${judge.apiKey}` } : {}) },
       body: JSON.stringify(body),
       signal,
     });
@@ -170,12 +197,22 @@ export async function chatForJson(env: Env, settings: LlmSettings, messages: Cha
   return parsed;
 }
 
-/** Ask the configured decision model a set of questions about `state`. */
+async function askChatModel(env: Env, config: FusionConfig, request: DecisionRequest, signal: AbortSignal): Promise<SystemOneResponse> {
+  const reply = await chatForJson(env, decisionLlm(config), buildDecisionMessages(request), signal);
+  return toSystemOneResponse(reply, request.questions);
+}
+
+/** Ask the decision model a set of questions about `state`; the chat model answers instead if the dedicated one is missing or refuses. */
 export async function askDecision(env: Env, config: FusionConfig, request: DecisionRequest, signal: AbortSignal): Promise<SystemOneResponse> {
-  const { judge } = config;
-  if (judge.provider === 'llm') {
-    const reply = await chatForJson(env, decisionLlm(config), buildDecisionMessages(request), signal);
-    return toSystemOneResponse(reply, request.questions);
+  const via = resolveDecisionProvider(config);
+  if (via === 'llm') return askChatModel(env, config, request, signal);
+  if (via === 'systemone') {
+    try {
+      return await postSystemOne<SystemOneResponse>(env, config.judge, request, signal);
+    } catch (e) {
+      if (!isHardFailure(e, signal) || !canFallBack(config)) throw e;
+      return askChatModel(env, config, request, signal);
+    }
   }
-  return postSystemOne<SystemOneResponse>(env, judge, request, signal);
+  throw new Error('没有可用的决策模型');
 }

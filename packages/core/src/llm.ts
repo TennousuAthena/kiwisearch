@@ -16,15 +16,19 @@ export function llmConfigured(settings: LlmSettings | undefined): boolean {
 
 const LOCAL_HOST = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
 
-/** Callable as configured: needs a key unless it points at a local server such as Ollama. */
-export function llmUsable(settings: LlmSettings | undefined): boolean {
-  if (!settings || !llmConfigured(settings)) return false;
-  if (settings.apiKey) return true;
+/** A server on this machine (Ollama, a self-hosted service): it needs no key. */
+export function isLocalUrl(url: string): boolean {
   try {
-    return LOCAL_HOST.test(new URL(settings.baseUrl).hostname);
+    return LOCAL_HOST.test(new URL(url).hostname);
   } catch {
     return false;
   }
+}
+
+/** Callable as configured: needs a key unless it points at a local server such as Ollama. */
+export function llmUsable(settings: LlmSettings | undefined): boolean {
+  if (!settings || !llmConfigured(settings)) return false;
+  return !!settings.apiKey || isLocalUrl(settings.baseUrl);
 }
 
 export async function chat(

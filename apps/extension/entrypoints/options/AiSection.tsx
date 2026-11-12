@@ -1,4 +1,5 @@
-import { decisionModelUsable, llmUsable, type FusionConfig, type JudgeProvider } from '@kiwi-search/core';
+import { decisionModelUsable, llmUsable, systemOneUsable, type FusionConfig, type JudgeProvider } from '@kiwi-search/core';
+import { DecisionFields } from './DecisionFields';
 import { Field, RuleList, SecretInput, Segmented, SwitchRow } from './controls';
 import { LlmFields } from './LlmFields';
 
@@ -8,16 +9,29 @@ interface Props {
 }
 
 const PROVIDERS: { value: JudgeProvider; label: string }[] = [
-  { value: 'llm', label: '我的 AI 模型' },
-  { value: 'typesafe', label: 'TypeSafe Jev' },
+  { value: 'systemone', label: '专用决策模型（推荐）' },
+  { value: 'llm', label: '只用我的 AI 模型' },
   { value: 'none', label: '不用' },
 ];
+
+/** The host of a service address, for saying where the questions go. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
 
 export function AiSection({ config, onChange }: Props) {
   const modelReady = llmUsable(config.llm);
   const decisionReady = decisionModelUsable(config);
-  const provider = config.judge.provider;
+  const { judge } = config;
+  const provider = judge.provider;
+  const dedicatedReady = systemOneUsable(judge);
   const summaryOn = config.summary.enabled;
+  // The chat model is the main decision model (`llm`), or the stand-in behind a dedicated one.
+  const chatModelInUse = provider === 'llm' || (provider === 'systemone' && judge.fallbackToLlm);
 
   const setJudge = (patch: Partial<FusionConfig['judge']>) => onChange((c) => ({ ...c, judge: { ...c.judge, ...patch } }));
   const setJudgeLlm = (patch: Partial<FusionConfig['judge']['llm']>) => onChange((c) => ({ ...c, judge: { ...c.judge, llm: { ...c.judge.llm, ...patch } } }));
@@ -32,7 +46,7 @@ export function AiSection({ config, onChange }: Props) {
 
       <div className="card">
         <strong className="card-title">AI 模型</strong>
-        <p className="card-lead">你自己的大模型服务，任何 OpenAI 兼容的都行：DeepSeek、OpenAI、OpenRouter、本机 Ollama……下面的 AI 概览、智能学术搜索和决策模型默认都用它，填一次就够。</p>
+        <p className="card-lead">你自己的大模型服务，任何 OpenAI 兼容的都行：DeepSeek、OpenAI、OpenRouter、本机 Ollama……AI 概览和智能学术搜索用它；决策模型没配好时也由它代替。</p>
         <div className="card-body">
           <LlmFields value={config.llm} onChange={setLlm} label="AI 模型" />
         </div>
@@ -68,32 +82,50 @@ export function AiSection({ config, onChange }: Props) {
 
       <div className="card">
         <strong className="card-title">决策模型</strong>
-        <p className="card-lead">让模型做两件小事：判断每条结果是否相关、是不是内容农场或搬运内容（据此排序，把低质量的折叠到页面底部）；判断你想搜什么（要不要同时搜知乎、小红书、公众号，是不是想找图片、视频或论文）。</p>
+        <p className="card-lead">一个专做判断的小模型，回答两类小问题：每条结果是否相关、是不是内容农场或搬运内容（据此排序，把低质量的折叠到页面底部）；你想搜什么（要不要同时搜知乎、小红书、公众号，是不是想找图片、视频或论文）。专用的比聊天模型快得多，推荐配一个。</p>
         <div className="card-body">
           <Segmented label="决策模型用哪个" value={provider} options={PROVIDERS} onChange={(next) => setJudge({ provider: next })} />
 
-          {provider === 'llm' && (
-            <>
-              <SwitchRow
-                checked={config.judge.llmShared}
-                onChange={(llmShared) => setJudge({ llmShared })}
-                title="和上面的 AI 模型用同一个"
-                hint={config.judge.llmShared ? '决策是小问题、要快：推荐另选一个响应快的小模型。会“思考”的模型每次要多等几秒。' : '用下面单独配置的模型，只做决策。'}
-              />
-              {!config.judge.llmShared && <LlmFields value={config.judge.llm} onChange={setJudgeLlm} label="决策模型" />}
-              {config.judge.llmShared && !modelReady && <p className="note">需要先配置好上面的 AI 模型。</p>}
-            </>
+          {provider === 'systemone' && !dedicatedReady && (
+            <p className="notice" role="status">
+              {judge.fallbackToLlm && modelReady
+                ? '还没配专用决策模型，现在由你的 AI 模型代替，每次判断要多等几秒。配一个专用的会快得多（几百毫秒）。'
+                : '还没配专用决策模型，决策功能暂时没有启用。'}
+            </p>
           )}
 
-          {provider === 'typesafe' && (
-            <Field label="TypeSafe API Key" hint="TypeSafe 做的专用决策模型，很快、很便宜。">
-              <SecretInput label="TypeSafe API Key" value={config.judge.apiKey} placeholder="粘贴你自己的 Key" onChange={(apiKey) => setJudge({ apiKey })} />
-            </Field>
+          {provider === 'systemone' && <DecisionFields judge={judge} onChange={setJudge} />}
+
+          {provider === 'systemone' && (
+            <SwitchRow
+              checked={judge.fallbackToLlm}
+              onChange={(fallbackToLlm) => setJudge({ fallbackToLlm })}
+              title="没配好或出错时，用我的 AI 模型代替"
+              hint="比如网络出口被服务商拒绝（HTTP 451）、Key 失效。代替时慢几秒，但功能不会中断。"
+            />
+          )}
+
+          {chatModelInUse && (
+            <>
+              {provider === 'systemone' && <p className="card-lead">代替时用的聊天模型</p>}
+              <SwitchRow
+                checked={judge.llmShared}
+                onChange={(llmShared) => setJudge({ llmShared })}
+                title="和上面的 AI 模型用同一个"
+                hint={judge.llmShared ? '决策是小问题、要快：可以另选一个响应快的小模型。会“思考”的模型每次要多等几秒。' : '用下面单独配置的模型，只做决策。'}
+              />
+              {!judge.llmShared && <LlmFields value={judge.llm} onChange={setJudgeLlm} label="决策模型" />}
+              {judge.llmShared && !modelReady && <p className="note">需要先配置好上面的 AI 模型。</p>}
+            </>
           )}
 
           {provider !== 'none' && (
             <p className="note">
-              隐私：开启后，每次搜索会把搜索词，以及每条结果的标题、网址和摘要发送给你选的这个服务（{provider === 'typesafe' ? 'api.typesafe.ai' : '你配置的 AI 模型服务'}）。没配好时不会发送任何内容，只使用“屏蔽与偏好”里的网站规则。
+              隐私：开启后，每次搜索会把搜索词，以及每条结果的标题、网址和摘要发送给{' '}
+              {provider === 'systemone' && dedicatedReady
+                ? `${hostOf(judge.endpoint)}（决策模型）${judge.fallbackToLlm ? '；它出错时改发给你的 AI 模型服务' : ''}`
+                : '你配置的 AI 模型服务'}
+              。没配好时不会发送任何内容，只使用“屏蔽与偏好”里的网站规则。
             </p>
           )}
 
@@ -112,7 +144,7 @@ export function AiSection({ config, onChange }: Props) {
               />
               <RuleList
                 label="自定义过滤规则"
-                values={config.judge.rules}
+                values={judge.rules}
                 onChange={(rules) => setJudge({ rules })}
                 placeholder="用一句话描述要隐藏的结果，例如：CSDN 上转载自别处的文章，回车添加"
               />

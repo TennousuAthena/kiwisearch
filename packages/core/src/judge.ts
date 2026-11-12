@@ -1,4 +1,4 @@
-import { askDecision, asProbability, chatForJson, decisionLlm, decisionModelUsable, numberFrom, postSystemOne, type SystemOneResponse } from './decision';
+import { askDecision, asProbability, canFallBack, chatForJson, decisionLlm, decisionModelUsable, isHardFailure, numberFrom, postSystemOne, resolveDecisionProvider, type SystemOneResponse } from './decision';
 import { errorMessage, withTimeout } from './http';
 import { truncate } from './text';
 import type { Env, FusedResult, FusionConfig, HiddenReason, Judgment } from './types';
@@ -197,9 +197,10 @@ export async function judgeResults(
   signal?: AbortSignal,
 ): Promise<JudgeOutcome> {
   const { judge } = config;
-  if (judge.provider === 'llm') return judgeWithChatModel(query, candidates, config, env, signal);
+  if (resolveDecisionProvider(config) === 'llm') return judgeWithChatModel(query, candidates, config, env, signal);
   const judgments = new Map<string, Judgment>();
   let error: string | undefined;
+  let refused = false;
   const deadline = withTimeout(signal, judge.timeoutMs);
   const ruleCount = ruleList(judge).length;
   try {
@@ -217,6 +218,7 @@ export async function judgeResults(
         });
       } catch (e) {
         if (signal?.aborted) throw e;
+        refused ||= isHardFailure(e, deadline.signal);
         error ??= deadline.signal.aborted ? `超过 ${judge.timeoutMs}ms，已使用已返回的判定` : errorMessage(e);
       }
     });
@@ -224,6 +226,8 @@ export async function judgeResults(
     deadline.cancel();
   }
   signal?.throwIfAborted();
+  // The dedicated model refused every request (a region block, a bad key): the chat model judges instead.
+  if (!judgments.size && refused && canFallBack(config)) return judgeWithChatModel(query, candidates, config, env, signal);
   return { judgments, error };
 }
 
@@ -339,7 +343,7 @@ export async function flagInjectedContents(
   const { judge } = config;
   const flagged = new Set<string>();
   const deadline = withTimeout(signal, judge.timeoutMs);
-  if (judge.provider === 'llm') {
+  if (resolveDecisionProvider(config) === 'llm') {
     // A chat model reads a few pages per request instead of one.
     const entries = [...contents];
     const groups = Array.from({ length: Math.ceil(entries.length / INJECTION_BATCH) }, (_, i) => entries.slice(i * INJECTION_BATCH, (i + 1) * INJECTION_BATCH));

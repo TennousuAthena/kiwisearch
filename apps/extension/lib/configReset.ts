@@ -10,6 +10,8 @@ export function resetKeepingSecrets(current: FusionConfig): FusionConfig {
   next.judge.apiKey = current.judge.apiKey;
   // A separate decision model the user filled in is as tedious to get back as any key.
   if (current.judge.llm.apiKey) next.judge.llm = { ...current.judge.llm };
+  // The address of a decision-model service the user pointed Kiwi at is part of what is tedious to get back.
+  next.judge.endpoint = current.judge.endpoint;
   next.llm.apiKey = current.llm.apiKey;
   if (current.rerank.apiKey) next.rerank.apiKey = current.rerank.apiKey;
   return next;

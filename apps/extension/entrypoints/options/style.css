@@ -228,3 +228,6 @@
 .card-title { display: block; font-size: 0.9375rem; font-weight: 600; }
 .card-lead { margin-top: 0.15rem; max-width: 42rem; color: var(--fg-3); font-size: 0.8125rem; line-height: 1.65; text-wrap: pretty; }
 .card-body > .card-lead { margin-top: 0; }
+.protocol { margin: 0; padding: 0.75rem 0.875rem; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--fg-2); font: 0.8125rem/1.7 var(--font-mono); }
+.inline-details > .protocol { margin-top: 0.5rem; }
+.notice { padding: 0.625rem 0.875rem; border: 1px solid color-mix(in oklab, var(--accent) 30%, var(--border)); border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--fg-2); font-size: 0.8125rem; line-height: 1.65; text-wrap: pretty; }
