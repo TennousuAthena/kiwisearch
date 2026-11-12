@@ -1,4 +1,5 @@
 import type { ChatMessage } from '@kiwi-search/core';
+import { t } from './i18n';
 
 interface PromptSession {
   promptStreaming(input: string): Promise<ReadableStream<string>>;
@@ -17,10 +18,10 @@ export async function promptWithBuiltinModel(
   signal: AbortSignal,
 ): Promise<void> {
   const model = (globalThis as typeof globalThis & { LanguageModel?: PromptApi }).LanguageModel;
-  if (!model) throw new Error('当前浏览器不支持内置模型');
+  if (!model) throw new Error(t('worker.builtinModel.unsupported'));
   const availability = await model.availability();
   if (signal.aborted) return;
-  if (!['available', 'downloadable', 'downloading'].includes(availability)) throw new Error('当前浏览器不支持内置模型');
+  if (!['available', 'downloadable', 'downloading'].includes(availability)) throw new Error(t('worker.builtinModel.unsupported'));
   const session = await model.create();
   let reader: ReadableStreamDefaultReader<string> | undefined;
   const abort = () => {
@@ -47,7 +48,7 @@ export async function promptWithBuiltinModel(
         onDelta(value);
       }
     }
-    if (!receivedContent && !signal.aborted) throw new Error('浏览器内置模型没有生成内容，请稍后重试。');
+    if (!receivedContent && !signal.aborted) throw new Error(t('worker.builtinModel.noContent'));
   } finally {
     signal.removeEventListener('abort', abort);
     reader?.releaseLock();

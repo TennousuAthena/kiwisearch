@@ -4,6 +4,7 @@ import { CheckIcon, CircleAlertIcon } from '@/lib/icons';
 import { loadBlocklistMeta, watchBlocklistMeta } from '@/lib/blocklistService';
 import type { BlocklistMetaMap } from '@/lib/blocklistState';
 import { resetKeepingSecrets, tidyConfig } from '@/lib/configReset';
+import { t } from '@/lib/i18n';
 import {
   DEFAULT_BRIDGE,
   loadBridge,
@@ -16,7 +17,7 @@ import {
 } from '@/lib/settings';
 import { SOURCE_INFO } from '@/lib/sourceCatalog';
 import type { SourceHealthMap } from '@/lib/sourceHealth';
-import { SOURCE_LABELS } from '@/lib/sourceMeta';
+import { sourceLabel } from '@/lib/sourceMeta';
 import { loadSourceStatus, watchSourceStatus } from '@/lib/sourceStatus';
 import { AdvancedSection } from './AdvancedSection';
 import { AiSection } from './AiSection';
@@ -81,12 +82,13 @@ export default function OptionsApp() {
   };
 
   const sections = [
-    ...(onboardingDone ? [] : [{ id: 'start', label: '开始使用' }]),
-    { id: 'sources', label: '搜索范围' },
-    { id: 'ai', label: 'AI 功能' },
-    { id: 'filters', label: '屏蔽与偏好' },
-    { id: 'advanced', label: '高级' },
+    ...(onboardingDone ? [] : [{ id: 'start', label: t('options.nav.start') }]),
+    { id: 'sources', label: t('options.nav.sources') },
+    { id: 'ai', label: t('options.nav.ai') },
+    { id: 'filters', label: t('options.nav.filters') },
+    { id: 'advanced', label: t('options.nav.advanced') },
   ];
+  const confirmKey = confirming ? SOURCE_INFO[confirming].confirm : undefined;
 
   return (
     <div className="options-page">
@@ -95,25 +97,25 @@ export default function OptionsApp() {
           <span className="options-brand">Kiwi Search</span>
           <div className="options-bar-side">
             <span className={`save-state ${saveState}`} role="status">
-              {saveState === 'saving' && '正在保存…'}
+              {saveState === 'saving' && t('options.app.saving')}
               {saveState === 'saved' && (
                 <>
-                  <CheckIcon /> 已自动保存
+                  <CheckIcon /> {t('options.app.saved')}
                 </>
               )}
               {saveState === 'error' && (
                 <>
-                  <CircleAlertIcon /> 保存失败：{saveError}
+                  <CircleAlertIcon /> {t('options.app.saveFailed', { error: saveError })}
                 </>
               )}
-              {saveState === 'idle' && '改动会自动保存'}
+              {saveState === 'idle' && t('options.app.idle')}
             </span>
           </div>
         </div>
       </div>
 
       <div className="options-body">
-        <nav className="options-nav" aria-label="设置分区">
+        <nav className="options-nav" aria-label={t('options.app.navLabel')}>
           {sections.map((section) => (
             <a key={section.id} href={`#${section.id}`} onClick={() => section.id === 'advanced' && setAdvancedOpen(true)}>
               {section.label}
@@ -123,13 +125,13 @@ export default function OptionsApp() {
 
         <main className="options-main">
           <header className="options-header">
-            <h1>设置</h1>
-            <p>选你想搜的地方，需要时再配 AI。其余的默认值已经够用。</p>
+            <h1>{t('options.app.title')}</h1>
+            <p>{t('options.app.intro')}</p>
           </header>
 
           {!onboardingDone && (
             <section className="section" id="start" aria-labelledby="start-title">
-              <h2 id="start-title">开始使用</h2>
+              <h2 id="start-title">{t('options.start.title')}</h2>
               <StartSection config={config} health={health} onDone={finishOnboarding} />
             </section>
           )}
@@ -153,28 +155,28 @@ export default function OptionsApp() {
 
       {confirming && (
         <ConfirmDialog
-          title={`确定要开启${SOURCE_LABELS[confirming]}吗？`}
-          confirmLabel="仍然开启"
+          title={t('options.app.enableTitle', { source: sourceLabel(confirming) })}
+          confirmLabel={t('options.app.enableConfirm')}
           onConfirm={() => {
             updateSource(confirming, 'enabled', true);
             setConfirming(null);
           }}
           onCancel={() => setConfirming(null)}
         >
-          {SOURCE_INFO[confirming].confirm}
+          {confirmKey && t(confirmKey)}
         </ConfirmDialog>
       )}
       {resetting && (
         <ConfirmDialog
-          title="恢复默认设置？"
-          confirmLabel="恢复默认"
+          title={t('options.app.resetTitle')}
+          confirmLabel={t('options.app.resetConfirm')}
           onConfirm={() => {
             setConfig(resetKeepingSecrets(config));
             setResetting(false);
           }}
           onCancel={() => setResetting(false)}
         >
-          所有开关、规则和参数都会改回默认值，包括你屏蔽和优先的网站、订阅的屏蔽列表和自定义规则。你填的 Key 和地址、MCP 令牌会保留。
+          {t('options.app.resetBody')}
         </ConfirmDialog>
       )}
     </div>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { CloseIcon } from '@/lib/icons';
 import { addDomains } from '@/lib/domains';
+import { t } from '@/lib/i18n';
 
 /** An on/off switch. Used instead of a checkbox where the change takes effect at once. */
 export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (next: boolean) => void; label: string; disabled?: boolean }) {
@@ -81,7 +82,7 @@ export function SecretInput({ value, onChange, placeholder, label }: { value: st
     <span className="secret">
       <input type={shown ? 'text' : 'password'} aria-label={label} value={value} placeholder={placeholder} autoComplete="off" spellCheck={false} onChange={(event) => onChange(event.target.value)} />
       <button type="button" className="secret-toggle" aria-pressed={shown} onClick={() => setShown(!shown)}>
-        {shown ? '隐藏' : '显示'}
+        {shown ? t('options.controls.hide') : t('options.controls.show')}
       </button>
     </span>
   );
@@ -96,7 +97,7 @@ export function DomainInput({ label, values, onChange, placeholder }: { label: s
     const { list, rejected } = addDomains(values, text);
     if (list.length !== values.length) onChange(list);
     setDraft(rejected.join(' '));
-    setProblem(rejected.length ? `看不出是网站域名：${rejected.join('、')}` : '');
+    setProblem(rejected.length ? t('options.controls.notDomain', { domains: rejected.join(t('options.listSeparator')) }) : '');
   }
   return (
     <div className="tags-field">
@@ -107,7 +108,7 @@ export function DomainInput({ label, values, onChange, placeholder }: { label: s
         {values.map((value) => (
           <span className="tag-chip" key={value}>
             {value}
-            <button type="button" aria-label={`移除 ${value}`} onClick={() => onChange(values.filter((v) => v !== value))}>
+            <button type="button" aria-label={t('options.controls.removeDomain', { domain: value })} onClick={() => onChange(values.filter((v) => v !== value))}>
               <CloseIcon />
             </button>
           </span>
@@ -118,7 +119,7 @@ export function DomainInput({ label, values, onChange, placeholder }: { label: s
           placeholder={values.length ? '' : placeholder}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
-            if (['Enter', ',', ' ', '，'].includes(event.key) && draft.trim()) {
+            if (['Enter', ',', ' ', '，'].includes(event.key) && draft.trim()) { // i18n-ignore (data, not interface text)
               event.preventDefault();
               commit(draft);
             } else if (event.key === 'Backspace' && !draft && values.length) {
@@ -157,7 +158,7 @@ export function RuleList({ label, values, onChange, placeholder }: { label: stri
           {values.map((value) => (
             <li key={value}>
               <span>{value}</span>
-              <button type="button" aria-label={`删除规则：${value}`} onClick={() => onChange(values.filter((v) => v !== value))}>
+              <button type="button" aria-label={t('options.controls.deleteRule', { rule: value })} onClick={() => onChange(values.filter((v) => v !== value))}>
                 <CloseIcon />
               </button>
             </li>
@@ -178,7 +179,7 @@ export function RuleList({ label, values, onChange, placeholder }: { label: stri
           }}
         />
         <button type="button" className="btn" disabled={!draft.trim()} onClick={add}>
-          添加
+          {t('options.controls.add')}
         </button>
       </div>
     </div>
@@ -198,7 +199,7 @@ export function ConfirmDialog({ title, confirmLabel, onConfirm, onCancel, childr
         <p>{children}</p>
         <div className="confirm-actions">
           <button type="button" className="btn" onClick={() => ref.current?.close()}>
-            取消
+            {t('options.controls.cancel')}
           </button>
           <button type="button" className="btn btn-primary" onClick={onConfirm}>
             {confirmLabel}

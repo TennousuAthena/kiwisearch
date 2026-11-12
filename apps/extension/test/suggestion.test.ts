@@ -39,8 +39,8 @@ describe('decideSuggestion', () => {
 
   it('has words for each tab', () => {
     expect(suggestionName('academic')).toBe('学术');
-    expect(offerText('academic')).toMatch(/论文/);
-    expect(offerText('video')).toMatch(/视频/);
-    expect(offerText('images')).toMatch(/图片/);
+    expect(offerText('academic')).toMatch(/“学术”/);
+    expect(offerText('video')).toMatch(/“视频”/);
+    expect(offerText('images')).toMatch(/“图片”/);
   });
 });

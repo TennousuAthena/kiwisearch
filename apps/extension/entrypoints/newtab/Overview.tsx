@@ -1,4 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { t } from '@/lib/i18n';
+import { tr } from '@/lib/i18n/rich';
 import { ChevronDownIcon, CircleAlertIcon, SparkleIcon } from '@/lib/icons';
 import { renderSummary } from '@/lib/markdown';
 import type { SearchState } from '@/lib/searchState';
@@ -29,10 +31,15 @@ export function Overview({ state, optionsUrl, onHoverCite }: Props) {
     if (state.stage !== 'done' || !state.results.length) return null;
     return (
       <p className="overview-hint">
-        <a href={optionsUrl} target="_blank" rel="noreferrer">
-          配置 LLM
-        </a>
-        后，这里会显示带引用的 AI 概览。
+        {tr('newtab.overview.configureHint', {
+          tags: {
+            link: (text) => (
+              <a href={optionsUrl} target="_blank" rel="noreferrer">
+                {text}
+              </a>
+            ),
+          },
+        })}
       </p>
     );
   }
@@ -42,12 +49,12 @@ export function Overview({ state, optionsUrl, onHoverCite }: Props) {
     <section className="overview" aria-labelledby="overview-title">
       <h2 id="overview-title" className="overview-title">
         <SparkleIcon />
-        AI 概览
+        {t('newtab.overview.title')}
         {status === 'streaming' && <span className="spinner" aria-hidden="true" />}
       </h2>
       {status === 'loading' && (
         <>
-          <p className="overview-note">正在读取前 {state.citations.length} 篇来源…</p>
+          <p className="overview-note">{t('newtab.overview.loading', { count: state.citations.length })}</p>
           <div className="sk-lines" aria-hidden="true">
             {[100, 94, 98, 62].map((width, i) => (
               <div key={i} className="sk" style={{ width: `${width}%` }} />
@@ -55,14 +62,14 @@ export function Overview({ state, optionsUrl, onHoverCite }: Props) {
           </div>
         </>
       )}
-      {status === 'starting' && <p className="overview-note">正在启动浏览器内置模型…</p>}
+      {status === 'starting' && <p className="overview-note">{t('newtab.overview.starting')}</p>}
       {status === 'error' && (
         <div className="alert" role="alert">
           <CircleAlertIcon />
           <div className="alert-body">
             <p>{state.summaryError}</p>
             <a href={optionsUrl} target="_blank" rel="noreferrer">
-              前往设置
+              {t('newtab.overview.openSettings')}
             </a>
           </div>
         </div>
@@ -83,7 +90,7 @@ export function Overview({ state, optionsUrl, onHoverCite }: Props) {
       )}
       {status === 'done' && tall && (
         <button type="button" className="disclosure overview-toggle" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-          {expanded ? '收起' : '展开'}
+          {expanded ? t('newtab.overview.collapse') : t('newtab.overview.expand')}
           <ChevronDownIcon className={expanded ? 'flip' : ''} />
         </button>
       )}

@@ -1,6 +1,7 @@
 import type { Blocklist } from './blocklist';
 import { askDecision, asProbability, canFallBack, chatForJson, decisionLlm, decisionModelUsable, isHardFailure, numberFrom, postSystemOne, resolveDecisionProvider, type SystemOneResponse } from './decision';
 import { errorMessage, withTimeout } from './http';
+import { coreMessages } from './messages';
 import { truncate } from './text';
 import type { Env, FusedResult, FusionConfig, HiddenReason, Judgment } from './types';
 import { hostOf } from './url';
@@ -175,11 +176,11 @@ async function judgeWithChatModel(query: string, candidates: FusedResult[], conf
           deadline.signal,
         );
         const got = parseBatchJudgments(reply, chunk, rules.length);
-        if (!got.size) throw new Error('决策模型没有给出可用的判定');
+        if (!got.size) throw new Error(coreMessages(env).judgeEmpty);
         for (const [key, judgment] of got) judgments.set(key, judgment);
       } catch (e) {
         if (signal?.aborted) throw e;
-        error ??= deadline.signal.aborted ? `超过 ${judge.timeoutMs}ms，已使用已返回的判定` : errorMessage(e);
+        error ??= deadline.signal.aborted ? coreMessages(env).judgeTimedOut(judge.timeoutMs) : errorMessage(e);
       }
     });
   } finally {
@@ -220,7 +221,7 @@ export async function judgeResults(
       } catch (e) {
         if (signal?.aborted) throw e;
         refused ||= isHardFailure(e, deadline.signal);
-        error ??= deadline.signal.aborted ? `超过 ${judge.timeoutMs}ms，已使用已返回的判定` : errorMessage(e);
+        error ??= deadline.signal.aborted ? coreMessages(env).judgeTimedOut(judge.timeoutMs) : errorMessage(e);
       }
     });
   } finally {

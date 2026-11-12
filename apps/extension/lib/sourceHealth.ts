@@ -1,4 +1,5 @@
 import type { PipelineEvent, SourceId } from '@kiwi-search/core';
+import { t } from './i18n';
 
 /** What the last search that used a source found out about it. The settings page shows this next to the source. */
 export type SourceHealth =
@@ -31,10 +32,10 @@ export function healthFromEvent(event: PipelineEvent, now = Date.now()): { sourc
 /** "刚刚", "5 分钟前", "3 小时前", "2 天前". */
 export function ageLabel(at: number, now = Date.now()): string {
   const seconds = Math.max(0, Math.round((now - at) / 1000));
-  if (seconds < 60) return '刚刚';
+  if (seconds < 60) return t('options.sourceStatus.ago.now');
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 60) return t('options.sourceStatus.ago.minutes', { minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.round(hours / 24)} 天前`;
+  if (hours < 24) return t('options.sourceStatus.ago.hours', { hours });
+  return t('options.sourceStatus.ago.days', { days: Math.round(hours / 24) });
 }

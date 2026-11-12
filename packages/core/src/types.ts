@@ -1,3 +1,5 @@
+import type { CoreMessages } from './messages';
+
 export type SourceId =
   | 'google'
   | 'bing'
@@ -6,6 +8,7 @@ export type SourceId =
   | 'duckduckgo'
   | 'scholar'
   | 'brave'
+  | 'bravesearch'
   | 'exa'
   | 'deepseek'
   | 'openalex'
@@ -311,6 +314,12 @@ export interface FusionConfig {
     blocklists: BlocklistSettings;
     /** Natural-language descriptions of results to hide, e.g. "scraped copies of Stack Overflow answers". */
     rules: string[];
+    /**
+     * One Wikipedia result per article, in the browser's language: the copies on other language editions and in other variants
+     * (Simplified, Traditional, Cantonese, Wu, Classical Chinese, …) fold into it (`wikipedia.ts`). Works without a decision model.
+     * Left unset until the user chooses, which means on for a Chinese browser and off for any other.
+     */
+    foldWikipediaEditions?: boolean;
   };
   /** Let the decision model choose, during a general search, which of academic / Zhihu / Xiaohongshu to search as well, and whether the user wants the images, video or academic tab instead. Needs the judge. */
   intent: {
@@ -349,6 +358,10 @@ export interface FusionConfig {
     maxCharsPerSource: number;
     /** Extra instructions appended to the system prompt. */
     instructions?: string;
+    /** The language of the overview: `browser` (the browser's first language), `auto` (the language of the query), `custom` (`languageCustom`) or a tag such as `ja` (see `language.ts`). */
+    language: string;
+    /** The language written by the user, when `language` is `custom`. */
+    languageCustom: string;
   };
 }
 
@@ -378,6 +391,10 @@ export interface Env {
   fetch: FetchLike;
   runBrowserEngine?: (engine: BrowserEngine, query: string, opts: BrowserRunOptions) => Promise<SearchHit[]>;
   cache?: SourceCache;
+  /** The browser's first language as a BCP 47 tag (`zh-CN`, `en-GB`), for the overview's `browser` setting. Core has no browser to ask. */
+  browserLanguage?: string;
+  /** Wording for the few sentences core writes for the user, in the caller's interface language; see `CoreMessages`. What is left out falls back to Chinese. */
+  messages?: Partial<CoreMessages>;
   /** The parsed rules of the subscribed block lists that are switched on, as the caller fetched and kept them. Without it only the user's own rules apply. */
   loadBlocklists?: (settings: BlocklistSettings) => Promise<NamedBlockRules[]>;
 }

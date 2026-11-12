@@ -2,6 +2,7 @@ import { RECOMMENDED_BLOCKLISTS, isSubscriptionUrl, parseBlocklist, type Blockli
 import { useDeferredValue, useMemo, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { blocklistStatus, describeCustomRules, type BlocklistMetaMap } from '@/lib/blocklistState';
+import { raw, t } from '@/lib/i18n';
 import { CloseIcon } from '@/lib/icons';
 import { Field, Switch } from './controls';
 
@@ -10,17 +11,6 @@ interface Props {
   meta: BlocklistMetaMap;
   onChange: (update: (config: FusionConfig) => FusionConfig) => void;
 }
-
-const SYNTAX = `example.com                  这个网站和它的所有子域名（*.example.com 也一样）
-example.com/blog             只屏蔽网站里的这个栏目
-0.0.0.0 example.com          hosts 文件的写法
-||example.com^               uBlock Origin / Adblock Plus 网络规则（可带 $doc）
-*://*.example.com/*          uBlacklist 匹配模式，带 *. 的包含子域名
-*://example.com/blog/*       只屏蔽某个栏目；不带 *. 的只指这一个域名
-/blog\\.example\\.com\\/alice/  正则：必须写出网站名
-@@||example.com^             例外：不屏蔽它，对所有列表都有效
-@*://docs.example.com/*      例外的 uBlacklist 写法
-# 注释  或  ! 注释`;
 
 const addressOf = (sub: BlocklistSubscription) => {
   try {
@@ -47,8 +37,8 @@ function AddSubscription({ taken, onAdd }: { taken: string[]; onAdd: (sub: Block
   function submit() {
     const address = url.trim();
     if (!address) return;
-    if (!isSubscriptionUrl(address)) return setProblem('地址要以 https:// 开头（本机上的服务可以用 http://localhost）');
-    if (taken.includes(address)) return setProblem('这个列表已经订阅了');
+    if (!isSubscriptionUrl(address)) return setProblem(t('options.blocklist.urlNeedsHttps'));
+    if (taken.includes(address)) return setProblem(t('options.blocklist.alreadySubscribed'));
     onAdd({ id: `custom-${crypto.randomUUID().slice(0, 8)}`, name: name.trim(), url: address, enabled: true });
     setName('');
     setUrl('');
@@ -62,18 +52,18 @@ function AddSubscription({ taken, onAdd }: { taken: string[]; onAdd: (sub: Block
   };
   return (
     <div className="card-body flat">
-      <span className="card-title">用地址订阅别的列表</span>
+      <span className="card-title">{t('options.blocklist.addTitle')}</span>
       <div className="field-grid">
-        <Field label="名称（可选）">
-          <input value={name} placeholder="显示在被折叠的结果上" onChange={(event) => setName(event.target.value)} onKeyDown={enter} />
+        <Field label={t('options.blocklist.nameLabel')}>
+          <input value={name} placeholder={t('options.blocklist.namePlaceholder')} onChange={(event) => setName(event.target.value)} onKeyDown={enter} />
         </Field>
-        <Field label="列表地址" hint={problem && <span className="problem" role="alert">{problem}</span>}>
+        <Field label={t('options.blocklist.urlLabel')} hint={problem && <span className="problem" role="alert">{problem}</span>}>
           <input type="url" value={url} placeholder="https://example.com/blocklist.txt" onChange={(event) => setUrl(event.target.value)} onKeyDown={enter} />
         </Field>
       </div>
       <div>
         <button type="button" className="btn" disabled={!url.trim()} onClick={submit}>
-          订阅
+          {t('options.blocklist.subscribe')}
         </button>
       </div>
     </div>
@@ -111,17 +101,16 @@ export function BlocklistsPanel({ config, meta, onChange }: Props) {
   return (
     <div className="group">
       <div className="group-head">
-        <h3>屏蔽列表</h3>
-        <span className="count">已订阅 {subscribed}</span>
+        <h3>{t('options.blocklist.title')}</h3>
+        <span className="count">{t('options.blocklist.subscribedCount', { count: subscribed })}</span>
         <div className="presets">
           <button type="button" className="btn small" disabled={!subscribed || refreshing} onClick={() => void refreshNow()}>
-            {refreshing ? '更新中…' : '立即更新'}
+            {refreshing ? t('options.blocklist.refreshing') : t('options.blocklist.refreshNow')}
           </button>
         </div>
       </div>
-      <p className="note">
-        订阅别人维护的内容农场、垃圾站名单，命中的结果会折叠到页面底部，并写明是哪个列表。名单由你的浏览器直接从来源下载（不带 Cookie，也不会告诉对方你搜了什么），每天最多更新一次。第三方名单难免误伤，展开折叠的结果就能看到；想放行某个网站，把它放进下面的「优先显示」，或在自定义规则里写一条例外。
-      </p>
+      <p className="note">{t('options.blocklist.note')}</p>
+      <p className="note">{t('options.blocklist.noteMistakes')}</p>
       <ul className="sources">
         {RECOMMENDED_BLOCKLISTS.map((entry) => {
           const on = lists.recommended.includes(entry.id);
@@ -131,13 +120,13 @@ export function BlocklistsPanel({ config, meta, onChange }: Props) {
                 <Switch checked={on} label={entry.name} onChange={(next) => setRecommended(entry.id, next)} />
                 <div className="source-name">
                   <strong>{entry.name}</strong>
-                  <span>{entry.description}</span>
+                  <span>{t(`options.blocklist.recommended.${entry.id}`)}</span>
                   {on && <ListStatus meta={meta[entry.id]} now={now} />}
                 </div>
                 <div className="source-side">
                   <span className="license">{entry.license}</span>
                   <a className="link-btn" href={entry.homepage} target="_blank" rel="noreferrer">
-                    来源
+                    {t('options.blocklist.homepage')}
                   </a>
                 </div>
               </div>
@@ -151,10 +140,10 @@ export function BlocklistsPanel({ config, meta, onChange }: Props) {
               <div className="source-name">
                 <strong>{sub.name.trim() || addressOf(sub)}</strong>
                 <span className="list-url">{sub.url}</span>
-                {sub.enabled && (isSubscriptionUrl(sub.url) ? <ListStatus meta={meta[sub.id]} now={now} /> : <span className="list-status bad">地址不可用：需要 https://</span>)}
+                {sub.enabled && (isSubscriptionUrl(sub.url) ? <ListStatus meta={meta[sub.id]} now={now} /> : <span className="list-status bad">{t('options.blocklist.badUrl')}</span>)}
               </div>
               <div className="source-side">
-                <button type="button" className="icon-btn small" aria-label={`删除订阅：${sub.name.trim() || addressOf(sub)}`} onClick={() => update((current) => ({ ...current, subscriptions: current.subscriptions.filter((entry) => entry.id !== sub.id) }))}>
+                <button type="button" className="icon-btn small" aria-label={t('options.blocklist.removeSubscription', { name: sub.name.trim() || addressOf(sub) })} onClick={() => update((current) => ({ ...current, subscriptions: current.subscriptions.filter((entry) => entry.id !== sub.id) }))}>
                   <CloseIcon />
                 </button>
               </div>
@@ -168,9 +157,9 @@ export function BlocklistsPanel({ config, meta, onChange }: Props) {
       <div className="card">
         <div className="card-body flat">
           <Field
-            label="自定义规则"
+            label={t('options.blocklist.customLabel')}
             wide
-            hint={summary || '一行一条。可以直接粘贴 uBlock Origin、uBlacklist 或 hosts 格式的名单；规则只保存在这个浏览器里。'}
+            hint={summary || t('options.blocklist.customHint')}
           >
             <textarea
               className="rules-text"
@@ -183,9 +172,9 @@ export function BlocklistsPanel({ config, meta, onChange }: Props) {
             />
           </Field>
           <details className="inline-details">
-            <summary>支持哪些写法？</summary>
-            <pre className="protocol">{SYNTAX}</pre>
-            <p className="note">uBlock 里隐藏页面元素的规则（带 ##）和 $script、$third-party 这类只针对资源请求的选项，对搜索结果没有意义，会被跳过。名单很大时建议用上面的订阅，而不是粘贴到这里。</p>
+            <summary>{t('options.blocklist.syntaxSummary')}</summary>
+            <pre className="protocol">{raw('options.blocklist.syntax.raw')}</pre>
+            <p className="note">{t('options.blocklist.syntaxNote')}</p>
           </details>
         </div>
       </div>

@@ -133,6 +133,20 @@ describe('askDecision with a chat model', () => {
     const { env } = chatWorld(() => 'I think the answer is yes.');
     await expect(askDecision(env, chatConfig(), { state: {}, questions: {} }, new AbortController().signal)).rejects.toThrow(/不是 JSON/);
   });
+
+  it('words that reason as the caller asks through Env.messages, and in Chinese when it does not', async () => {
+    const { env } = chatWorld(() => 'I think the answer is yes.');
+    const request = { state: {}, questions: {} };
+    await expect(askDecision({ ...env, messages: { decisionNotJson: 'reply was not JSON' } }, chatConfig(), request, new AbortController().signal)).rejects.toThrow('reply was not JSON');
+    await expect(askDecision({ ...env, messages: { judgeEmpty: 'unrelated' } }, chatConfig(), request, new AbortController().signal)).rejects.toThrow(/不是 JSON/);
+  });
+
+  it('says no decision model is set up in the caller\'s words', async () => {
+    const { env } = chatWorld(() => ({}));
+    const none = { ...chatConfig(), judge: { ...chatConfig().judge, provider: 'none' as const } };
+    await expect(askDecision({ ...env, messages: { noDecisionModel: 'no decision model' } }, none, { state: {}, questions: {} }, new AbortController().signal)).rejects.toThrow('no decision model');
+    await expect(askDecision(env, none, { state: {}, questions: {} }, new AbortController().signal)).rejects.toThrow(/没有可用的决策模型/);
+  });
 });
 
 describe('the intent verdict from a chat model', () => {

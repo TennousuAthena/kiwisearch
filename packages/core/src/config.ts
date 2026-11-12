@@ -15,6 +15,9 @@ export const DEFAULT_CONFIG: FusionConfig = {
     bing: { enabled: true },
     yandex: { enabled: false },
     duckduckgo: { enabled: true },
+    // Brave's own results page, read in the browser: no key. `brave` below is the API version of the same index and needs one; with
+    // a key, turn one of the two off or Brave is counted twice in the fusion.
+    bravesearch: { enabled: true },
     scholar: { enabled: true },
     brave: { enabled: true },
     exa: { enabled: true },
@@ -80,7 +83,8 @@ export const DEFAULT_CONFIG: FusionConfig = {
   // Off by default: a blocking LLM call per search, and its min-max scores can't be used to filter.
   rerank: { provider: 'none', candidates: 30 },
   llm: { baseUrl: 'https://api.deepseek.com/v1', apiKey: '', model: 'deepseek-flash' },
-  summary: { enabled: true, provider: 'api', maxSources: 8, contentFetcher: 'direct', maxCharsPerSource: 3000 },
+  // The overview is written in the browser's language; `auto` follows the language of each query instead.
+  summary: { enabled: true, provider: 'api', maxSources: 8, contentFetcher: 'direct', maxCharsPerSource: 3000, language: 'browser', languageCustom: '' },
 };
 
 type Migration = (stored: Record<string, unknown>) => Record<string, unknown>;

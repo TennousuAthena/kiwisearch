@@ -55,7 +55,7 @@ describe('downloadList', () => {
     const offline: FetchFn = async () => {
       throw new TypeError('Failed to fetch');
     };
-    await expect(downloadList(offline, URL_A)).rejects.toThrow(/连不上/);
+    await expect(downloadList(offline, URL_A)).rejects.toThrow(/无法连接/);
     const hung: FetchFn = (_url, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)));
     await expect(downloadList(hung, URL_A, undefined, 20)).rejects.toThrow(/没有响应/);
   });
@@ -111,7 +111,7 @@ describe('what the settings page says', () => {
     expect(blocklistStatus(ok, NOW)).toEqual({ tone: 'ok', text: '2 条规则，3 小时前更新，1 行写法不支持，已跳过' });
     expect(blocklistStatus({ ...ok, error: '服务器返回 HTTP 500' }, NOW)).toEqual({
       tone: 'bad',
-      text: '这次更新失败：服务器返回 HTTP 500。仍在用之前的版本（2 条规则，3 小时前更新）',
+      text: '本次更新失败：服务器返回 HTTP 500。仍在使用之前的版本（2 条规则，3 小时前更新）',
     });
     expect(blocklistStatus({ url: URL_A, error: '连不上这个地址' }, NOW)).toEqual({ tone: 'bad', text: '下载失败：连不上这个地址' });
   });
@@ -125,7 +125,7 @@ describe('what the settings page says', () => {
 
   it('sums up the user\'s own rules: what counted and what was left out', () => {
     expect(describeCustomRules(parseBlocklist('').stats)).toBe('');
-    expect(describeCustomRules(parsed.stats)).toBe('2 条规则有效；1 行没有用上（例如 “||c.example.com^$script”）；1 行是页面元素规则，不适用于搜索结果');
+    expect(describeCustomRules(parsed.stats)).toBe('2 条规则有效；1 行未使用（例如 “||c.example.com^$script”）；1 行是页面元素规则，不适用于搜索结果');
   });
 });
 

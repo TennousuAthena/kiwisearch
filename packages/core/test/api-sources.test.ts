@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { brave } from '../src/sources/brave';
 import { deepseek } from '../src/sources/deepseek';
@@ -55,6 +56,30 @@ describe('official API sources', () => {
     expect(new Headers(calls[0].init?.headers).get('x-api-key')).toBe('exa-key');
     expect(JSON.parse(String(calls[0].init?.body))).toMatchObject({ query: 'fusion query', numResults: 7 });
     expect(hits[0]).toMatchObject({ title: 'Exa result', snippet: 'A useful highlight', content: 'Article text' });
+  });
+
+  it('asks Exa for highlights by size, not with the deprecated sentence settings that it answers with a warning', async () => {
+    const { env, calls } = mockEnv({ results: [] });
+    await search(exa, env, { enabled: true, apiKey: 'exa-key' });
+    const { contents } = JSON.parse(String(calls[0].init?.body));
+    expect(contents).toEqual({ text: { maxCharacters: 4000 }, highlights: { maxCharacters: 1500 } });
+  });
+
+  it('turns the Markdown tables Exa returns into a readable snippet and keeps the Markdown as the content (real answers)', async () => {
+    const real = JSON.parse(readFileSync(new URL('./fixtures/exa.json', import.meta.url), 'utf8'));
+    const { env } = mockEnv({ results: real.results });
+    const hits = await search(exa, env, { enabled: true, apiKey: 'exa-key' });
+    expect(hits).toHaveLength(12);
+    const wiki = hits.find((hit) => hit.url.includes('zh.wikipedia.org'));
+    // What the page showed before: the start of the highlight, whitespace squeezed, cut at 300.
+    const before = (real.results as { url: string; highlights: string[] }[]).find((r) => r.url.includes('zh.wikipedia.org'))!.highlights[0].replace(/\s+/g, ' ').trim().slice(0, 300);
+    expect(before).toMatch(/^浙江稠州商业银行 \| 浙江稠州商业银行股份有限公司 Zhejiang Chouzhou Commercial Bank Co\., Ltd\. \| \| \| --- \| --- \|/);
+    expect(wiki?.snippet).toMatch(/^浙江稠州商业银行是一家总部位于中国浙江省义乌市的商业银行。/);
+    expect(wiki?.snippet).not.toContain('|');
+    expect(wiki?.publishedAt).toBe('2026-02-22T23:56:00.000Z');
+    // The overview and the decision model still get the page as Markdown.
+    expect(wiki?.content).toMatch(/\| --- \| --- \|/);
+    for (const hit of hits) expect(hit.snippet, hit.url).not.toMatch(/\||-{3,}/);
   });
 
   it('sends DeepSeek authorization and request body and parses results', async () => {

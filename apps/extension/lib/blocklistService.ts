@@ -7,6 +7,7 @@ import {
   type NamedBlockRules,
 } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
+import { t } from './i18n';
 import { downloadList, isDue, metaAfterDownload, type BlocklistMeta, type BlocklistMetaMap } from './blocklistState';
 import { loadConfig } from './settings';
 
@@ -85,11 +86,11 @@ async function refreshOne(source: BlocklistSource): Promise<void> {
       return;
     }
     const parsed = parseBlocklist(got.text);
-    if (!parsed.stats.rules) throw new Error('没有读到可用的规则，这个地址返回的可能不是屏蔽列表');
+    if (!parsed.stats.rules) throw new Error(t('worker.blocklist.noRules'));
     try {
       await browser.storage.local.set({ [DATA_PREFIX + source.id]: { rules: parsed.rules } });
     } catch {
-      throw new Error('浏览器的存储空间不够，存不下这个列表');
+      throw new Error(t('worker.blocklist.storageFull'));
     }
     memory.delete(source.id);
     await updateMeta(source.id, () => metaAfterDownload(source.url, parsed, got.etag, Date.now()));

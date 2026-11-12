@@ -1,5 +1,6 @@
 import { HttpError, fetchJson } from './http';
 import { chat, isLocalUrl, llmUsable, type ChatMessage } from './llm';
+import { coreMessages } from './messages';
 import type { Env, FusionConfig, LlmSettings } from './types';
 
 /**
@@ -193,7 +194,7 @@ export async function chatForJson(env: Env, settings: LlmSettings, messages: Cha
     text = await chat(env.fetch, settings, messages, { signal });
   }
   const parsed = parseJsonObject(text);
-  if (!parsed) throw new Error('决策模型的回复不是 JSON');
+  if (!parsed) throw new Error(coreMessages(env).decisionNotJson);
   return parsed;
 }
 
@@ -214,5 +215,5 @@ export async function askDecision(env: Env, config: FusionConfig, request: Decis
       return askChatModel(env, config, request, signal);
     }
   }
-  throw new Error('没有可用的决策模型');
+  throw new Error(coreMessages(env).noDecisionModel);
 }

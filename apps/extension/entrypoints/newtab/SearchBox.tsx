@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { t } from '@/lib/i18n';
 import { CloseIcon, SearchIcon } from '@/lib/icons';
 
 interface Props {
@@ -38,7 +39,7 @@ export function SearchBox({ value, onChange, onSubmit }: Props) {
         autoFocus
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        aria-label="搜索"
+        aria-label={t('newtab.searchbox.label')}
         autoComplete="off"
         enterKeyHint="search"
         spellCheck={false}
@@ -47,7 +48,7 @@ export function SearchBox({ value, onChange, onSubmit }: Props) {
         <button
           type="button"
           className="searchbox-btn"
-          aria-label="清除"
+          aria-label={t('newtab.searchbox.clear')}
           onClick={() => {
             onChange('');
             inputRef.current?.focus();
@@ -56,7 +57,7 @@ export function SearchBox({ value, onChange, onSubmit }: Props) {
           <CloseIcon />
         </button>
       )}
-      <button type="submit" className="searchbox-btn searchbox-submit" aria-label="搜索">
+      <button type="submit" className="searchbox-btn searchbox-submit" aria-label={t('newtab.searchbox.submit')}>
         <SearchIcon />
       </button>
     </form>

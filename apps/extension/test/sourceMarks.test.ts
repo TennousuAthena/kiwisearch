@@ -7,8 +7,9 @@ import { marksLabel, SOURCE_MARKS, sourceMarks } from '../lib/sourceMarks';
 const from = (...pairs: [SourceId, number][]) => pairs.map(([source, rank]) => ({ source, rank }));
 
 describe('sourceMarks', () => {
-  it('shows nothing for a result only one engine returned', () => {
-    expect(sourceMarks(from(['google', 1]))).toEqual([]);
+  it('gives a result only one engine returned that engine\'s mark alone, and nothing for a result with no source', () => {
+    expect(sourceMarks(from(['google', 1])).map((m) => m.name)).toEqual(['Google']);
+    expect(sourceMarks(from(['exa', 3])).map((m) => m.mark)).toEqual(['exa']);
     expect(sourceMarks([])).toEqual([]);
   });
 
@@ -21,8 +22,13 @@ describe('sourceMarks', () => {
     expect(sourceMarks(from(['bing', 1], ['google', 1])).map((m) => m.mark)).toEqual(['bing', 'google']);
   });
 
+  it('counts the two ways of searching Brave as one engine', () => {
+    expect(sourceMarks(from(['brave', 1], ['bravesearch', 2])).map((m) => m.name)).toEqual(['Brave']);
+    expect(sourceMarks(from(['bravesearch', 3], ['google', 1])).map((m) => m.name)).toEqual(['Google', 'Brave']);
+  });
+
   it('counts the two Xiaohongshu sites as one platform', () => {
-    expect(sourceMarks(from(['xiaohongshu', 1], ['rednote', 2]))).toEqual([]);
+    expect(sourceMarks(from(['xiaohongshu', 1], ['rednote', 2])).map((m) => m.name)).toEqual(['小红书']);
     expect(sourceMarks(from(['xiaohongshu', 1], ['rednote', 2], ['google', 3])).map((m) => m.name)).toEqual(['小红书', 'Google']);
   });
 
@@ -36,6 +42,12 @@ describe('sourceMarks', () => {
     const label = marksLabel(sourceMarks(from(['google', 1], ['baidu', 2])));
     expect(label).toBe('Google、百度 都收录了这条结果');
     expect(label).not.toMatch(/验证/);
+    // One engine: still "收录", and no list of names.
+    expect(marksLabel(sourceMarks(from(['bing', 1])))).toBe('Bing 收录了这条结果');
+  });
+
+  it('has a mark for every source, so a lone engine can always be drawn', () => {
+    for (const id of Object.keys(SOURCE_MARKS) as SourceId[]) expect(sourceMarks(from([id, 1])), id).toHaveLength(1);
   });
 
   it('has a logo for every mark a source points to, and none that no source uses', () => {

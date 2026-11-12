@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { t } from '@/lib/i18n';
 import { CheckIcon, CircleAlertIcon } from '@/lib/icons';
 
 export interface TestReply {
@@ -18,7 +19,7 @@ export function TestRow({ run, watch }: { run: () => Promise<TestReply | undefin
     setTest({ state: 'testing' });
     try {
       const reply = await run();
-      setTest(reply?.ok ? { state: 'ok', ms: reply.ms ?? 0 } : { state: 'error', message: reply?.error ?? '没有收到回应' });
+      setTest(reply?.ok ? { state: 'ok', ms: reply.ms ?? 0 } : { state: 'error', message: reply?.error ?? t('options.test.noReply') });
     } catch (error) {
       setTest({ state: 'error', message: error instanceof Error ? error.message : String(error) });
     }
@@ -27,12 +28,13 @@ export function TestRow({ run, watch }: { run: () => Promise<TestReply | undefin
   return (
     <div className="test-row">
       <button type="button" className="btn" disabled={test.state === 'testing'} onClick={() => void start()}>
-        {test.state === 'testing' ? '测试中…' : '测试连接'}
+        {test.state === 'testing' ? t('options.test.testing') : t('options.test.start')}
       </button>
       <span role="status" className={test.state === 'ok' ? 'test-result ok' : test.state === 'error' ? 'test-result bad' : 'test-result'}>
         {test.state === 'ok' && (
           <>
-            <CheckIcon /> 连通了（{test.ms >= 1000 ? `${(test.ms / 1000).toFixed(1)} 秒` : `${test.ms} 毫秒`}）
+            <CheckIcon />{' '}
+            {test.ms >= 1000 ? t('options.test.connectedSeconds', { seconds: (test.ms / 1000).toFixed(1) }) : t('options.test.connectedMs', { ms: test.ms })}
           </>
         )}
         {test.state === 'error' && (

@@ -1,4 +1,5 @@
 import type { FusedResult, HiddenReason, SearchMode, VerifiedLandmark } from '@kiwi-search/core';
+import { t, type MessageKey } from './i18n';
 
 export function splitResults(results: FusedResult[]): { visible: FusedResult[]; hidden: FusedResult[] } {
   return { visible: results.filter((r) => !r.hidden), hidden: results.filter((r) => r.hidden) };
@@ -7,13 +8,13 @@ export function splitResults(results: FusedResult[]): { visible: FusedResult[]; 
 export function hiddenLabel(hidden: HiddenReason): string {
   switch (hidden.reason) {
     case 'junk':
-      return '疑似内容农场或搬运内容';
+      return t('newtab.hidden.junk');
     case 'irrelevant':
-      return '与搜索内容关系不大';
+      return t('newtab.hidden.irrelevant');
     case 'rule':
-      return `符合你的过滤规则：${hidden.rule}`;
+      return t('newtab.hidden.rule', { rule: hidden.rule });
     case 'blocked':
-      return hidden.list ? `命中屏蔽列表「${hidden.list}」` : '来自你屏蔽的网站';
+      return hidden.list ? t('newtab.hidden.blockedList', { list: hidden.list }) : t('newtab.hidden.blocked');
   }
 }
 
@@ -70,16 +71,20 @@ const KNOWN_SITES: Record<string, string> = {
   acm: 'ACM',
   sciencedirect: 'ScienceDirect',
   csdn: 'CSDN',
-  zhihu: '知乎',
-  bilibili: '哔哩哔哩',
-  juejin: '掘金',
-  cnblogs: '博客园',
-  jianshu: '简书',
-  douban: '豆瓣',
-  baidu: '百度',
-  weixin: '微信',
-  sina: '新浪',
-  sohu: '搜狐',
+};
+
+/** Sites whose name is written in the interface language (the message is `site.<name>`). */
+const LOCALIZED_SITES: Record<string, Extract<MessageKey, `site.${string}`>> = {
+  zhihu: 'site.zhihu',
+  bilibili: 'site.bilibili',
+  juejin: 'site.juejin',
+  cnblogs: 'site.cnblogs',
+  jianshu: 'site.jianshu',
+  douban: 'site.douban',
+  baidu: 'site.baidu',
+  weixin: 'site.weixin',
+  sina: 'site.sina',
+  sohu: 'site.sohu',
 };
 
 /** Short site label above the title: `docs.github.com` → `GitHub`. Falls back to the capitalized domain name. */
@@ -90,7 +95,8 @@ export function siteLabel(result: Pick<FusedResult, 'url' | 'host' | 'meta'>): s
   if (labels.length < 2) return host;
   const compoundTld = /^(co|com|org|net|gov|edu|ac)$/.test(labels[labels.length - 2]) && labels[labels.length - 1].length === 2;
   const name = labels[labels.length - (compoundTld ? 3 : 2)] ?? labels[0];
-  return KNOWN_SITES[name.toLowerCase()] ?? name.charAt(0).toUpperCase() + name.slice(1);
+  const localized = LOCALIZED_SITES[name.toLowerCase()];
+  return (localized ? t(localized) : KNOWN_SITES[name.toLowerCase()]) ?? name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 /** 1218 → 1.2K, 16661 → 16.7K, 5026349 → 5M: counts the way X prints them. */
@@ -102,7 +108,7 @@ export function compactCount(value: number): string {
 }
 
 export function formatDuration(ms: number): string {
-  return ms < 1000 ? `${(ms / 1000).toFixed(2)} 秒` : `${(ms / 1000).toFixed(1)} 秒`;
+  return t('newtab.duration.seconds', { seconds: ms < 1000 ? (ms / 1000).toFixed(2) : (ms / 1000).toFixed(1) });
 }
 
 /** "Since" years offered in academic mode, like Scholar: this year, last year, four years back. */
@@ -114,13 +120,18 @@ export function sinceYears(now = new Date()): number[] {
 /** The community platforms whose posts a general search can pull in (each also has a tab of its own). */
 export type Platform = 'zhihu' | 'xiaohongshu' | 'wechat';
 
-export const PLATFORM_NAMES: Record<Platform, string> = { zhihu: '知乎', xiaohongshu: '小红书', wechat: '公众号' };
+/** The platform's name in the interface language. */
+export const platformName = (platform: Platform): string => t(`platform.${platform}`);
+
+/** What core's engines write into `meta.siteName` for a Zhihu answer and a WeChat article: data to compare with, not interface text. */
+export const ZHIHU_SITE_NAME = '知乎'; // i18n-ignore (data written by core's engines, not interface text)
+export const WECHAT_SITE_NAME = '微信公众号'; // i18n-ignore (data written by core's engines, not interface text)
 
 /** Which platform a result is a post from; null for an ordinary page. Mirrors how `Results.tsx` picks a card. */
 export function platformOf(result: Pick<FusedResult, 'note' | 'meta'>): Platform | null {
   if (result.note) return 'xiaohongshu';
-  if (result.meta.siteName === '知乎') return 'zhihu';
-  if (result.meta.siteName === '微信公众号') return 'wechat';
+  if (result.meta.siteName === ZHIHU_SITE_NAME) return 'zhihu';
+  if (result.meta.siteName === WECHAT_SITE_NAME) return 'wechat';
   return null;
 }
 
@@ -169,9 +180,12 @@ export function sortPapers(results: FusedResult[], by: PaperSort): FusedResult[]
   return [...results].sort((a, b) => (b.meta.citations ?? -1) - (a.meta.citations ?? -1));
 }
 
-export const MODE_LABELS: Record<SearchMode, string> = { web: '全部', images: '图片', video: '视频', academic: '学术', zhihu: '知乎', xiaohongshu: '小红书', wechat: '公众号', x: 'X' };
-/** Tab order; derived from the label table so a new mode can't be left out. */
-export const MODES = Object.keys(MODE_LABELS) as SearchMode[];
+/** Every mode, in tab order; typed over `SearchMode`, so a new mode can't be left out. */
+const MODE_ORDER = { web: true, images: true, video: true, academic: true, zhihu: true, xiaohongshu: true, wechat: true, x: true } satisfies Record<SearchMode, true>;
+export const MODES = Object.keys(MODE_ORDER) as SearchMode[];
+
+/** The tab's name in the interface language. */
+export const modeLabel = (mode: SearchMode): string => t(`mode.${mode}`);
 
 /** The platform tabs, folded under one "社区" tab. */
 export const COMMUNITY_MODES: SearchMode[] = ['zhihu', 'xiaohongshu', 'wechat', 'x'];
@@ -187,10 +201,10 @@ export function modeHasOverview(mode: SearchMode): boolean {
  * an error that isn't recognised is returned as it is.
  */
 export function explainServiceError(message: string): string {
-  if (/HTTP 451/.test(message)) return '该服务在你当前的网络出口所在地区不可用（HTTP 451），请检查代理分流';
-  if (/HTTP 40[13]/.test(message)) return 'Key 无效，或没有权限（HTTP ' + (/HTTP (40[13])/.exec(message)?.[1] ?? '401') + '）';
-  if (/HTTP 429/.test(message)) return '请求太频繁，被服务限流了（HTTP 429）';
-  if (/Failed to fetch|NetworkError|network/i.test(message)) return '网络连不上这个服务';
+  if (/HTTP 451/.test(message)) return t('newtab.serviceError.region');
+  if (/HTTP 40[13]/.test(message)) return t('newtab.serviceError.key', { status: /HTTP (40[13])/.exec(message)?.[1] ?? '401' });
+  if (/HTTP 429/.test(message)) return t('newtab.serviceError.rateLimit');
+  if (/Failed to fetch|NetworkError|network/i.test(message)) return t('newtab.serviceError.network');
   return message;
 }
 
@@ -200,14 +214,15 @@ export function explainServiceError(message: string): string {
  */
 export function decisionModelNotes(s: { mode: SearchMode; judgeError?: string; intentError?: string }): { text: string; title: string }[] {
   const failed = [
-    ...(s.mode === 'web' && s.intentError ? [{ what: '自动补搜知乎等平台', raw: s.intentError }] : []),
-    ...(s.judgeError ? [{ what: '智能过滤', raw: s.judgeError }] : []),
+    ...(s.mode === 'web' && s.intentError ? [{ what: 'intent' as const, raw: s.intentError }] : []),
+    ...(s.judgeError ? [{ what: 'judge' as const, raw: s.judgeError }] : []),
   ].map((f) => ({ ...f, reason: explainServiceError(f.raw) }));
   if (!failed.length) return [];
   if (failed.every((f) => f.reason === failed[0].reason)) {
-    return [{ text: `${failed.map((f) => f.what).join('、')}没能用上：${failed[0].reason}`, title: failed.map((f) => f.raw).join('\n') }];
+    const text = failed.length > 1 ? t('newtab.decisionNote.both', { reason: failed[0].reason }) : t(`newtab.decisionNote.${failed[0].what}`, { reason: failed[0].reason });
+    return [{ text, title: failed.map((f) => f.raw).join('\n') }];
   }
-  return failed.map((f) => ({ text: `${f.what}没能用上：${f.reason}`, title: f.raw }));
+  return failed.map((f) => ({ text: t(`newtab.decisionNote.${f.what}`, { reason: f.reason }), title: f.raw }));
 }
 
 /** First `max` characters on one line, with an ellipsis when cut. */

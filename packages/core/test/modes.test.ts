@@ -234,7 +234,7 @@ describe('modes in the pipeline', () => {
       usableSources(config, true, mode).filter((s) => !s.reason || s.reason === 'missing API key').map((s) => s.id);
     expect(ids('images').sort()).toEqual(['bing', 'openverse']);
     expect(ids('academic').sort()).toEqual(['arxiv', 'crossref', 'openalex', 'pubmed', 'scholar']);
-    expect(ids('web')).toEqual(expect.arrayContaining(['google', 'bing', 'duckduckgo', 'brave', 'exa', 'deepseek']));
+    expect(ids('web')).toEqual(expect.arrayContaining(['google', 'bing', 'duckduckgo', 'bravesearch', 'brave', 'exa', 'deepseek']));
     expect(ids('web')).not.toContain('baidu');
     expect(ids('web')).not.toContain('openverse');
   });

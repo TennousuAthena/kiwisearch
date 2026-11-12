@@ -1,6 +1,7 @@
 import type { FusedResult } from '@kiwi-search/core';
 import { useState } from 'react';
-import { PLATFORM_NAMES, clip, compactCount, platformOf, type Platform } from '@/lib/results';
+import { t } from '@/lib/i18n';
+import { clip, compactCount, platformName, platformOf, type Platform } from '@/lib/results';
 
 function Card({ result, highlighted }: { result: FusedResult; highlighted: boolean }) {
   const platform = platformOf(result) as Platform;
@@ -10,8 +11,8 @@ function Card({ result, highlighted }: { result: FusedResult; highlighted: boole
   const cover = note?.cover ?? thumbnail;
   const byline = [
     note?.author ?? author,
-    votes !== undefined ? `${compactCount(votes)} 赞同` : '',
-    note?.likes ? `${note.likes} 赞` : '',
+    votes !== undefined ? t('newtab.platforms.votes', { count: compactCount(votes) }) : '',
+    note?.likes ? t('newtab.platforms.noteLikes', { likes: note.likes }) : '',
     result.publishedAt?.slice(0, 10),
   ]
     .filter(Boolean)
@@ -19,7 +20,7 @@ function Card({ result, highlighted }: { result: FusedResult; highlighted: boole
   return (
     <article className={highlighted ? 'pcard hl' : 'pcard'}>
       <p className="pcard-head">
-        <span className="kind">{PLATFORM_NAMES[platform]}</span>
+        <span className="kind">{platformName(platform)}</span>
         {byline}
       </p>
       <div className="pcard-body">
@@ -56,7 +57,7 @@ export function PlatformStrip({
   const present = [...new Set(results.map((r) => platformOf(r) as Platform))];
   return (
     <section className="platforms" aria-labelledby="platforms-title">
-      <h2 id="platforms-title">各平台怎么说</h2>
+      <h2 id="platforms-title">{t('newtab.platforms.title')}</h2>
       <div className="pgrid">
         {results.map((result) => {
           const n = citedUrls.get(result.url);
@@ -66,7 +67,7 @@ export function PlatformStrip({
       <p className="pmore">
         {present.map((platform) => (
           <button key={platform} type="button" className="status-action" onClick={() => onOpenTab(platform)}>
-            在{PLATFORM_NAMES[platform]}里看更多 →
+            {t('newtab.platforms.more', { platform: platformName(platform) })}
           </button>
         ))}
       </p>

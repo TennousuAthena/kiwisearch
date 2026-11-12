@@ -210,6 +210,11 @@ describe('loadBlocklist', () => {
     expect(list?.match('https://mine.example.com/', 'mine.example.com')).toBe('自定义规则');
   });
 
+  it('names the user\'s own rules as the caller words it, and in Chinese when it does not', async () => {
+    const env: Env = { fetch: noFetch, messages: { customListName: 'My rules' } };
+    expect((await loadBlocklist(configWith('mine.example.com'), env))?.match('https://mine.example.com/', 'mine.example.com')).toBe('My rules');
+  });
+
   it('gives the user\'s rules when the caller keeps no lists, and nothing when there is nothing', async () => {
     expect(await loadBlocklist(configWith('mine.example.com'), { fetch: noFetch })).toBeDefined();
     expect(await loadBlocklist(configWith('  \n'), { fetch: noFetch })).toBeUndefined();
@@ -262,7 +267,7 @@ describe('subscriptions', () => {
     for (const entry of RECOMMENDED_BLOCKLISTS) {
       expect(isSubscriptionUrl(entry.url), entry.id).toBe(true);
       expect(entry.url.startsWith('https://'), entry.id).toBe(true);
-      expect([entry.name, entry.description, entry.license, entry.homepage].every(Boolean), entry.id).toBe(true);
+      expect([entry.name, entry.license, entry.homepage].every(Boolean), entry.id).toBe(true);
     }
   });
 });

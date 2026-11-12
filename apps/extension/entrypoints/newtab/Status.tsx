@@ -1,6 +1,7 @@
 import type { SearchMode, SourceId, SuggestMode } from '@kiwi-search/core';
+import { t } from '@/lib/i18n';
 import { CircleAlertIcon, RotateIcon, TriangleAlertIcon } from '@/lib/icons';
-import { MODE_LABELS, decisionModelNotes, formatDuration } from '@/lib/results';
+import { decisionModelNotes, formatDuration, modeLabel } from '@/lib/results';
 import { firstBlocked, type SearchState } from '@/lib/searchState';
 import { offerText, suggestionName } from '@/lib/suggestion';
 
@@ -20,21 +21,19 @@ export function StatusLine({ state, visibleCount, onOpenWorker }: StatusProps) {
   return (
     <div className="status">
       {done && (
-        <span>
-          {visibleCount} 条结果（{formatDuration((state.finishedAt ?? state.startedAt) - state.startedAt)}）
-        </span>
+        <span>{t('newtab.status.resultCount', { count: visibleCount, duration: formatDuration((state.finishedAt ?? state.startedAt) - state.startedAt) })}</span>
       )}
-      {loadingMore && <span>仍在加载更多结果…</span>}
+      {loadingMore && <span>{t('newtab.status.loadingMore')}</span>}
       {login && (
         <button type="button" className="status-action warn" onClick={() => onOpenWorker(login)}>
           <TriangleAlertIcon />
-          有来源需要先登录，暂时没有它的结果 · 去登录
+          {t('newtab.status.loginNeeded')}
         </button>
       )}
       {captcha && (
         <button type="button" className="status-action warn" onClick={() => onOpenWorker(captcha)}>
           <TriangleAlertIcon />
-          有来源需要人机验证，暂时没有它的结果 · 去验证
+          {t('newtab.status.captchaNeeded')}
         </button>
       )}
       {done &&
@@ -43,7 +42,7 @@ export function StatusLine({ state, visibleCount, onOpenWorker }: StatusProps) {
             {note.text}
           </span>
         ))}
-      {done && state.mode === 'academic' && state.planError && <span title={state.planError}>智能检索未生效：{state.planError}</span>}
+      {done && state.mode === 'academic' && state.planError && <span title={state.planError}>{t('newtab.status.planFailed', { error: state.planError })}</span>}
     </div>
   );
 }
@@ -66,9 +65,9 @@ export function SuggestionLine({
   if (moved) {
     return (
       <div className="status suggestion">
-        <span>已为你切换到“{MODE_LABELS[moved.mode]}”</span>
+        <span>{t('newtab.status.suggestionMoved', { mode: modeLabel(moved.mode) })}</span>
         <button type="button" className="status-action" onClick={onStayOnWeb}>
-          仍看网页结果
+          {t('newtab.status.suggestionStay')}
         </button>
       </div>
     );
@@ -78,7 +77,7 @@ export function SuggestionLine({
     <div className="status suggestion">
       <span>{offerText(offer)}</span>
       <button type="button" className="status-action" onClick={() => onSwitch(offer)}>
-        切到“{suggestionName(offer)}”
+        {t('newtab.status.suggestionSwitch', { name: suggestionName(offer) })}
       </button>
     </div>
   );
@@ -89,36 +88,25 @@ export function FatalError({ message, onRetry }: { message: string; onRetry: () 
     <div className="alert" role="alert">
       <CircleAlertIcon />
       <div className="alert-body">
-        <strong>搜索失败</strong>
+        <strong>{t('newtab.status.fatalTitle')}</strong>
         <p>{message}</p>
       </div>
       <button type="button" className="btn" onClick={onRetry}>
         <RotateIcon />
-        重试
+        {t('newtab.status.fatalRetry')}
       </button>
     </div>
   );
 }
 
-const EMPTY_HINTS: Record<SearchMode, string> = {
-  web: '试试换个关键词，或在设置里启用更多搜索来源。',
-  images: '图片搜索需要启用 Bing（浏览器渲染）或 Openverse，可在设置里检查。',
-  video: '视频搜索需要启用 YouTube 或哔哩哔哩（浏览器渲染），可在设置里检查。',
-  zhihu: '知乎搜索需要在这个浏览器里登录知乎，并在设置里启用知乎。',
-  x: 'X 搜索需要在这个浏览器里登录 X，并在设置里启用 X。X 对自动化使用管得很严，请适度使用。',
-  wechat: '公众号搜索需要启用“搜狗微信”（浏览器渲染），可在设置里检查。搜狗偶尔会要求人机验证。',
-  xiaohongshu: '小红书搜索需要在这个浏览器里登录小红书（国内站或 RedNote），并在设置里启用你登录的那个站点。',
-  academic: '试试用英文关键词或论文标题，也可以在设置里启用更多学术来源。',
-};
-
 export function EmptyState({ mode, waitingForVerification, optionsUrl }: { mode: SearchMode; waitingForVerification: boolean; optionsUrl: string }) {
   return (
     <div className="empty">
-      <h3>没有找到相关结果</h3>
-      <p>{waitingForVerification ? '有来源正在等待验证或登录。完成后，结果会自动补充到这里。' : EMPTY_HINTS[mode]}</p>
+      <h3>{t('newtab.status.emptyTitle')}</h3>
+      <p>{waitingForVerification ? t('newtab.status.emptyWaiting') : t(`newtab.status.emptyHint.${mode}`)}</p>
       {!waitingForVerification && (
         <a href={optionsUrl} target="_blank" rel="noreferrer">
-          打开设置
+          {t('newtab.status.openSettings')}
         </a>
       )}
     </div>

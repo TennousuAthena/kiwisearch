@@ -3,7 +3,10 @@ import { browser } from 'wxt/browser';
 import { ensureBridge } from '@/lib/bridge';
 import { handleBlocklistMessage, loadBlocklistRules, refreshDueBlocklists } from '@/lib/blocklistService';
 import { subscriptionsChanged } from '@/lib/blocklistState';
+import { initLocale, t } from '@/lib/i18n';
+import { coreMessagesFor } from '@/lib/i18n/coreMessages';
 import type { PortMessage, SearchRequest } from '@/lib/messages';
+import { browserLanguage } from '@/lib/language';
 import { loadConfig } from '@/lib/settings';
 import { handleFaviconMessage } from '@/lib/faviconService';
 import { handleDecisionTest, handleLlmTest } from '@/lib/llmTest';
@@ -14,6 +17,7 @@ import { collectIdleWorkers, forgetWorkerTab, handleWorkerMessage, runBrowserEng
 const UI_SOFT_DEADLINE_MS = 6000;
 
 export default defineBackground(() => {
+  initLocale();
   const searchRedirectRuleId = 1001;
   const ensureSearchRedirectRule = async () => {
     await browser.declarativeNetRequest.updateDynamicRules({ removeRuleIds: [searchRedirectRuleId] });
@@ -49,6 +53,10 @@ export default defineBackground(() => {
     runBrowserEngine,
     cache,
     loadBlocklists: loadBlocklistRules,
+    // The AI overview is written in the browser's language unless the settings say otherwise. Read at each search, so a changed browser language counts at once.
+    browserLanguage: browserLanguage(),
+    // The few sentences core writes for the user (why a feature was skipped), in the interface language.
+    messages: coreMessagesFor(),
   });
 
   browser.runtime.onInstalled.addListener(({ reason }) => {
@@ -67,7 +75,7 @@ export default defineBackground(() => {
     if (!alarm) browser.alarms.create('blocklist-refresh', { delayInMinutes: 60, periodInMinutes: 360 });
   });
 
-  browser.omnibox.setDefaultSuggestion({ description: '用 Kiwi Search 搜索：%s' });
+  browser.omnibox.setDefaultSuggestion({ description: t('omnibox.suggestion') });
   browser.omnibox.onInputEntered.addListener((text, disposition) => {
     const url = `${browser.runtime.getURL('/newtab.html')}?q=${encodeURIComponent(text)}`;
     if (disposition === 'currentTab') {

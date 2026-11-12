@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Browser } from 'wxt/browser';
 import { browser } from 'wxt/browser';
 import { promptWithBuiltinModel } from './builtinModel';
+import { t } from './i18n';
 import type { PortMessage, SearchRequest } from './messages';
 import { emptyState, lateSourcesAfterDone, reduce, type SearchState } from './searchState';
 
@@ -73,7 +74,7 @@ export function useSearchSession() {
           timedOut = true;
           controller.abort();
           if (current()) {
-            setState((s) => s && { ...s, summaryStatus: 'error', summaryError: '浏览器内置模型在 60 秒内未返回首个内容块，请检查模型状态后重试。' });
+            setState((s) => s && { ...s, summaryStatus: 'error', summaryError: t('newtab.session.builtinModelTimeout') });
           }
         }, BUILTIN_MODEL_FIRST_CHUNK_TIMEOUT_MS);
         builtinModelTimeoutRef.current = timeout;
@@ -96,7 +97,7 @@ export function useSearchSession() {
           .catch((error) => {
             if (!current() || timedOut) return;
             const detail = error instanceof Error ? error.message : String(error);
-            setState((s) => s && { ...s, summaryStatus: 'error', summaryError: `浏览器内置模型启动或生成失败：${detail}` });
+            setState((s) => s && { ...s, summaryStatus: 'error', summaryError: t('newtab.session.builtinModelFailed', { detail }) });
           })
           .finally(() => {
             clearTimeout(timeout);
