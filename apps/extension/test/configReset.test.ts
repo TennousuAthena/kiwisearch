@@ -9,6 +9,8 @@ describe('resetKeepingSecrets', () => {
     current.sources.brave = { enabled: true, apiKey: 'brave-key' };
     current.sources.searxng = { enabled: true, baseUrl: 'https://searx.example', apiKey: 'bearer' };
     current.judge.apiKey = 'jev';
+    current.judge.llm = { baseUrl: 'https://fast.example/v1', apiKey: 'fast-key', model: 'small' };
+    current.judge.llmShared = false;
     current.judge.rules = ['a rule'];
     current.judge.blockedDomains = ['x.com'];
     current.llm.apiKey = 'llm-key';
@@ -18,6 +20,8 @@ describe('resetKeepingSecrets', () => {
     expect(next.sources.brave).toEqual({ ...DEFAULT_CONFIG.sources.brave, apiKey: 'brave-key' });
     expect(next.sources.searxng).toMatchObject({ baseUrl: 'https://searx.example', apiKey: 'bearer' });
     expect([next.judge.apiKey, next.llm.apiKey]).toEqual(['jev', 'llm-key']);
+    expect(next.judge.llm).toEqual({ baseUrl: 'https://fast.example/v1', apiKey: 'fast-key', model: 'small' });
+    expect(next.judge.llmShared).toBe(true);
     expect(next.judge.rules).toEqual([]);
     expect(next.judge.blockedDomains).toEqual([]);
     expect(next.perSourceCount).toBe(DEFAULT_CONFIG.perSourceCount);

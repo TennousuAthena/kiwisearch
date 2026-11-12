@@ -11,6 +11,7 @@ const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 function configFor(...enabled: string[]): FusionConfig {
   const config = structuredClone(DEFAULT_CONFIG);
   for (const [id, settings] of Object.entries(config.sources)) if (settings) settings.enabled = enabled.includes(id);
+  config.judge.provider = 'typesafe';
   config.judge.apiKey = KEY;
   config.summary.enabled = false;
   config.rerank.provider = 'none';
@@ -227,11 +228,23 @@ describe('a general search with routing', () => {
     expect(slow.asked.map((a) => a.engine)).toEqual(['google']);
   });
 
-  it('starts nothing from a verdict that arrives after the soft deadline', async () => {
+  it('waits past the soft deadline for a slow decision model, and what its verdict starts merges in late', async () => {
     const { env, asked } = world({ zhihu: 0.9 }, { delayMs: 150 });
-    const result = await runSearch('q', configFor('google', 'zhihu'), env, { softDeadlineMs: 30 });
-    expect(result.results).toHaveLength(1);
+    const events: PipelineEvent[] = [];
+    const result = await runSearch('q', configFor('google', 'zhihu'), env, { softDeadlineMs: 30, onEvent: (event) => events.push(event) });
+    expect(events.find((event) => event.type === 'routed')).toMatchObject({ routes: ['zhihu'] });
+    expect(result.results).toHaveLength(1); // the general results; Zhihu was only just started
     await delay(250);
+    expect(asked.map((a) => a.engine).sort()).toEqual(['google', 'zhihu']);
+    expect(events.some((event) => event.type === 'late_results' && event.source === 'zhihu')).toBe(true);
+  });
+
+  it('gives up on a decision model that is slower than its own limit, and leaves the general sources', async () => {
+    const config = configFor('google', 'zhihu');
+    config.intent.timeoutMs = 40;
+    const { env, asked } = world({ zhihu: 0.9 }, { delayMs: 400 });
+    await runSearch('q', config, env, { softDeadlineMs: 30 });
+    await delay(150);
     expect(asked.map((a) => a.engine)).toEqual(['google']);
   });
 

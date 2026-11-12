@@ -11,7 +11,7 @@ function configFor(...enabled: string[]): FusionConfig {
   for (const [id, settings] of Object.entries(config.sources)) if (settings) settings.enabled = enabled.includes(id);
   config.llm = { baseUrl: 'https://llm.example/v1', apiKey: 'test-key', model: 'm' };
   config.summary.enabled = false;
-  config.judge.apiKey = '';
+  config.judge.provider = 'none';
   config.rerank.provider = 'none';
   return config;
 }

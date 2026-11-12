@@ -109,18 +109,15 @@
 .site-name { color: var(--fg); font-size: 0.875rem; }
 .site-line { display: flex; align-items: center; min-width: 0; }
 
-/* Engine marks: the engines that agree on a result. Three at most, fading to the right; any more stay folded until the row is
-   hovered or focused, when all of them unfold at full strength. The logos themselves are in lib/sourceIcons.ts (generated from assets/engine-logos). */
-.src-marks { --mark: 0.9375rem; display: inline-flex; flex: none; align-items: center; margin: -0.25rem 0 -0.25rem 0.5rem; padding: 0.25rem 0.125rem; border-radius: 6px; vertical-align: middle; cursor: default; }
-.src-mark { flex: none; width: var(--mark); max-width: var(--mark); height: var(--mark); margin-left: 0.3rem; overflow: hidden; transition: opacity 0.2s var(--ease-out), max-width 0.3s var(--ease-out), margin-left 0.3s var(--ease-out); }
+/* Engine marks: the engines that agree on a result. Each logo sits on a small round chip, and the chips are stacked tight with the
+   best-ranked on top; hovered or focused, the stack fans out to the right with a gap between them (each chip a moment after the one
+   before). The logos themselves are in lib/sourceIcons.ts (generated from assets/engine-logos). */
+.src-marks { --mark: 1.375rem; --overlap: -0.5625rem; --gap: 0.3125rem; display: inline-flex; flex: none; align-items: center; margin: -0.3125rem 0 -0.3125rem 0.5rem; padding: 0.25rem 0.375rem 0.25rem 0.125rem; border-radius: 999px; vertical-align: middle; cursor: default; }
+.src-mark { position: relative; z-index: calc(100 - var(--i)); flex: none; box-sizing: border-box; width: var(--mark); height: var(--mark); margin-left: var(--overlap); padding: 0.1875rem; border: 1px solid var(--border-ctl); border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 1.5px var(--bg); transition: margin-left 0.34s var(--ease-out); }
 .src-mark:first-child { margin-left: 0; }
-.src-mark:nth-child(2) { opacity: 0.65; }
-.src-mark:nth-child(3) { opacity: 0.4; }
-.src-mark:nth-child(n + 4) { max-width: 0; margin-left: 0; opacity: 0; }
+.src-marks:hover .src-mark:not(:first-child), .src-marks:focus-visible .src-mark:not(:first-child) { margin-left: var(--gap); transition-delay: calc(var(--i) * 22ms); }
 .src-mark picture, .src-mark img { display: block; width: 100%; height: 100%; }
 .src-mark img { padding: 0; border: 0; border-radius: 0; background: none; object-fit: contain; }
-.src-marks:hover .src-mark, .src-marks:focus-visible .src-mark { max-width: var(--mark); opacity: 1; transition-delay: calc(var(--i) * 30ms); }
-.src-marks:hover .src-mark:nth-child(n + 4), .src-marks:focus-visible .src-mark:nth-child(n + 4) { margin-left: 0.3rem; }
 .paper-links .src-marks { margin-left: 0; }
 /* A black raster logo has no dark variant: invert it on the dark page. */
 @media (prefers-color-scheme: dark) { .src-mark img.inv { filter: invert(1); } }

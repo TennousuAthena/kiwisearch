@@ -1,5 +1,5 @@
 import { errorMessage, withTimeout } from './http';
-import { postSystemOne, type SystemOneResponse } from './judge';
+import { askDecision } from './decision';
 import type { Env, FusionConfig, IntentKey, IntentSuggestion, Route, SuggestMode } from './types';
 
 /** The extra kinds of source a general search can switch on. */
@@ -91,7 +91,7 @@ export async function judgeIntent(query: string, config: FusionConfig, env: Env,
   const { judge, intent } = config;
   const deadline = withTimeout(signal, intent.timeoutMs);
   try {
-    const { answers } = await postSystemOne<SystemOneResponse>(env, judge, buildIntentRequest(query, judge.model), deadline.signal);
+    const { answers } = await askDecision(env, config, buildIntentRequest(query, judge.model), deadline.signal);
     const scores: Partial<Record<IntentKey, number>> = {};
     for (const key of [...ROUTES, 'images', 'video'] as IntentKey[]) {
       const value = answers[key]?.noul;

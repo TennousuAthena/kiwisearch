@@ -8,6 +8,8 @@ export function resetKeepingSecrets(current: FusionConfig): FusionConfig {
     next.sources[id] = { ...(next.sources[id] ?? { enabled: false }), ...(settings.apiKey ? { apiKey: settings.apiKey } : {}), ...(settings.baseUrl ? { baseUrl: settings.baseUrl } : {}) };
   }
   next.judge.apiKey = current.judge.apiKey;
+  // A separate decision model the user filled in is as tedious to get back as any key.
+  if (current.judge.llm.apiKey) next.judge.llm = { ...current.judge.llm };
   next.llm.apiKey = current.llm.apiKey;
   if (current.rerank.apiKey) next.rerank.apiKey = current.rerank.apiKey;
   return next;
