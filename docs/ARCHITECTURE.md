@@ -46,17 +46,18 @@
 | `types.ts` | 所有类型：`SearchMode`、`SourceId`、`FusionConfig`、`PipelineEvent`、`Env`…… |
 | `config.ts` | 默认配置、`CONFIG_VERSION` 与迁移、`mergeConfig`、`usableSources`、每个模式取多少条 |
 | `sources/` | 11 个 API 来源和注册表 `SOURCES` |
-| `engines/` | 17 个浏览器引擎（`BrowserEngine`：拼网址、识别页面、提取结果） |
+| `engines/` | 18 个浏览器引擎（`BrowserEngine`：拼网址、识别页面、提取结果） |
 | `fusion.ts`、`url.ts` | URL 归一化、去重、RRF、论文与转载合并、应用重排分数 |
+| `wikipedia.ts`、`han.ts` | 维基百科语言版本折叠（见第 4 节）；繁体转简体的字符表（OpenCC，Apache-2.0，`scripts/gen-han.mjs` 生成） |
 | `judge.ts` | 决策模型过滤与排序、域名规则（`applyDomainRules`）、正文提示注入检查 |
 | `blocklist.ts` | 屏蔽列表：解析、匹配、推荐目录（见 [BLOCKLISTS.md](BLOCKLISTS.md)） |
 | `decision.ts` | 决策模型提供方这一层：专用服务、聊天模型兜底（见 [DECISION-PROVIDERS.md](DECISION-PROVIDERS.md)） |
 | `intent.ts` | 读搜索词判断要不要补搜别的平台、要不要建议换标签 |
 | `academic.ts` | 智能学术搜索：解析模型给的检索计划、核对论文是否存在、二轮检索 |
-| `summarize.ts`、`content.ts`、`llm.ts` | AI 概览：提示词与引用、抓正文、OpenAI 兼容的聊天调用 |
+| `summarize.ts`、`content.ts`、`llm.ts`、`language.ts` | AI 概览：提示词与引用、抓正文、OpenAI 兼容的聊天调用、概览语言 |
 | `rerank.ts` | 没有决策模型时的备选重排（LLM、Jina、Cohere） |
 | `cache.ts` | 来源结果缓存，5 分钟，按“模式/来源/条数/搜索词” |
-| `http.ts`、`text.ts` | 带超时的请求和错误文字；网页转文字、截断 |
+| `http.ts`、`text.ts` | 带超时的请求和错误文字；网页转文字、截断；Markdown 转摘要（`markdownSnippet`，Exa 用） |
 
 ## 3. 一次搜索怎么走
 
@@ -68,12 +69,14 @@
 4. **渐进出结果。** 每个来源完成就发一次 `fused`（`partial: true`），所以页面不用等最慢的。设了 `softDeadlineMs`（新标签页用 6 秒，MCP 不设）时，到点就停止等待：慢的来源继续跑，结果之后以 `late_results` 并入。如果到点时一个来源都没回来，就继续等第一个有结果的；如果要写概览而已到的来源都没有文字（比如 DuckDuckGo 的结果不带摘要），就继续等第一个有文字的，否则这次搜索就没有概览了。
 5. **按意图补搜**（`web` 模式、没指定来源、决策模型可用）：通用来源已经在跑的同时，决策模型读搜索词，回答六个是非题（学术？知乎？小红书？公众号？图片？视频？）。概率不低于 `intent.threshold`（0.6）的路线，在搜索进行到一半时启动对应来源，各按自己的模式生成网址、共用自己的缓存，并入同一次融合；`routed` 事件报告判定。没有可用模型、出错、超时（默认 8 秒）都只是不补搜。判定同时会给出 `suggest`：图片、视频、学术里最像的一个，达到 `switchThreshold`（0.85）且开了自动切换时页面会自己移到那个标签，否则只提示一行。
 6. **智能学术搜索**（`academic` 模式、没指定来源、`academic.smart` 开着、有可用的聊天模型）：来源在跑的同时，你自己的模型读查询，给出理解、关键词、各 API 来源的检索式和最多 5 篇代表论文。论文逐篇到 OpenAlex（关了就用 Crossref）核对，**查不到的丢掉**，所以模型凭记忆编出来的论文不会上页面。核对过的论文排在融合最前，之后是二轮检索（模型的检索式，加一轮 OpenAlex 按被引排序）。浏览器来源不做二轮，免得多开标签、多碰验证码。整个计划受 `academic.timeoutMs`（12 秒）约束，即使过了软截止时间也会等它。
-7. **融合与域名规则。** `fuse`：URL 归一化去重、RRF、论文与转载合并（见第 4 节），然后 `applyDomainRules`：你的屏蔽与优先网站、屏蔽列表（见 [BLOCKLISTS.md](BLOCKLISTS.md)）。这一步在部分结果上也做。
+7. **融合与域名规则。** `fuse`：URL 归一化去重、RRF、论文与转载合并（见第 4 节），然后（设置里开着时）`foldWikipediaEditions`：维基百科同一词条的各语言版本只留浏览器语言的那份，再 `applyDomainRules`：你的屏蔽与优先网站、屏蔽列表（见 [BLOCKLISTS.md](BLOCKLISTS.md)）。这两步在部分结果上也做。
 8. **决策模型过滤**（文字类模式、模型可用）：取前 `judge.candidates`（30）条未隐藏的结果，每条得到相关度、垃圾概率和每条自定义规则的概率。排序分 = (0.75 × 相关度 + 0.25 × RRF 先验) × (1 − 0.5 × 垃圾概率)，优先网站再乘 1.25。垃圾或规则概率 ≥ 0.7、归一化相关度 < 0.2 的隐藏（折叠）；主列表至少留 3 条。启用时取代重排。事件 `judged`。没有可用的决策模型时可选 `reranked`。
-9. **AI 概览**（文字类模式、开了概览、有摘要模型）：取前几条未隐藏的结果，读正文（`content.ts`；知乎、小红书不抓，用它们自己的摘录），决策模型可用时先检查正文有没有针对摘要模型的指令，有就不用那一页；然后流式生成带 `[n]` 引用的概览（`summary_start`、`summary_prompt`、`summary_delta`、`summary_done` 或 `summary_error`）。提示词把所有来源声明为不可信数据；混着平台帖子和普通网页时，要求按平台说明差异。**概览只在软截止时间到点那一刻决定要不要写，晚到的结果不会触发。**
+9. **AI 概览**（文字类模式、开了概览、有摘要模型；语言见下）：取前几条未隐藏的结果，读正文（`content.ts`；知乎、小红书不抓，用它们自己的摘录），决策模型可用时先检查正文有没有针对摘要模型的指令，有就不用那一页；然后流式生成带 `[n]` 引用的概览（`summary_start`、`summary_prompt`、`summary_delta`、`summary_done` 或 `summary_error`）。提示词把所有来源声明为不可信数据；混着平台帖子和普通网页时，要求按平台说明差异。**概览只在软截止时间到点那一刻决定要不要写，晚到的结果不会触发。**
 10. **结束。** `done` 带完整的 `PipelineResult`（结果、引用、各来源统计、学术计划）。之后晚到的来源逐个发 `late_results`：先过域名规则，决策模型可用时先判定再并入，一次一个。
 
 **哪些模式有概览和过滤**：`modeHasText`（`web`、`academic`、`zhihu`、`wechat`）为真的才有。图片、视频、小红书笔记、X 的推文是媒体或社交卡片，不判定也不概览。扩展页面里有一个同名的 `modeHasOverview`，因为页面包不该把 core 整个引进来（会带上所有解析器）。
+
+**概览的语言**（`language.ts`）：设置 `summary.language` 是 `browser`（默认）、`auto`、`custom`（用 `summary.languageCustom`）或一个语言代码。core 没有浏览器可问，所以浏览器的首选语言由调用方放进 `Env.browserLanguage`（后台每次搜索时取 `navigator.languages[0]`，没有就取浏览器界面语言）；`overviewLanguage` 把设置变成提示词里的语言名（用 `Intl.DisplayNames` 取英文名，中文按文字区分简体和繁体：台湾、香港、澳门和 `Hant` 是繁体），`auto` 或读不到浏览器语言时不给语言，沿用“用查询的语言回答”这一句。指定了语言时，系统提示写“答案必须用 X 写，哪怕查询和来源是别的语言也不要用查询的语言”，并在用户消息最后再补一句 `(Write your answer in X.)`：只写系统提示那一条时，中文查询配中文来源，模型常被带回中文（真实对比：4 次里 2 到 3 次听话；改强措辞加末尾提醒后 12 次里 12 次）。同一套提示词给 API 模型、Chrome 内置模型（页面执行）和 MCP 的 `answer`，所以三处语言一致。自定义的名字只保留一行、字母数字和少量标点、最多 40 个字。
 
 ### 事件
 
@@ -94,19 +97,21 @@
 - **论文**：DOI 相同、或 `meta.doi` 相同（PubMed、Europe PMC 链接自己的页面，靠这条与 OpenAlex、Crossref 合并），或“长标题加相容的年份”。
 - **图片**：按图片文件本身。
 - **转载**（`foldReprints`）：同一篇文章发在几个网站时折成一条，带 `reprints`。条件是标题相同（去掉 `_CSDN博客` 这类站名后缀，至少 12 个字符）、网站不同，并且各引擎给的摘要文字有重叠；保留不在转载站（`REPRINT_HOSTS`）上的那份，再取最早的日期、最好的排名。论文、图片、视频、笔记不折。哪份是原文只是猜测，所以页面只写“同一篇还出现在 …”。
+- **维基百科的语言版本**（`foldWikipediaEditions`）：同一词条的简体、繁体（`/zh-cn/`、`/zh-tw/`、`/zh-hant/` 等地址）、粤语、吴语、文言、闽南语等版本，以及英文等其他语言版本，只保留浏览器语言的那份。设置页“高级 → 维基百科的语言版本”里开关，没选过时中文浏览器开、其他语言关。同一词条的判定是标题相同：全角转半角、转小写、繁体字转简体字（`han.ts`），符号保留（“C++”不是“C”）。同一版本的几份（不同变体、手机站）合成一条，留下你的变体或没写变体的（站点会按浏览器的 `Accept-Language` 给你的变体），再按排名；你的语言版本在结果里时，其他版本折进它，页面写“同一篇还出现在 zh-yue.wikipedia.org”；你的版本不在时不动它们。简体读者看到的 `/zh-tw/X` 会改成 `/wiki/X`（反过来也一样）。两个版本标题不同（“计算机”和“電腦”）认不出来，那需要联网查 Wikidata。
 - **RRF**：倒数排名融合，每个来源有可调的权重（设置页“高级”里）。
 
 ## 5. 来源体系
 
 所有来源统一成 `SearchSource`，登记在 `sources/index.ts` 的 `SOURCES` 里（类型是 `Record<SourceId, …>`，漏登记 TypeScript 会报错）。每个来源声明自己支持的模式、要不要 Key、要不要自己的服务地址、要不要浏览器。
 
-- **API 来源**（`sources/*.ts`）：`brave`、`exa`、`deepseek`、`openalex`、`crossref`、`arxiv`、`openverse`、`pubmed`、`europepmc`、`dblp`、`searxng`。通过 `env.fetch` 请求。
-- **浏览器引擎**（`engines/*.ts`）：`google`、`bing`、`baidu`、`duckduckgo`、`scholar`、`baiduxueshu`、`cnki`、`wos`、`yandex`、`youtube`、`bilibili`、`zhihu`、`xiaohongshu`、`rednote`、`sogou`、`weixin`、`x`。每个是一个 `BrowserEngine`：
+- **API 来源**（`sources/*.ts`）：`brave`、`exa`、`deepseek`、`openalex`、`crossref`、`arxiv`、`openverse`、`pubmed`、`europepmc`、`dblp`、`searxng`。通过 `env.fetch` 请求。Exa 把页面以 Markdown 返回，页面开头常是表格（维基百科是信息框），所以它的摘要不能直接截取：`markdownSnippet` 按页面顺序取第一块有内容的东西（正文段落、列表，或三列以上的数据表），跳过两列的信息框、标题、页眉页脚和各种 Markdown 记号；`content` 仍保留 Markdown，给概览和决策模型用。
+- **浏览器引擎**（`engines/*.ts`）：`google`、`bing`、`baidu`、`duckduckgo`、`bravesearch`、`scholar`、`baiduxueshu`、`cnki`、`wos`、`yandex`、`youtube`、`bilibili`、`zhihu`、`xiaohongshu`、`rednote`、`sogou`、`weixin`、`x`。每个是一个 `BrowserEngine`：
   - `buildUrl(query, count, mode)` 拼出结果页网址；`matches` 说明内容脚本该在哪些网址上工作；
   - `readySelector` 表示结果开始渲染（可以覆盖多个模式）；`blockedSelector` / `isBlockedUrl` 识别验证码；`loginSelector` / `isLoginUrl` 识别登录墙；`refusedPattern` 识别网站明确拒绝（如知乎的风控 JSON）；
   - `extract(doc, pageUrl, mode)` 把页面读成 `SearchHit`；`resolve` 可选，用来拆开跳转链接；`minIntervalMs` 可选，比全局间隔更长的请求间隔（X 是 10 秒）。
   - `makeBrowserSource`（`engines/shared.ts`）把引擎包装成来源。Bing 的网页和图片共用一个工作标签页和一条队列，因为搜索引擎的风控按站点算。
-- 各来源的细节（YouTube 读页面内联的 `ytInitialData`、搜狗的跳转链接、PubMed 两步请求……）和它们的验证情况见 [CLAUDE.md](../CLAUDE.md) 与 [PLAN.md](PLAN.md) 第 8 节。
+  - Brave 有两个来源搜同一个索引：`bravesearch`（读 `search.brave.com` 的结果页，不要 Key）和 `brave`（官方 API，要 Key），分成两个来源的原因和小红书、RedNote 一样：一个要浏览器、一个要 Key，设置页里各有一行。两个都开时同一个结果会在融合里算两次，所以有 Key 时关掉一个；结果上的引擎小图标把它们当同一个引擎，两个都返回不算“多个引擎收录”。Brave 的验证码出现在和结果页**相同的地址**，只能靠页面标记（`.captcha-wrapper`）识别，不能靠网址。
+- 各来源的细节（YouTube 读页面内联的 `ytInitialData`、搜狗的跳转链接、PubMed 两步请求……）和它们的验证情况见 [internals/sources.md](internals/sources.md)、[internals/academic.md](internals/academic.md) 与 [PLAN.md](PLAN.md) 第 8 节。
 
 ## 6. 浏览器渲染
 
@@ -116,7 +121,7 @@
 - **队列与限速**：每个来源一条串行队列，两次请求至少间隔 `renderer.minIntervalMs`（3 秒）；X 再加 `minIntervalMs` 的 10 秒。每个来源一个固定的工作标签页，闲置超过 `renderer.workerIdleMinutes`（10 分钟）由每分钟一次的闹钟回收。
 - **握手**：内容脚本注入到引擎的结果页（匹配范围来自 `BROWSER_ENGINES`）后，先向后台问“我是工作标签页吗”（`kiwi:worker?`），只有被登记的工作标签页才会收到 `kiwi:worker!`（带这次请求的条数和模式）并开始工作；别的页面收到 `kiwi:not-worker`，什么也不做，所以你自己打开这些网站不受影响。
 - **提取时机**：脚本监听页面变化，等到 `readySelector` 出现再提取；拿够条数立刻返回，不够就等页面安静 600 毫秒，12 秒超时也交出手上已有的，不返回空。结果用 `kiwi:extracted` 回传。
-- **被拦住或被拒绝**：碰到验证码或登录墙，脚本发 `kiwi:blocked`（带 `reason`）；管线把这个来源标为 `blocked`，页面显示一行安静的提示（“去验证”或“去登录”）。只有你点了，工作窗口才会被调到前台（`kiwi:focus-worker`）；开启“遇到验证码时自动弹出”（默认关）才会自己弹，而且只对验证码。网站明确拒绝（`kiwi:refused`）和页面加载完 4 秒内内容脚本没打招呼（浏览器的错误页、一个被 403 的页面、跳到了引擎不读的页面）都会快速失败，不会等满超时。
+- **被拦住或被拒绝**：碰到验证码或登录墙，脚本发 `kiwi:blocked`（带 `reason`）；管线把这个来源标为 `blocked`，页面显示一行安静的提示（“去验证”或“去登录”）。只有你点了，工作窗口才会被调到前台（`kiwi:focus-worker`）；开启“需要人机验证时自动弹出验证窗口”（默认关）才会自己弹，而且只对验证码。网站明确拒绝（`kiwi:refused`）和页面加载完 4 秒内内容脚本没打招呼（浏览器的错误页、一个被 403 的页面、跳到了引擎不读的页面）都会快速失败，不会等满超时。
 - 这部分没有自动化测试，需要在真实浏览器里验证（见 [DEVELOPMENT.md](DEVELOPMENT.md)）。
 
 ## 7. 决策模型
@@ -137,7 +142,7 @@
 | `judge` | 提供方 `systemone`，兜底聊天模型开，候选 30，隐藏阈值 0.7，相关度下限 0.2，权重 0.75，超时 12 秒；屏蔽、优先网站和屏蔽列表默认为空 |
 | `intent` | 开，阈值 0.6，自动切换阈值 0.85，超时 8 秒 |
 | `academic` | 智能搜索开，超时 12 秒，最多点名 5 篇 |
-| `summary` | 开，提供方 `api`，引用前 8 条，读正文方式 `direct`，每条最多 3000 字 |
+| `summary` | 开，提供方 `api`，引用前 8 条，读正文方式 `direct`，每条最多 3000 字，概览语言 `browser`（跟随浏览器；还可以是 `auto`、`custom`，或一个语言代码如 `ja`） |
 | `rerank` | 关 |
 
 **存储键**（`chrome.storage.local`，除非另注）：
@@ -165,7 +170,7 @@
 
 **网站图标**（`lib/faviconService.ts`）：先问浏览器自己的 `_favicon`（只有访问过或加了书签的站点才有真图标，其他都是同一个占位地球，靠和一个编造域名的回答比较来识别），再请求站点自己的 `/favicon.ico` 和首页的 `<link rel="icon">`（不带 Cookie 和 Referer，只对公开域名，靠文件头判断是不是图片），最后是字母徽标。至多 4 个站点请求并行。代价是你没访问过的网站，在它出现在结果里时会收到一次图标请求；没有第三方图标服务看到你的结果。
 
-**引擎小图标**：只在被两个或更多引擎收录的结果上，用各品牌的真 logo（`assets/engine-logos/`，出处和许可在 `logos.json` 和 `NOTICE.md`；`scripts/gen-source-icons.mjs` 把它们转成数据 URI，所以不需要联网）显示在站点名后面。除此之外，页面上只在验证码提示里提到来源。
+**引擎小图标**：每条结果上，用返回它的引擎的真 logo（多个引擎收录的叠成一叠，只有一个引擎的整枚压淡到不透明度 0.5，样式里的 `.src-marks.solo`；折叠的结果不带）（`assets/engine-logos/`，出处和许可在 `logos.json` 和 `NOTICE.md`；`scripts/gen-source-icons.mjs` 把它们转成数据 URI，所以不需要联网）显示在站点名后面。除此之外，页面上只在验证码提示里提到来源。
 
 ## 10. MCP 桥
 
