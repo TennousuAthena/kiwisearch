@@ -25,7 +25,7 @@ pnpm install
 
 **没有 lint 脚本和 lint 配置，类型检查是唯一的静态检查。**
 
-**根目录的 `pnpm test` 目前会失败**：它会跑到 `packages/experiments`，那个包只有一个空壳，没有测试文件，`vitest` 以“No test files found”退出。三个有测试的包请用上面的 `--filter` 分别跑。截至 2026-11-12，core 355 条、extension 96 条、mcp 14 条，全部通过。
+**根目录的 `pnpm test` 目前会失败**：它会跑到 `packages/experiments`，那个包只有一个空壳，没有测试文件，`vitest` 以“No test files found”退出。三个有测试的包请用上面的 `--filter` 分别跑。截至 2026-11-12，core 408 条、extension 104 条、mcp 14 条，全部通过。
 
 ## 仓库结构
 
@@ -39,9 +39,11 @@ apps/extension/            WXT + React，Manifest V3
 packages/core/             搜索管线（src/）与测试（test/，夹具在 test/fixtures/）
 packages/mcp/              stdio MCP 服务
 packages/experiments/      离线评测的空壳
-docs/                      本目录
+docs/                      本目录（中文，给人看）
+docs/internals/            实现细节和验证记录（英文），按主题分文件
 DESIGN.md                  界面设计
-CLAUDE.md                  给 Claude Code 的英文说明，也是每处实现细节和验证记录的存放处
+AGENTS.md                  给 AI 编码助手的入口说明（英文）：简介、命令、代码地图、文档索引、规则
+CLAUDE.md                  只有一行 @AGENTS.md，让 Claude Code 读到 AGENTS.md
 ```
 
 ## 测试
@@ -50,10 +52,10 @@ CLAUDE.md                  给 Claude Code 的英文说明，也是每处实现�
 
 **夹具**：每个引擎的解析器测试用 `packages/core/test/fixtures/` 里保存的页面。引擎的页面结构变了，就更新它的 `extract` 并重新抓夹具。夹具分两类，要分清：
 
-- **真实抓取**：`arxiv.xml`、`crossref.json`、`openverse.json`；`youtube.html`（真实响应里的内联数据，裁剪过）、`bilibili.html`（渲染后的 DOM，前 12 张卡片）；`zhihu.html`、`rednote.html`（已登录浏览器里抓的，`xsec_token` 替换成了 `REDACTED`；`rednote.html` 里有一条“大家都在搜”推荐，用的是同样的卡片标记，不能当成结果）；`duckduckgo.html`（摘要在 `div[data-result="snippet"]`，测试要求每条结果都有摘要）；`weixin.html`（10 张卡片，`token=` 已隐去）、`sogou.html`（前 14 块）；`x.html`（已登录的 X 搜索，6 条推文，去掉了 svg、class 和 style）；`pubmed-esearch.json`、`pubmed-efetch.xml`（参考文献列表裁掉了）、`europepmc.json`、`europepmc-preprints.json`；`baiduxueshu.html`（10 张卡片）；拦截页 `baiduxueshu-blocked.html`、`cnki-blocked.html`、`wos-blocked.html`（脚本已去掉，验证码 key、令牌和客户端 IP 已隐去）；`dblp-challenge.html`（DBLP 的机器人验证页）；`blocklist-excerpts.txt`（从四个真实屏蔽列表里原样摘的行）。
+- **真实抓取**：`arxiv.xml`、`crossref.json`、`openverse.json`；`wikipedia-exa.json`（Exa 对中文各版本维基百科的两次真实搜索，只留地址和标题，共 50 条）；`youtube.html`（真实响应里的内联数据，裁剪过）、`bilibili.html`（渲染后的 DOM，前 12 张卡片）；`zhihu.html`、`rednote.html`（已登录浏览器里抓的，`xsec_token` 替换成了 `REDACTED`；`rednote.html` 里有一条“大家都在搜”推荐，用的是同样的卡片标记，不能当成结果）；`duckduckgo.html`（摘要在 `div[data-result="snippet"]`，测试要求每条结果都有摘要）；`bravesearch.html`（开发浏览器里读到的渲染后 DOM，20 条结果，脚本、样式、SVG 已去掉）和拦截页 `bravesearch-blocked.html`（冷启动无头 Chromium 拿到的滑块验证码页）；`weixin.html`（10 张卡片，`token=` 已隐去）、`sogou.html`（前 14 块）；`x.html`（已登录的 X 搜索，6 条推文，去掉了 svg、class 和 style）；`pubmed-esearch.json`、`pubmed-efetch.xml`（参考文献列表裁掉了）、`europepmc.json`、`europepmc-preprints.json`；`baiduxueshu.html`（10 张卡片）；拦截页 `baiduxueshu-blocked.html`、`cnki-blocked.html`、`wos-blocked.html`（脚本已去掉，验证码 key、令牌和客户端 IP 已隐去）；`dblp-challenge.html`（DBLP 的机器人验证页）；`blocklist-excerpts.txt`（从四个真实屏蔽列表里原样摘的行）。
 - **手写**：`bing-images.html`（Bing 拒绝非浏览器客户端，所以只证明解析器匹配我们假设的结构）、`dblp.json`（当时 API 在机器人验证后面）、`cnki.html`、`wos.html`（前面有验证码或登录，进不去真实结果页）；X 长文（Article）的那条测试。手写的夹具在文件第一行或 `_note` 字段里自己说明，它们的测试只证明解析器和当初写它时的假设一致。
 - `parsers.test.ts` 里的 `blockedUrl` 表，对于每个有真实 `<id>-blocked.html` 的引擎不需要登记。
-- 有些选择器只是猜的，没见过真实页面，哪些见 [PLAN.md](PLAN.md) 第 8 节：搜狗验证码页（`/antispider`）、哔哩哔哩验证码（Geetest）、知乎的 `.SignFlow`、小红书的 `.login-container`、X 的 `loginButton` / `signupButton`。
+- 有些选择器只是猜的，没见过真实页面，哪些见 [PLAN.md](PLAN.md) 第 8 节（Brave 网页的验证码页是真实抓的，不在其中）：搜狗验证码页（`/antispider`）、哔哩哔哩验证码（Geetest）、知乎的 `.SignFlow`、小红书的 `.login-container`、X 的 `loginButton` / `signupButton`。
 
 **自动化测不到的**：标签渲染（`tabRenderer.ts`）和内容脚本。它们必须在真实浏览器里验证。
 
@@ -86,7 +88,7 @@ chromium --headless=new --remote-debugging-port=9334 --user-data-dir=<临时目�
 
 - **只开一个 API 来源**（比如 Exa）做端到端最省事：不需要浏览器引擎、工作窗口、登录，结果是真的、也快；页面上可见的结果是 `.result-list:not(.muted) article`，折叠区的按钮是 `.hidden-results .disclosure`（默认收起，点开后卡片才渲染）。
 - 要测“下载别人的文件”的逻辑（屏蔽列表订阅），在本机起一个能控制响应的小服务：支持 `ETag`、可以故意返回 500、可以返回 HTML。localhost 的 `http://` 地址订阅是允许的。
-- 往存储里写测试配置时要带 `version: <当前的 CONFIG_VERSION>`。不带的配置会被当成版本 1，依次跑所有迁移，其中有的会改你写的值（比如把百度关掉、把“遇到验证码自动弹出”关掉）。
+- 往存储里写测试配置时要带 `version: <当前的 CONFIG_VERSION>`。不带的配置会被当成版本 1，依次跑所有迁移，其中有的会改你写的值（比如把百度关掉、把“需要人机验证时自动弹出验证窗口”关掉）。
 
 ### 不开扩展看新标签页
 
@@ -100,11 +102,13 @@ chromium --headless=new --remote-debugging-port=9334 --user-data-dir=<临时目�
 2. **来源本身**：
    - API 来源：写 `sources/<id>.ts`（`SearchSource`，通过 `env.fetch` 请求），在 `sources/index.ts` 的 `SOURCES` 里登记。
    - 浏览器引擎：写 `engines/<id>.ts`（`BrowserEngine`），加进 `engines/index.ts` 的 `BROWSER_ENGINES`。百度要一直排在最后，`config.test.ts` 里有一条测试检查这一点。
-3. **`apps/extension/lib/sourceMeta.ts`**：`SOURCE_LABELS`（`Record<SourceId, …>`）。
+3. **语言包**（`apps/extension/lib/i18n/catalog/`）：`source.label.<id>` 和 `source.blurb.<id>`（`options.ts`），`mark.<id>`（`newtab.ts`）。这些是按 `SourceId` 类型检查的动态键，漏一个 `tsc` 会报错。
 4. **`apps/extension/lib/sourceMarks.ts`**：`SOURCE_MARKS`（`Record<SourceId, …>`），以及它的 logo：文件放进 `assets/engine-logos/`，在 `logos.json` 里登记出处，在 `NOTICE.md` 里写许可（`test/sourceMarks.test.ts` 要求两者都有），然后运行 `node apps/extension/scripts/gen-source-icons.mjs` 生成 `lib/sourceIcons.ts`。logo 必须是品牌真的 logo：先找 SVG Logos、Simple Icons 这类开放集合，没有就取品牌自己网站的图标；**不要自己画字母徽标**。
 5. **`DEFAULT_CONFIG.sources`**（`config.ts`）：**这个字段是 `Partial`，缺了不会报错，来源会悄悄地默认关闭。**
-6. **`apps/extension/lib/sourceCatalog.ts`**：`SOURCE_INFO`（设置页里的分组、一句话说明、是否需要登录、是否需要 Key、是否要确认才能开）。
-7. **测试**：浏览器引擎要有保存下来的真实页面作夹具；拿不到就手写，并在夹具第一行写明是手写的、依据是什么。同时在 [PLAN.md](PLAN.md) 和 CLAUDE.md 里写清**哪些验证过、哪些没有**，这是这个项目的约定。
+6. **`apps/extension/lib/sourceCatalog.ts`**：`SOURCE_INFO`（设置页里的分组、是否需要登录、是否需要 Key、是否要确认才能开；一句话说明和确认的理由在语言包里）。
+7. **测试**：浏览器引擎要有保存下来的真实页面作夹具；拿不到就手写，并在夹具第一行写明是手写的、依据是什么。同时在 [PLAN.md](PLAN.md) 和 [internals/](internals/) 里对应主题的文件中写清**哪些验证过、哪些没有**，这是这个项目的约定。
+
+**界面文字不要写在组件里**，写进 `apps/extension/lib/i18n/catalog/`，用 `t()` 取，见 [I18N.md](I18N.md)。`test/noHardcodedText.test.ts` 会拦住写死的中文，`test/copyStyle.test.ts` 检查 DESIGN.md “Copy” 里能机器检查的规则。
 
 浏览器引擎的 `readySelector`、`blockedSelector`、`isBlockedUrl`、`loginSelector`、`refusedPattern` 各自的含义见 [ARCHITECTURE.md](ARCHITECTURE.md) 第 5 节。没有已知验证码标记的引擎，`blockedSelector` 用 `':not(*)'`。
 
