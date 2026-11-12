@@ -187,12 +187,27 @@ export function modeHasOverview(mode: SearchMode): boolean {
  * an error that isn't recognised is returned as it is.
  */
 export function explainServiceError(message: string): string {
-  if (/HTTP 451/.test(message)) return '服务在你当前的网络出口所在地区不可用（HTTP 451）。如果用了代理，请让这个服务的域名走可用地区的线路';
+  if (/HTTP 451/.test(message)) return '该服务在你当前的网络出口所在地区不可用（HTTP 451），请检查代理分流';
   if (/HTTP 40[13]/.test(message)) return 'Key 无效，或没有权限（HTTP ' + (/HTTP (40[13])/.exec(message)?.[1] ?? '401') + '）';
   if (/HTTP 429/.test(message)) return '请求太频繁，被服务限流了（HTTP 429）';
-  if (/timeout|超过 \d+ ?ms|abort/i.test(message)) return '等得太久，已放弃：' + message;
   if (/Failed to fetch|NetworkError|network/i.test(message)) return '网络连不上这个服务';
   return message;
+}
+
+/**
+ * What to tell the reader when the decision model could not be used for this search: one line saying what was skipped and why,
+ * not one per feature when the reason is the same. Nothing when nothing went wrong.
+ */
+export function decisionModelNotes(s: { mode: SearchMode; judgeError?: string; intentError?: string }): { text: string; title: string }[] {
+  const failed = [
+    ...(s.mode === 'web' && s.intentError ? [{ what: '自动补搜知乎等平台', raw: s.intentError }] : []),
+    ...(s.judgeError ? [{ what: '智能过滤', raw: s.judgeError }] : []),
+  ].map((f) => ({ ...f, reason: explainServiceError(f.raw) }));
+  if (!failed.length) return [];
+  if (failed.every((f) => f.reason === failed[0].reason)) {
+    return [{ text: `${failed.map((f) => f.what).join('、')}没能用上：${failed[0].reason}`, title: failed.map((f) => f.raw).join('\n') }];
+  }
+  return failed.map((f) => ({ text: `${f.what}没能用上：${f.reason}`, title: f.raw }));
 }
 
 /** First `max` characters on one line, with an ellipsis when cut. */

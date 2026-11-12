@@ -11,6 +11,7 @@ import {
   hiddenLabel,
   iconHost,
   modeHasOverview,
+  decisionModelNotes,
   explainServiceError,
   parseMode,
   pickLandmarks,
@@ -183,11 +184,34 @@ describe('tab structure', () => {
 
 describe('explainServiceError', () => {
   it('turns what a person can act on into plain words, and leaves the rest alone', () => {
-    expect(explainServiceError('HTTP 451: {"title":"Typesafe is not available in your region.","status":451}')).toMatch(/地区不可用.*代理/);
+    expect(explainServiceError('HTTP 451: {"title":"Typesafe is not available in your region.","status":451}')).toMatch(/地区不可用.*代理分流/);
     expect(explainServiceError('HTTP 401: invalid key')).toMatch(/Key 无效.*401/);
     expect(explainServiceError('HTTP 403')).toMatch(/403/);
     expect(explainServiceError('HTTP 429: slow down')).toMatch(/限流/);
     expect(explainServiceError('超过 3000ms，只搜索通用来源')).toContain('超过 3000ms');
     expect(explainServiceError('something odd')).toBe('something odd');
+  });
+});
+
+describe('decisionModelNotes', () => {
+  const nope = 'HTTP 451: {"title":"Typesafe is not available in your region.","status":451}';
+
+  it('says nothing when nothing went wrong', () => {
+    expect(decisionModelNotes({ mode: 'web' })).toEqual([]);
+  });
+
+  it('puts one reason on one line when the same thing stopped both features', () => {
+    const notes = decisionModelNotes({ mode: 'web', judgeError: nope, intentError: nope });
+    expect(notes).toHaveLength(1);
+    expect(notes[0].text).toMatch(/^自动补搜知乎等平台、智能过滤没能用上：.*HTTP 451/);
+    expect(notes[0].title).toContain('Typesafe is not available');
+  });
+
+  it('keeps different reasons apart, and only blames the platform search in a general search', () => {
+    expect(decisionModelNotes({ mode: 'web', judgeError: '超过 6000ms', intentError: nope }).map((n) => n.text)).toEqual([
+      expect.stringMatching(/^自动补搜知乎等平台没能用上：.*451/),
+      '智能过滤没能用上：超过 6000ms',
+    ]);
+    expect(decisionModelNotes({ mode: 'academic', judgeError: '超过 6000ms', intentError: nope }).map((n) => n.text)).toEqual(['智能过滤没能用上：超过 6000ms']);
   });
 });
