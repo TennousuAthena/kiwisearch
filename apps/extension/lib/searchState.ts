@@ -16,6 +16,8 @@ export interface SearchState {
   stage: 'searching' | 'refining' | 'done';
   /** Set when the decision model failed or timed out; results fall back to the plain fused order. */
   judgeError?: string;
+  /** General search: the decision model could not say whether to also search the platforms (so only the general sources ran). Absent when it answered, or was not asked (no key). */
+  intentError?: string;
   /** The tab the decision model thinks the user wants (images, video, academic), from a general search's verdict. */
   suggest?: IntentSuggestion;
   /** Academic mode: what the user's model understood, the papers it named that were found to exist, or why there is no plan. */
@@ -68,7 +70,7 @@ export function reduce(s: SearchState, e: PipelineEvent, now = Date.now()): Sear
     case 'reranked':
       return { ...s, results: e.results };
     case 'routed':
-      return e.suggest ? { ...s, suggest: e.suggest } : s;
+      return { ...s, ...(e.suggest ? { suggest: e.suggest } : {}), intentError: e.error };
     case 'academic_plan':
       return { ...s, plan: e.plan, landmarks: e.landmarks, planError: e.error };
     case 'judged':

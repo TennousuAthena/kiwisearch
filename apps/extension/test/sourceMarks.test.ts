@@ -1,4 +1,5 @@
 import type { SourceId } from '@kiwi-search/core';
+import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { MARK_ART } from '../lib/sourceIcons';
 import { marksLabel, SOURCE_MARKS, sourceMarks } from '../lib/sourceMarks';
@@ -37,17 +38,41 @@ describe('sourceMarks', () => {
     expect(label).not.toMatch(/验证/);
   });
 
-  it('has art for every mark a source points to', () => {
-    for (const { mark } of Object.values(SOURCE_MARKS)) {
-      const art: { path?: string; letter?: string } = MARK_ART[mark];
-      expect(art.path || art.letter, mark).toBeTruthy();
+  it('has a logo for every mark a source points to, and none that no source uses', () => {
+    for (const { mark } of Object.values(SOURCE_MARKS)) expect(MARK_ART[mark].src, mark).toMatch(/^data:image\/(svg\+xml|png);base64,/);
+    expect(Object.keys(MARK_ART).sort()).toEqual([...new Set(Object.values(SOURCE_MARKS).map((m) => m.mark))].sort());
+  });
+});
+
+describe('engine logos', () => {
+  const dir = new URL('../assets/engine-logos/', import.meta.url);
+  const manifest = JSON.parse(readFileSync(new URL('logos.json', dir), 'utf8')) as Record<string, { file: string; dark?: string; from: string; license: string }>;
+
+  it('are real logos with a stated origin and licence, never something drawn for Kiwi', () => {
+    for (const [key, entry] of Object.entries(manifest)) {
+      expect(entry.from.length, key).toBeGreaterThan(10);
+      expect(entry.license, key).toMatch(/CC0|CC-BY|brand/);
     }
   });
 
-  it('keeps every colour a plain hex value', () => {
-    for (const [key, art] of Object.entries(MARK_ART)) {
-      expect(art.color, key).toMatch(/^#[0-9A-F]{6}$/);
-      expect(art.colorDark, key).toMatch(/^#[0-9A-F]{6}$/);
-    }
+  it('are all listed, and every file is used', () => {
+    const used = new Set(Object.values(manifest).flatMap((e) => [e.file, e.dark].filter(Boolean)));
+    const files = readdirSync(dir).filter((f) => /\.(svg|png)$/.test(f));
+    expect([...used].sort()).toEqual(files.sort());
+    expect(Object.keys(manifest).sort()).toEqual(Object.keys(MARK_ART).sort());
+  });
+
+  it('are named in NOTICE.md with their licence', () => {
+    const notice = readFileSync(new URL('NOTICE.md', dir), 'utf8');
+    for (const [key, entry] of Object.entries(manifest)) expect(notice, key).toContain(entry.file);
+    expect(notice).toMatch(/Font Awesome/);
+  });
+
+  it('carry no script', () => {
+    for (const f of readdirSync(dir).filter((n) => n.endsWith('.svg'))) expect(readFileSync(new URL(f, dir), 'utf8'), f).not.toMatch(/<script|onload\s*=|javascript:/i);
+  });
+
+  it('give an engine seen through a dark variant a different image', () => {
+    for (const [key, art] of Object.entries(MARK_ART) as [string, { src: string; dark?: string }][]) if (art.dark) expect(art.dark, key).not.toBe(art.src);
   });
 });

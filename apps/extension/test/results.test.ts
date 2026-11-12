@@ -11,6 +11,7 @@ import {
   hiddenLabel,
   iconHost,
   modeHasOverview,
+  explainServiceError,
   parseMode,
   pickLandmarks,
   platformOf,
@@ -177,5 +178,16 @@ describe('tab structure', () => {
     expect(MODES.filter((m) => !isCommunityMode(m))).toEqual(['web', 'images', 'video', 'academic']);
     expect(COMMUNITY_MODES).toEqual(['zhihu', 'xiaohongshu', 'wechat', 'x']);
     for (const mode of COMMUNITY_MODES) expect(MODES).toContain(mode);
+  });
+});
+
+describe('explainServiceError', () => {
+  it('turns what a person can act on into plain words, and leaves the rest alone', () => {
+    expect(explainServiceError('HTTP 451: {"title":"Typesafe is not available in your region.","status":451}')).toMatch(/地区不可用.*代理/);
+    expect(explainServiceError('HTTP 401: invalid key')).toMatch(/Key 无效.*401/);
+    expect(explainServiceError('HTTP 403')).toMatch(/403/);
+    expect(explainServiceError('HTTP 429: slow down')).toMatch(/限流/);
+    expect(explainServiceError('超过 3000ms，只搜索通用来源')).toContain('超过 3000ms');
+    expect(explainServiceError('something odd')).toBe('something odd');
   });
 });

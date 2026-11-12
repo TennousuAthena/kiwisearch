@@ -182,6 +182,19 @@ export function modeHasOverview(mode: SearchMode): boolean {
   return mode === 'web' || mode === 'academic' || mode === 'zhihu' || mode === 'wechat';
 }
 
+/**
+ * A service's error in words a person can act on. The raw text (a status line and a JSON body) stays available as a tooltip;
+ * an error that isn't recognised is returned as it is.
+ */
+export function explainServiceError(message: string): string {
+  if (/HTTP 451/.test(message)) return '服务在你当前的网络出口所在地区不可用（HTTP 451）。如果用了代理，请让这个服务的域名走可用地区的线路';
+  if (/HTTP 40[13]/.test(message)) return 'Key 无效，或没有权限（HTTP ' + (/HTTP (40[13])/.exec(message)?.[1] ?? '401') + '）';
+  if (/HTTP 429/.test(message)) return '请求太频繁，被服务限流了（HTTP 429）';
+  if (/timeout|超过 \d+ ?ms|abort/i.test(message)) return '等得太久，已放弃：' + message;
+  if (/Failed to fetch|NetworkError|network/i.test(message)) return '网络连不上这个服务';
+  return message;
+}
+
 /** First `max` characters on one line, with an ellipsis when cut. */
 export function clip(text: string | undefined, max: number): string {
   const flat = (text ?? '').replace(/\s+/g, ' ').trim();

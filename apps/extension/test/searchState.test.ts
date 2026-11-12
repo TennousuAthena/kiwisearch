@@ -56,6 +56,13 @@ describe('search state reducer', () => {
     expect(firstBlocked(emptyState('q', 'web'), 'login')).toBeUndefined();
   });
 
+  it('remembers that the decision model could not say what else to search, and forgets it when it can', () => {
+    let state = run([{ type: 'routed', routes: [], scores: {}, error: 'HTTP 451: nope' }]);
+    expect(state.intentError).toBe('HTTP 451: nope');
+    state = run([{ type: 'routed', routes: ['zhihu'], scores: { zhihu: 0.9 } }], state);
+    expect(state.intentError).toBeUndefined();
+  });
+
   it('clears a blocked source that fails', () => {
     const state = run([{ type: 'source_blocked', source: 'bing', message: 'x', reason: 'captcha' }, { type: 'source_error', source: 'bing', error: 'timeout', ms: 1 }]);
     expect(state.blocked).toEqual([]);
