@@ -1,6 +1,8 @@
 # Kiwi Search 计划书（v0.4）
 
 > v0.3 的定位和合规边界仍然有效，这一版在它之上加了三件事：用 TypeSafe Jev 过滤结果、Google 式简洁界面、网页 / 图片 / 视频 / 学术 / 知乎 / 小红书 / 公众号 / X 八种搜索模式。第 8 节记录哪些已经做完、哪些和最初的计划不一样、哪些还没做。
+>
+> 其他文档：项目总结见 [STATUS.md](STATUS.md)，实现怎么搭的见 [ARCHITECTURE.md](ARCHITECTURE.md)，开发和调试见 [DEVELOPMENT.md](DEVELOPMENT.md)，屏蔽列表见 [BLOCKLISTS.md](BLOCKLISTS.md)，决策模型的接口见 [DECISION-PROVIDERS.md](DECISION-PROVIDERS.md)。
 
 ## 1. 定位与合规
 
@@ -44,10 +46,10 @@ Openverse 匿名访问有限额（每页 ≤ 20 条、每分钟 20 次、每天 
 ```
 apps/extension       WXT + React，Manifest V3（Chrome/Edge）
   newtab             搜索页：模式标签、AI 概览、结果列表 / 图片网格 / 论文列表
-  options            来源开关与 Key、结果过滤、LLM、重排、MCP 桥
-  background         调度器（队列、限速、超时）、MCP 桥客户端、来源缓存
+  options            来源开关与 Key、屏蔽与偏好（含屏蔽列表）、AI 模型、决策模型、重排、MCP 桥
+  background         调度器（队列、限速、超时）、MCP 桥客户端、来源缓存、屏蔽列表的下载与更新
   content            各引擎的 DOM 提取
-packages/core        与浏览器无关的纯逻辑：来源、去重与融合、Jev 判定、重排、摘要
+packages/core        与浏览器无关的纯逻辑：来源、去重与融合、决策模型判定、屏蔽列表、重排、摘要
 packages/mcp         stdio MCP Server：BridgeSession 在 hub / relay 之间自动切换
 ```
 
@@ -56,7 +58,7 @@ packages/mcp         stdio MCP Server：BridgeSession 在 hub / relay 之间自�
 2. 来源返回一个就推送一次部分结果。可选软截止时间（界面用 6 秒，MCP 不设）：到点后只要已有结果就先出首屏，慢的来源之后合并进来。
 3. URL 归一化后去重（去跟踪参数；arXiv、DOI 合并，出版社页面里的 DOI 也算；论文再按“长标题 + 年份相容 + 都带学术元数据”合并；图片按图片文件本身去重）。
 4. RRF 融合，每个来源的权重可调。
-5. 域名规则：屏蔽的网站隐藏，优先的网站上移。不需要任何 Key。
+5. 域名规则：屏蔽的网站隐藏，优先的网站上移；屏蔽列表（订阅的和自己写的，见 P18）命中的结果同样折叠，并写明是哪个列表。不需要任何 Key。
 6. Jev 判定（见第 5 节）；未启用时可选 Jina / Cohere / LLM 重排。
 7. 取前几条未被隐藏的结果，读取正文；启用 Jev 时先检查正文有没有针对摘要模型的指令，有则不使用该页正文。
 8. LLM 流式生成摘要，带 [n] 引用。提示词把来源声明为不可信数据。
@@ -67,6 +69,8 @@ packages/mcp         stdio MCP Server：BridgeSession 在 hub / relay 之间自�
 按来源、模式和查询词缓存 5 分钟，界面和 MCP 共用。Ollama 等本地模型不需要 Key 也能摘要。
 
 ## 5. 结果过滤（TypeSafe Jev）
+
+> 这一节写的是用 Jev 做决策模型时的做法。P17 之后 Jev 只是预设之一，提供方可以换（专用服务或用户自己的聊天模型），见 [DECISION-PROVIDERS.md](DECISION-PROVIDERS.md)；下面的阈值和策略对所有提供方都一样，只有“每条结果一个请求”是专用服务的做法，聊天模型十条一批。
 
 - **每条结果一个请求**（并发 10，遇到 429 / 529 重试一次，整体最长等 6 秒，超时后用已返回的判定），请求 `POST https://api.typesafe.ai/v1/systemone`。状态里放查询词和这一条结果（标题、地址、摘要、日期、正文摘录）。
 - 问题：
@@ -99,8 +103,8 @@ packages/mcp         stdio MCP Server：BridgeSession 在 hub / relay 之间自�
 
 ## 7. MCP
 
-- 工具：`search(query, mode?, sources?, limit?)`、`answer(query, mode?, sources?)`、`list_sources()`；`mode` 取 `web`（默认）、`images`、`video`、`academic`；`answer` 不支持 `images` 和 `video`（没有可总结的文本），会直接报错并提示改用 `search`。
-- 学术结果带作者、年份、期刊、被引、PDF；图片结果带原图地址、尺寸、授权；视频结果带频道、时长、播放量、发布时间；被过滤的结果不进列表，只在 `structuredContent.hidden` 里给出原因。
+- 工具：`search(query, mode?, sources?, limit?)`、`answer(query, mode?, sources?)`、`list_sources()`；`mode` 取 `web`（默认）、`images`、`video`、`academic`、`zhihu`、`xiaohongshu`、`wechat`、`x`；`answer` 不支持 `images`、`video`、`xiaohongshu` 和 `x`（没有可总结的文本），会直接报错并提示改用 `search`。
+- 学术结果带作者、年份、期刊、被引、PDF；图片结果带原图地址、尺寸、授权；视频结果带频道、时长、播放量、发布时间；被过滤的结果不进列表，只在 `structuredContent.hidden` 里给出原因（命中屏蔽列表时还带 `list`，即列表名）。
 - `BridgeSession`：第一个进程成为 hub 并绑定 `127.0.0.1:17345`，其余作为 relay 接入；hub 进程退出时，relay 随机延迟后抢占端口接管，不再让每个请求都等满 150 秒超时。
 - 请求与界面共用队列、限速和缓存；`answer` 在摘要提供方为 `chrome-builtin` 时不可用。
 
@@ -126,8 +130,11 @@ packages/mcp         stdio MCP Server：BridgeSession 在 hub / relay 之间自�
 | P15 智能学术搜索 | 用户自己的模型把查询改写成理解、检索式和代表论文；逐篇到 OpenAlex（或 Crossref）核对，查不到的丢掉；二轮检索加最被引一轮；页面显示理解、检索式和“核心文献” | ✅（真实模型加真实 OpenAlex：搜 transformer，《Attention Is All You Need》排第一，见下） |
 | P16 跨平台 | “各平台怎么说”块、概览按平台对比观点、同一篇多站点转载合并、“社区”标签 | ✅（单元测试加模拟数据的页面；转载合并没在真实搜索结果上跑过） |
 | P10 X（推特） | `x` 模式；X 引擎（推文、互动数、长文、转推引用只取自己的话）；引擎级最小请求间隔 `minIntervalMs`；推文卡片与紧凑数字；MCP `mode=x` | ✅（真实扩展里跑通，见下） |
+| P18 屏蔽列表 | 订阅推荐列表（Content Farm Terminator、AI uBlock Blacklist、BadWebsiteBlocklist）或按地址订阅别的，另有自定义规则文本；读 uBlock Origin / Adblock Plus 网络规则、uBlacklist 匹配模式、hosts、纯域名、正则，`@@` / `@` 例外；命中的结果折叠并写明列表名（MCP 的 `hidden` 也带）；后台下载、解析、存 `storage.local`，每天更新，设置页看状态、可立即更新 | ✅（解析器对着四个真实列表写成，测试夹具是其中的原句；真实 Chromium 里订阅、下载、搜索、折叠整条流程跑通，包括 304、失败回退、例外规则和三个推荐名单的真实下载共 24 项检查，见 [BLOCKLISTS.md](BLOCKLISTS.md)；见下） |
+| P19 小修 | 设置页以整页标签打开（清单里 `options_ui.open_in_tab: true`）；Google 摘要里混进内联 `<script>` 代码的问题：引擎读页面文字的 `cleanText` 改成跳过 `script`、`style`、`noscript`、`template` | ✅（单元测试，新用例在旧代码上会失败；没有在真实 Google 页面上复测。设置页整页打开：核对了清单，并在开发浏览器里调用 `openOptionsPage()` 确认打开的是整页标签，没有亲手点“扩展程序选项”） |
 
 已知缺口：
+- **屏蔽列表的几处没验证或有取舍。** ① 每天一次的更新靠 6 小时一次的闹钟和 Service Worker 每次启动时的检查：`isDue` 有单元测试，闹钟本身没在真实浏览器里等过；只在 Chromium 里跑过，Firefox 没试。② 只读能和搜索结果对上的规则：页面元素规则（`##`）、`$script` 之类的资源选项会跳过；正则必须写出网站名、不能有 `(a+)+` 这类嵌套量词和反向引用、不能同时匹配几个无关网址（是启发式，不是证明），所以 Content Farm Terminator 里两条只描述网址形状的正则、eallion 合集里 70 多条 Pinterest / Amazon 单品正则没有启用。③ 推荐名单里没有 eallion 的 uBlacklist 合集：它混着作者自己的口味（整个 baidu.com、csdn.net、juejin.cn、amazon.com、sohu.com 都在里面），想用的人可以按地址订阅。④ 推荐名单的地址是 2026-11-12 抓取验证的，不归我们管，搬家后设置页会显示下载失败。⑤ 匹配用结果的 `url` 和 `host`：搜狗微信这类返回跳转链接的结果，路径和正则规则看不到真实地址，只有按站点的规则能命中。
 - **Bing 图片解析器未对照真实页面。** Bing 拒绝非浏览器客户端，拿不到真实 HTML，测试夹具是按已知结构手写的（文件头已注明）。需要在真实 Chrome 里搜一次图片，必要时重新抓取夹具并修正 `engines/bing.ts`。
 - **Semantic Scholar 没有接入。** 匿名额度是全球共享的，实测直接 429，等有 Key 再加。
 - 内容脚本和标签渲染的新逻辑没有自动化测试，需要在真实 Chrome 里手测：多结果引擎、验证码流程、DuckDuckGo 这类客户端渲染页面。
@@ -141,7 +148,7 @@ packages/mcp         stdio MCP Server：BridgeSession 在 hub / relay 之间自�
 - **知乎、小红书国内站已在带扩展的有界面 Chromium 里端到端跑通**（搜“红楼梦”：知乎 10 条 2.0 秒，小红书 12 条 2.8 秒，封面和头像全部加载）。**RedNote（rednote.com）没跑通**：这台机器上 FlClash 的分流让它连不上（`ERR_CONNECTION_CLOSED`），所以只验证了解析器，没验证整条流程。
 - 知乎的 `.SignFlow`、小红书的 `.login-container` 作为“需要登录”的识别是猜的，只验证过不会误命中已登录的页面，没抓过未登录的搜索页。
 - 小红书封面地址的路径里带时间戳，会不会过期没验证。结果链接和 MCP 输出里带 `xsec_token`。
-- 页面根本打不开（`chrome-error://`）时，扩展不会立刻报错，要等满 15 秒超时，界面上只显示“没有找到相关结果”。可以改成立即失败并提示网络问题。
+- 页面根本打不开（`chrome-error://`）时，原来要等满 15 秒超时，界面上只显示“没有找到相关结果”。现在页面加载完后 4 秒内内容脚本没有打招呼就快速失败（`tabRenderer.ts` 的 `HANDSHAKE_GRACE_MS`），来源状态记“上次出错”和原因。
 - 知乎、小红书用的是用户自己的登录账号，反爬比搜索引擎严；每个引擎最少间隔 3 秒，MCP 高频调用仍有让账号被风控的风险。
 - **意图判定的阈值 0.6 没有用真实数据校准**：写的时候 `api.typesafe.ai` 连不上（这台机器的 FlClash 把境外域名的线路整体断了），端到端也没在真实扩展里跑过判定，只有单元测试和用模拟数据渲染混合结果列表。网络恢复后要用一批明确和模糊的搜索词测一遍。
 - 工作窗口最小化后，页面读取速度和普通窗口里一样（知乎约 1.7 秒、小红书约 2.5 秒、视频约 2.5 秒）。但“点去验证把窗口调出来、验证完再最小化”这条路径没测过（造不出验证码）。
