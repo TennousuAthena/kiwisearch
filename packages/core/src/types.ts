@@ -204,7 +204,8 @@ export interface SourceSettings {
 }
 
 export type RerankProvider = 'none' | 'llm' | 'jina' | 'cohere';
-export type JudgeProvider = 'none' | 'typesafe';
+/** `typesafe`: TypeSafe's System One (Jev). `llm`: any OpenAI-compatible chat model the user points it at (see `decision.ts`). */
+export type JudgeProvider = 'none' | 'typesafe' | 'llm';
 export type ContentFetcher = 'none' | 'direct' | 'jina';
 export type SummaryProvider = 'api' | 'chrome-builtin';
 
@@ -235,8 +236,14 @@ export interface FusionConfig {
   /** Decision-model filtering and ranking; when active it replaces `rerank`. */
   judge: {
     provider: JudgeProvider;
+    /** TypeSafe key (provider `typesafe`). */
     apiKey: string;
+    /** TypeSafe model name (provider `typesafe`). */
     model: string;
+    /** Provider `llm`: use the same model as the AI overview (`llm` at the top level) instead of `judge.llm`. */
+    llmShared: boolean;
+    /** Provider `llm`, when not shared: a separate model, ideally a small fast one. */
+    llm: LlmSettings;
     /** How many fused candidates are judged. */
     candidates: number;
     /** Probability at or above which a junk or rule question hides the result. */

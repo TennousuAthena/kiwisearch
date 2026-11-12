@@ -64,14 +64,16 @@ export function AdvancedSection({ open, onOpenChange, config, bridge, health, on
         </div>
 
         <div className="adv-block">
-          <h3>智能过滤的参数</h3>
+          <h3>决策模型的参数</h3>
           <div className="field-grid">
-            <Field label="模型">
-              <input value={config.judge.model} onChange={(event) => setJudge({ model: event.target.value })} />
-            </Field>
+            {config.judge.provider === 'typesafe' && (
+              <Field label="TypeSafe 模型名">
+                <input value={config.judge.model} onChange={(event) => setJudge({ model: event.target.value })} />
+              </Field>
+            )}
             <NumberField label="判定的候选数量" value={config.judge.candidates} min={5} max={50} onChange={(candidates) => setJudge({ candidates })} />
             <NumberField label="隐藏阈值" hint="判为低质量的把握不低于这个值才隐藏。" value={config.judge.hideAbove} min={0.5} max={0.95} step={0.05} onChange={(hideAbove) => setJudge({ hideAbove })} />
-            <NumberField label="等待判定的最长时间（毫秒）" value={config.judge.timeoutMs} min={1000} step={500} onChange={(timeoutMs) => setJudge({ timeoutMs })} />
+            <NumberField label="等待判定的最长时间（毫秒）" hint="聊天模型比 TypeSafe 慢，默认 12 秒；只是上限，模型快就不会等满。" value={config.judge.timeoutMs} min={1000} step={500} onChange={(timeoutMs) => setJudge({ timeoutMs })} />
             <NumberField label="自动补搜的把握阈值" hint="决策模型觉得需要同时搜学术、知乎等的把握不低于这个值才补搜。" value={config.intent.threshold} min={0.3} max={0.95} step={0.05} onChange={(threshold) => setIntent({ threshold })} />
             <NumberField label="等待补搜判断的最长时间（毫秒）" value={config.intent.timeoutMs} min={500} step={500} onChange={(timeoutMs) => setIntent({ timeoutMs })} />
             <NumberField label="自动切换标签的把握阈值" hint="想找图片、视频或论文的把握不低于这个值，且页面上还没有结果时，直接切到对应标签；低于它只给一行提示。" value={config.intent.switchThreshold} min={0.5} max={0.99} step={0.05} onChange={(switchThreshold) => setIntent({ switchThreshold })} />

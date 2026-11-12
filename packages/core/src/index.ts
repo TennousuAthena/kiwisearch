@@ -5,6 +5,7 @@ export * from './fusion';
 export * from './url';
 export * from './llm';
 export * from './rerank';
+export * from './decision';
 export * from './judge';
 export * from './intent';
 export * from './content';

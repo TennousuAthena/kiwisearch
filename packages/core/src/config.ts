@@ -5,7 +5,7 @@ import type { FusionConfig, Route, SearchMode, SourceId } from './types';
  * Bump when a stored config has to be rewritten. New fields don't need it: `mergeConfig`
  * fills them from DEFAULT_CONFIG. Add the rewrite to MIGRATIONS under the version it upgrades from.
  */
-export const CONFIG_VERSION = 3;
+export const CONFIG_VERSION = 4;
 
 export const DEFAULT_CONFIG: FusionConfig = {
   version: CONFIG_VERSION,
@@ -52,19 +52,22 @@ export const DEFAULT_CONFIG: FusionConfig = {
   sourceTimeoutMs: 15000,
   renderer: { minIntervalMs: 3000, workerIdleMinutes: 10, focusOnCaptcha: false },
   judge: {
-    provider: 'typesafe',
+    // The decision model is the user's own chat model, shared with the AI overview: one key sets up both. TypeSafe is an alternative.
+    provider: 'llm',
     apiKey: '',
     model: 'jev-latest',
+    llmShared: true,
+    llm: { baseUrl: 'https://api.deepseek.com/v1', apiKey: '', model: 'deepseek-flash' },
     candidates: 30,
     hideAbove: 0.7,
     hideIrrelevantBelow: 0.2,
     relevanceWeight: 0.75,
-    timeoutMs: 6000,
+    timeoutMs: 12000,
     blockedDomains: [],
     boostedDomains: [],
     rules: [],
   },
-  intent: { enabled: true, threshold: 0.6, timeoutMs: 3000, autoSwitch: true, switchThreshold: 0.85 },
+  intent: { enabled: true, threshold: 0.6, timeoutMs: 8000, autoSwitch: true, switchThreshold: 0.85 },
   // Needs the summary model (`llm`) to be set up; without one an academic search is the plain one.
   academic: { smart: true, timeoutMs: 12000, landmarks: 5 },
   // Off by default: a blocking LLM call per search, and its min-max scores can't be used to filter.
@@ -83,6 +86,16 @@ const MIGRATIONS: Record<number, Migration> = {
   2: (stored) => {
     const sources = stored.sources as { baidu?: object } | undefined;
     return { ...stored, sources: { ...sources, baidu: { ...sources?.baidu, enabled: false } } };
+  },
+  // The decision model can be any chat model now, and a chat model needs more time than System One. A settings page that had saved
+  // the old defaults (TypeSafe with no key, 6 s and 3 s) gets the new ones; a TypeSafe key the user typed keeps TypeSafe.
+  3: (stored) => {
+    const judge = { ...(stored.judge as { provider?: string; apiKey?: string; timeoutMs?: number } | undefined) };
+    const intent = { ...(stored.intent as { timeoutMs?: number } | undefined) };
+    if (judge.provider === 'typesafe' && !judge.apiKey) judge.provider = 'llm';
+    if (judge.timeoutMs === 6000) judge.timeoutMs = 12000;
+    if (intent.timeoutMs === 3000) intent.timeoutMs = 8000;
+    return { ...stored, judge, intent };
   },
 };
 
@@ -105,7 +118,7 @@ export function mergeConfig(base: FusionConfig, patch: DeepPartial<FusionConfig>
     ...base,
     ...stripUndefined(patch),
     sources,
-    judge: { ...base.judge, ...stripUndefined(patch.judge) },
+    judge: { ...base.judge, ...stripUndefined(patch.judge), llm: { ...base.judge.llm, ...stripUndefined(patch.judge?.llm) } },
     intent: { ...base.intent, ...stripUndefined(patch.intent) },
     academic: { ...base.academic, ...stripUndefined(patch.academic) },
     rerank: { ...base.rerank, ...stripUndefined(patch.rerank) },

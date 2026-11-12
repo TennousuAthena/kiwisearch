@@ -177,7 +177,7 @@ export async function runSearch(
     emit({ type: 'source_done', source: run.id, count: outcome.hits.length, ms: outcome.ms });
     if (signal?.aborted) return;
     let merged = applyDomainRules(mergeLateHits(currentResults, outcome.hits, weights), config.judge);
-    if (judgeEnabled(config.judge)) {
+    if (judgeEnabled(config)) {
       const unjudged = merged.filter((r) => !r.judgment && !r.hidden).slice(0, config.judge.candidates);
       if (unjudged.length) {
         try {
@@ -274,7 +274,7 @@ export async function runSearch(
 
   // A general search also asks the decision model what else is worth searching. Whatever it switches on starts now,
   // mid-search, and joins the same fusion. No verdict (no key, error, too slow) just leaves the general sources.
-  const routing = mode === 'web' && !opts.sources && config.intent.enabled && judgeEnabled(config.judge);
+  const routing = mode === 'web' && !opts.sources && config.intent.enabled && judgeEnabled(config);
   intentPending = routing;
   const intentDone: Promise<void> = routing
     ? (async () => {
@@ -343,6 +343,8 @@ export async function runSearch(
     if (!hitsBySource.size) await Promise.race([settledAll, firstHits]);
     // The plan has its own limit (`academic.timeoutMs`); its papers belong in the first full list, not in a late one.
     if (planPending) await planDone;
+    // A slow decision model may still be answering; what it switches on starts now and, being late, merges in afterwards.
+    if (intentPending) await intentDone;
     // If the quick sources brought nothing it can use (DuckDuckGo's results carry no text), wait for one that has, or the overview is lost for good.
     if (summaryWanted && !textSeen) await Promise.race([settledAll, firstText]);
   } else {
@@ -358,7 +360,7 @@ export async function runSearch(
   emit({ type: 'fused', results });
 
   const textual = modeHasText(mode);
-  const judging = textual && judgeEnabled(config.judge) && results.length > 0;
+  const judging = textual && judgeEnabled(config) && results.length > 0;
   const provider = config.rerank.provider;
   const canRerank =
     textual &&
@@ -396,7 +398,7 @@ export async function runSearch(
   /** Page text is untrusted: withhold pages that look like they instruct the summarizing model. */
   const readPages = async (top: FusedResult[]) => {
     const contents = await fetchContents(top, config, env, signal);
-    if (judgeEnabled(config.judge) && contents.size) {
+    if (judgeEnabled(config) && contents.size) {
       for (const key of await flagInjectedContents(query, contents, config, env, signal)) contents.delete(key);
     }
     signal?.throwIfAborted();

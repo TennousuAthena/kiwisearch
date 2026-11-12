@@ -24,6 +24,19 @@ export function SwitchRow({ checked, onChange, title, hint, disabled }: { checke
   );
 }
 
+/** A few exclusive choices side by side, for a setting that changes what the controls under it are. */
+export function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: { value: T; label: string }[]; onChange: (next: T) => void }) {
+  return (
+    <div className="segmented" role="radiogroup" aria-label={label}>
+      {options.map((option) => (
+        <button key={option.value} type="button" role="radio" aria-checked={option.value === value} className="seg" onClick={() => onChange(option.value)}>
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Field({ label, hint, wide, children }: { label: string; hint?: ReactNode; wide?: boolean; children: ReactNode }) {
   return (
     <label className={wide ? 'field field-wide' : 'field'}>

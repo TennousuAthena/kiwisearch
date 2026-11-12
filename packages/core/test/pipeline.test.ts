@@ -8,6 +8,7 @@ function configFor(...enabled: SourceId[]): FusionConfig {
   const config = structuredClone(DEFAULT_CONFIG);
   for (const [id, settings] of Object.entries(config.sources)) if (settings) settings.enabled = enabled.includes(id as SourceId);
   config.rerank.provider = 'none';
+  config.judge.provider = 'none';
   config.summary.enabled = false;
   return config;
 }

@@ -16,7 +16,7 @@ const KEY = '{{SECRET_typesafe01}}';
 
 function judgeConfig(patch: Partial<FusionConfig['judge']> = {}): FusionConfig {
   const config = structuredClone(DEFAULT_CONFIG);
-  config.judge = { ...config.judge, apiKey: KEY, ...patch };
+  config.judge = { ...config.judge, provider: 'typesafe', apiKey: KEY, ...patch };
   return config;
 }
 
@@ -56,9 +56,9 @@ function systemOne(calls: { url: string; headers: Record<string, string>; body: 
 
 describe('judgeEnabled', () => {
   it('needs the typesafe provider and a key', () => {
-    expect(judgeEnabled(judgeConfig().judge)).toBe(true);
-    expect(judgeEnabled(judgeConfig({ apiKey: '' }).judge)).toBe(false);
-    expect(judgeEnabled(judgeConfig({ provider: 'none' }).judge)).toBe(false);
+    expect(judgeEnabled(judgeConfig())).toBe(true);
+    expect(judgeEnabled(judgeConfig({ apiKey: '' }))).toBe(false);
+    expect(judgeEnabled(judgeConfig({ provider: 'none' }))).toBe(false);
   });
 });
 
