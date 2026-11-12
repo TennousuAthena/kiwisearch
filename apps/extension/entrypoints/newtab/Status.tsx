@@ -1,6 +1,6 @@
 import type { SearchMode, SourceId, SuggestMode } from '@kiwi-search/core';
 import { CircleAlertIcon, RotateIcon, TriangleAlertIcon } from '@/lib/icons';
-import { MODE_LABELS, explainServiceError, formatDuration } from '@/lib/results';
+import { MODE_LABELS, decisionModelNotes, formatDuration } from '@/lib/results';
 import { firstBlocked, type SearchState } from '@/lib/searchState';
 import { offerText, suggestionName } from '@/lib/suggestion';
 
@@ -37,8 +37,12 @@ export function StatusLine({ state, visibleCount, onOpenWorker }: StatusProps) {
           有来源需要人机验证，暂时没有它的结果 · 去验证
         </button>
       )}
-      {done && state.judgeError && <span title={state.judgeError}>智能过滤未完全生效：{explainServiceError(state.judgeError)}</span>}
-      {done && state.mode === 'web' && state.intentError && <span title={state.intentError}>没能判断要不要同时搜知乎、小红书等平台，这次只搜了通用来源：{explainServiceError(state.intentError)}</span>}
+      {done &&
+        decisionModelNotes(state).map((note) => (
+          <span key={note.text} title={note.title}>
+            {note.text}
+          </span>
+        ))}
       {done && state.mode === 'academic' && state.planError && <span title={state.planError}>智能检索未生效：{state.planError}</span>}
     </div>
   );
