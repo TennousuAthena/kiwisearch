@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Window } from 'happy-dom';
 import { google } from '../src/engines/google';
-import { makeBrowserSource } from '../src/engines/shared';
+import { cleanText, makeBrowserSource } from '../src/engines/shared';
 import type { Env, FetchLike, SearchHit } from '../src/types';
 import { sourceContext } from './helpers';
 
@@ -18,6 +18,43 @@ function responseAt(url: string, body = ''): Response {
   Object.defineProperty(response, 'url', { value: url });
   return response;
 }
+
+describe('Google snippets', () => {
+  const extract = (html: string) => {
+    const window = new Window();
+    window.document.write(html);
+    return google.extract(window.document as unknown as ParentNode, 'https://www.google.com/search', 'web');
+  };
+
+  it('leaves out the inline script Google puts inside a snippet (it used to come back as the snippet\'s text)', () => {
+    const [result] = extract(`
+      <div id="search"><div class="MjjYud">
+        <a href="https://hk.trip.com/travel-guide/destination/xingyi-519"><h3>興義旅遊攻略（2026）</h3></a>
+        <div class="VwiC3b">興義悅棲裏·山及民宿 <span>萬峯林景區</span> 郭記魚號·金州長壽魚館總店
+          <script nonce="x">(function(){ (this||self).Bqpk9e=function(f,d,n,e,k,p){var g=document.getElementById(f);}; }).call(this);</script>
+          <style>.pQXcHc{color:red}</style><noscript>enable javascript</noscript>
+          <script>var id='_1mX1auqlEsaF9u8P_';</script>
+        </div>
+      </div></div>`);
+    expect(result.snippet).toBe('興義悅棲裏·山及民宿 萬峯林景區 郭記魚號·金州長壽魚館總店');
+  });
+});
+
+describe('cleanText', () => {
+  const text = (html: string) => {
+    const window = new Window();
+    window.document.write(`<div id="x">${html}</div>`);
+    return cleanText(window.document.getElementById('x') as unknown as Element);
+  };
+
+  it('reads what a reader sees: nested elements joined, whitespace collapsed, code and hidden markup left out', () => {
+    expect(text('  a <b>b\n</b>  <i><u>c</u></i> ')).toBe('a b c');
+    expect(text('keep<script>alert(1)</script> <style>p{}</style>this<template><p>no</p></template><noscript>no</noscript>')).toBe('keep this');
+    expect(text('<div><div><script>deep()</script>deeper</div></div>')).toBe('deeper');
+    expect(text('<script>only code</script>')).toBe('');
+    expect(cleanText(null)).toBe('');
+  });
+});
 
 describe('Google result links', () => {
   it('uses the first valid cite URL as the host for unresolved wrappers', () => {

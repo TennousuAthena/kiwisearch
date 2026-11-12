@@ -1,7 +1,21 @@
 import type { BrowserEngine, SearchHit, SearchSource, SourceId } from '../types';
 
+/** Elements whose text is code or markup for the browser, never something the page shows. Google puts an inline script inside a snippet. */
+const NOT_VISIBLE_TEXT = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+
+function collectText(node: Node, out: string[]): void {
+  for (const child of node.childNodes) {
+    if (child.nodeType === 3) out.push(child.nodeValue ?? '');
+    else if (child.nodeType === 1 && !NOT_VISIBLE_TEXT.has((child as Element).tagName.toUpperCase())) collectText(child, out);
+  }
+}
+
+/** The text a reader sees in `node`, on one line. `textContent` would also return the code of any `<script>` or `<style>` inside it. */
 export function cleanText(node: Element | null | undefined): string {
-  return node?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+  if (!node) return '';
+  const parts: string[] = [];
+  collectText(node, parts);
+  return parts.join('').replace(/\s+/g, ' ').trim();
 }
 
 export function absoluteHttpUrl(raw: string | null | undefined, baseUrl: string): string | null {
