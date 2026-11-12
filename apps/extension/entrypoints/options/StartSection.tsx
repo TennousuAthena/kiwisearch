@@ -119,7 +119,7 @@ export function StartSection({ config, health, onDone }: Props) {
         <li>
           <h3>需要的话，再填 Key</h3>
           <p className="note">
-            <a href="#ai">AI 概览和智能过滤</a>要用你自己的模型 Key；<a href="#sources">搜索范围</a>里 Brave、Exa 等来源也需要各自的 Key。都是可选的。
+            <a href="#ai">AI 概览、智能学术搜索和决策模型</a>要用你自己的模型 Key（决策模型推荐配一个专用的，更快）；<a href="#sources">搜索范围</a>里 Brave、Exa 等来源也需要各自的 Key。都是可选的。
           </p>
         </li>
       </ol>

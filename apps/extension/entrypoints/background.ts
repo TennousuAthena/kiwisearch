@@ -4,7 +4,7 @@ import { ensureBridge } from '@/lib/bridge';
 import type { PortMessage, SearchRequest } from '@/lib/messages';
 import { loadConfig } from '@/lib/settings';
 import { handleFaviconMessage } from '@/lib/faviconService';
-import { handleLlmTest } from '@/lib/llmTest';
+import { handleDecisionTest, handleLlmTest } from '@/lib/llmTest';
 import { recordSourceStatus } from '@/lib/sourceStatus';
 import { collectIdleWorkers, forgetWorkerTab, handleWorkerMessage, runBrowserEngine } from '@/lib/tabRenderer';
 
@@ -71,7 +71,14 @@ export default defineBackground(() => {
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (typeof (msg as { type?: string })?.type !== 'string' || !(msg as { type: string }).type.startsWith('kiwi:')) return false;
     const type = (msg as { type: string }).type;
-    const reply = type === 'kiwi:favicon' ? handleFaviconMessage(msg) : type === 'kiwi:test-llm' ? handleLlmTest(msg) : handleWorkerMessage(msg, sender);
+    const reply =
+      type === 'kiwi:favicon'
+        ? handleFaviconMessage(msg)
+        : type === 'kiwi:test-llm'
+          ? handleLlmTest(msg)
+          : type === 'kiwi:test-decision'
+            ? handleDecisionTest(msg)
+            : handleWorkerMessage(msg, sender);
     void reply.then(sendResponse).catch((error) => sendResponse({ error: String(error) }));
     return true;
   });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG, migrateConfig, mergeConfig } from '../src/config';
-import { askDecision, buildDecisionMessages, decisionLlm, decisionModelUsable, numberFrom, parseJsonObject, toSystemOneResponse } from '../src/decision';
+import { DEFAULT_SYSTEMONE_ENDPOINT, askDecision, buildDecisionMessages, decisionLlm, decisionModelUsable, isHardFailure, numberFrom, parseJsonObject, resolveDecisionProvider, systemOneUsable, toSystemOneResponse } from '../src/decision';
+import { HttpError } from '../src/http';
 import { fuse } from '../src/fusion';
 import { buildIntentRequest, judgeIntent } from '../src/intent';
 import { flagInjectedContents, judgeEnabled, judgeResults } from '../src/judge';
@@ -54,8 +55,8 @@ describe('which decision model is in use', () => {
     noKey.llm.baseUrl = 'http://localhost:11434/v1';
     expect(decisionModelUsable(noKey)).toBe(true);
     expect(decisionModelUsable(chatConfig({ provider: 'none' }))).toBe(false);
-    expect(decisionModelUsable({ ...chatConfig({ provider: 'typesafe', apiKey: '' }) })).toBe(false);
-    expect(decisionModelUsable(chatConfig({ provider: 'typesafe', apiKey: KEY }))).toBe(true);
+    expect(decisionModelUsable(chatConfig({ provider: 'systemone', apiKey: '', fallbackToLlm: false }))).toBe(false);
+    expect(decisionModelUsable(chatConfig({ provider: 'systemone', apiKey: KEY }))).toBe(true);
   });
 
   it('uses the AI overview model unless a separate one is chosen', () => {
@@ -255,24 +256,160 @@ describe('a whole search with a chat model as the decision model', () => {
 });
 
 describe('moving an old settings page to the new decision model', () => {
-  it('switches the saved default (TypeSafe with no key) to the user\'s own model, and widens the old time limits', () => {
-    const migrated = migrateConfig({ version: 3, judge: { provider: 'typesafe', apiKey: '', timeoutMs: 6000 }, intent: { timeoutMs: 3000 } });
-    const merged = mergeConfig(DEFAULT_CONFIG, migrated);
-    expect(merged.judge.provider).toBe('llm');
-    expect(merged.judge.timeoutMs).toBe(12000);
+  it('renames TypeSafe\'s provider, keeps its key, and widens the old time limits', () => {
+    const merged = mergeConfig(DEFAULT_CONFIG, migrateConfig({ version: 3, judge: { provider: 'typesafe', apiKey: KEY, timeoutMs: 6000 }, intent: { timeoutMs: 3000 } }));
+    expect(merged.judge).toMatchObject({ provider: 'systemone', apiKey: KEY, timeoutMs: 12000, endpoint: DEFAULT_SYSTEMONE_ENDPOINT, fallbackToLlm: true, llmShared: true });
     expect(merged.intent.timeoutMs).toBe(8000);
-    expect(merged.judge.llmShared).toBe(true);
-    expect(merged.judge.llm.model).toBe('deepseek-flash');
   });
 
-  it('leaves a TypeSafe key the user typed, and limits they changed, alone', () => {
-    const merged = mergeConfig(DEFAULT_CONFIG, migrateConfig({ version: 3, judge: { provider: 'typesafe', apiKey: KEY, timeoutMs: 9000 }, intent: { timeoutMs: 4000 } }));
-    expect(merged.judge).toMatchObject({ provider: 'typesafe', apiKey: KEY, timeoutMs: 9000 });
+  it('renames it in a version-4 config too, and leaves limits the user changed alone', () => {
+    const merged = mergeConfig(DEFAULT_CONFIG, migrateConfig({ version: 4, judge: { provider: 'typesafe', apiKey: KEY, timeoutMs: 9000 }, intent: { timeoutMs: 4000 } }));
+    expect(merged.judge).toMatchObject({ provider: 'systemone', timeoutMs: 9000 });
     expect(merged.intent.timeoutMs).toBe(4000);
+    expect(mergeConfig(DEFAULT_CONFIG, migrateConfig({ version: 4, judge: { provider: 'llm' } })).judge.provider).toBe('llm');
+  });
+
+  it('starts from the dedicated provider with the chat model behind it', () => {
+    expect(DEFAULT_CONFIG.judge).toMatchObject({ provider: 'systemone', endpoint: DEFAULT_SYSTEMONE_ENDPOINT, fallbackToLlm: true, llmShared: true });
   });
 
   it('fills a stored separate decision model over the defaults field by field', () => {
     const merged = mergeConfig(DEFAULT_CONFIG, { judge: { llmShared: false, llm: { model: 'tiny' } } } as never);
     expect(merged.judge.llm).toEqual({ ...DEFAULT_CONFIG.judge.llm, model: 'tiny' });
+  });
+});
+
+/** A dedicated decision model (System One shape) at a custom address, with the chat model behind it. */
+function dedicatedConfig(patch: Partial<FusionConfig['judge']> = {}): FusionConfig {
+  return chatConfig({ provider: 'systemone', endpoint: 'https://decide.example/v1/decide', apiKey: 'dk', model: 'tiny-judge', ...patch });
+}
+
+/** Both kinds of service in one fake: `dedicated` answers the System One endpoint, `chat` the chat endpoint. Calls are recorded in order. */
+function bothWorlds(opts: { dedicated: (body: any) => Response; chat?: (user: any) => unknown }) {
+  const calls: { kind: 'dedicated' | 'chat'; url: string; authorization?: string; body: any }[] = [];
+  const fetch: Env['fetch'] = async (input, init) => {
+    init?.signal?.throwIfAborted();
+    const body = JSON.parse(String(init?.body));
+    const authorization = (init?.headers as Record<string, string>)?.Authorization;
+    if (input === 'https://decide.example/v1/decide') {
+      calls.push({ kind: 'dedicated', url: input, authorization, body });
+      return opts.dedicated(body);
+    }
+    calls.push({ kind: 'chat', url: input, authorization, body });
+    const reply = opts.chat?.(JSON.parse(body.messages[1].content)) ?? {};
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(reply) } }] }));
+  };
+  return { env: { fetch } as Env, calls };
+}
+
+const answersFor = (body: any, noul: number) => new Response(JSON.stringify({ answers: Object.fromEntries(Object.keys(body.questions).map((id) => [id, { type: 'noul', noul }])) }));
+
+describe('which model answers: the dedicated one, or the chat model behind it', () => {
+  it('uses the dedicated model when it is set up, the chat model when it is not, and nothing when that is not allowed', () => {
+    expect(resolveDecisionProvider(dedicatedConfig())).toBe('systemone');
+    expect(resolveDecisionProvider(dedicatedConfig({ apiKey: '' }))).toBe('llm');
+    expect(resolveDecisionProvider(dedicatedConfig({ apiKey: '', fallbackToLlm: false }))).toBeNull();
+    expect(resolveDecisionProvider(chatConfig({ provider: 'llm' }))).toBe('llm');
+    expect(resolveDecisionProvider(chatConfig({ provider: 'none' }))).toBeNull();
+    // The shipped defaults: dedicated, no key yet, the chat model is there.
+    const fresh = structuredClone(DEFAULT_CONFIG);
+    expect(resolveDecisionProvider(fresh)).toBeNull();
+    fresh.llm.apiKey = KEY;
+    expect(resolveDecisionProvider(fresh)).toBe('llm');
+    fresh.judge.apiKey = KEY;
+    expect(resolveDecisionProvider(fresh)).toBe('systemone');
+  });
+
+  it('needs no key for a service on this machine', () => {
+    expect(systemOneUsable({ endpoint: 'http://localhost:8080/decide', apiKey: '' })).toBe(true);
+    expect(systemOneUsable({ endpoint: 'https://decide.example/x', apiKey: '' })).toBe(false);
+    expect(systemOneUsable({ endpoint: '', apiKey: 'k' })).toBe(false);
+  });
+
+  it('sends the questions to the address the user gave, with their key, in System One\'s shape', async () => {
+    const { env, calls } = bothWorlds({ dedicated: (body) => answersFor(body, 0.9) });
+    const verdict = await askDecision(env, dedicatedConfig(), { model: 'tiny-judge', state: { query: 'q' }, questions: { a: { type: 'noul', instructions: 'x' } } }, new AbortController().signal);
+    expect(verdict.answers.a.noul).toBe(0.9);
+    expect(calls).toEqual([{ kind: 'dedicated', url: 'https://decide.example/v1/decide', authorization: 'Bearer dk', body: { model: 'tiny-judge', state: { query: 'q' }, questions: { a: { type: 'noul', instructions: 'x' } } } }]);
+  });
+
+  it('sends no Authorization header to a keyless local service', async () => {
+    const config = dedicatedConfig({ endpoint: 'http://localhost:8080/decide', apiKey: '' });
+    const seen: (string | undefined)[] = [];
+    const fetch: Env['fetch'] = async (_input, init) => {
+      seen.push((init?.headers as Record<string, string>)?.Authorization);
+      return new Response(JSON.stringify({ answers: { a: { type: 'noul', noul: 0.4 } } }));
+    };
+    await askDecision({ fetch } as Env, config, { state: {}, questions: { a: { type: 'noul', instructions: 'x' } } }, new AbortController().signal);
+    expect(seen).toEqual([undefined]);
+  });
+});
+
+describe('when the dedicated model refuses, the chat model decides', () => {
+  const ask = (env: Env, config: FusionConfig) => askDecision(env, config, { state: {}, questions: { a: { type: 'noul', instructions: 'x' } } }, new AbortController().signal);
+
+  it.each([[451], [401], [403], [404]])('falls back on a hard refusal (HTTP %i), and the chat model\'s answer is used', async (status) => {
+    const { env, calls } = bothWorlds({ dedicated: () => new Response('nope', { status }), chat: () => ({ answers: { a: 0.8 } }) });
+    expect((await ask(env, dedicatedConfig())).answers.a.noul).toBe(0.8);
+    expect(calls.map((c) => c.kind)).toEqual(['dedicated', 'chat']);
+  });
+
+  it('does not fall back on a rate limit, a server error or a timeout: asking another model would not be faster', async () => {
+    for (const status of [429, 500, 503]) {
+      const { env, calls } = bothWorlds({ dedicated: () => new Response('later', { status }), chat: () => ({ answers: { a: 0.8 } }) });
+      await expect(ask(env, dedicatedConfig())).rejects.toThrow(String(status));
+      expect(calls.filter((c) => c.kind === 'chat'), String(status)).toHaveLength(0);
+    }
+    const slow: Env['fetch'] = async (_input, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true }));
+    const controller = new AbortController();
+    const pending = askDecision({ fetch: slow } as Env, dedicatedConfig(), { state: {}, questions: {} }, controller.signal);
+    controller.abort(new Error('timeout after 40ms'));
+    await expect(pending).rejects.toThrow('timeout');
+  });
+
+  it('falls back when there is no connection at all', async () => {
+    const { env, calls } = bothWorlds({ dedicated: () => { throw new TypeError('Failed to fetch'); }, chat: () => ({ answers: { a: 0.3 } }) });
+    expect((await ask(env, dedicatedConfig())).answers.a.noul).toBe(0.3);
+    expect(calls.map((c) => c.kind)).toEqual(['dedicated', 'chat']);
+  });
+
+  it('says so instead when the user turned the fallback off', async () => {
+    const { env, calls } = bothWorlds({ dedicated: () => new Response('region', { status: 451 }), chat: () => ({ answers: { a: 0.8 } }) });
+    await expect(ask(env, dedicatedConfig({ fallbackToLlm: false }))).rejects.toThrow('451');
+    expect(calls.filter((c) => c.kind === 'chat')).toHaveLength(0);
+  });
+
+  it('judges results with the chat model when the dedicated one refused every request', async () => {
+    const { env, calls } = bothWorlds({ dedicated: () => new Response('region', { status: 451 }), chat: judgeByTitle });
+    const list = results(hit('https://a.example/1', 'a spam page', 1), hit('https://a.example/2', 'a fine page', 2));
+    const { judgments, error } = await judgeResults('q', list, dedicatedConfig(), env);
+    expect(error).toBeUndefined();
+    expect(judgments.get(list[0].key)).toMatchObject({ junk: 0.95 });
+    expect(judgments.size).toBe(2);
+    expect(calls.filter((c) => c.kind === 'chat')).toHaveLength(1); // one batch, not one request per result
+  });
+
+  it('does not take over a judging run that was cut short by its time limit', async () => {
+    const slow: Env['fetch'] = async (_input, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true }));
+    const { judgments, error } = await judgeResults('q', results(hit('https://a.example/1', 'a page', 1)), dedicatedConfig({ timeoutMs: 30 }), { fetch: slow } as Env);
+    expect(judgments.size).toBe(0);
+    expect(error).toMatch(/30ms/);
+  });
+
+  it('answers the intent question through the chat model behind it', async () => {
+    const { env } = bothWorlds({ dedicated: () => new Response('bad key', { status: 401 }), chat: () => ({ answers: { academic: 0.1, zhihu: 0.9, xiaohongshu: 0.1, wechat: 0.1, images: 0.1, video: 0.1 } }) });
+    const verdict = await judgeIntent('如何评价红楼梦', dedicatedConfig(), env);
+    expect(verdict.routes).toEqual(['zhihu']);
+    expect(verdict.error).toBeUndefined();
+  });
+
+  it('knows what is a hard failure', () => {
+    expect(isHardFailure(new HttpError(451, 'x'))).toBe(true);
+    expect(isHardFailure(new HttpError(429, 'x'))).toBe(false);
+    expect(isHardFailure(new HttpError(408, 'x'))).toBe(false);
+    expect(isHardFailure(new HttpError(503, 'x'))).toBe(false);
+    expect(isHardFailure(new TypeError('Failed to fetch'))).toBe(true);
+    expect(isHardFailure(new HttpError(451, 'x'), AbortSignal.abort())).toBe(false);
+    expect(isHardFailure(new Error('timeout'))).toBe(false);
   });
 });

@@ -1,3 +1,4 @@
+import { DEFAULT_SYSTEMONE_ENDPOINT } from './decision';
 import { SOURCES } from './sources';
 import type { FusionConfig, Route, SearchMode, SourceId } from './types';
 
@@ -5,7 +6,7 @@ import type { FusionConfig, Route, SearchMode, SourceId } from './types';
  * Bump when a stored config has to be rewritten. New fields don't need it: `mergeConfig`
  * fills them from DEFAULT_CONFIG. Add the rewrite to MIGRATIONS under the version it upgrades from.
  */
-export const CONFIG_VERSION = 4;
+export const CONFIG_VERSION = 5;
 
 export const DEFAULT_CONFIG: FusionConfig = {
   version: CONFIG_VERSION,
@@ -52,10 +53,14 @@ export const DEFAULT_CONFIG: FusionConfig = {
   sourceTimeoutMs: 15000,
   renderer: { minIntervalMs: 3000, workerIdleMinutes: 10, focusOnCaptcha: false },
   judge: {
-    // The decision model is the user's own chat model, shared with the AI overview: one key sets up both. TypeSafe is an alternative.
-    provider: 'llm',
+    // A dedicated decision model is the recommended one (fast, cheap, built to answer exactly these questions): TypeSafe's Jev is the
+    // preset and the user can point this at any System One-compatible service. Until a key is there, or when it fails, the user's chat
+    // model decides instead (slower).
+    provider: 'systemone',
+    endpoint: DEFAULT_SYSTEMONE_ENDPOINT,
     apiKey: '',
     model: 'jev-latest',
+    fallbackToLlm: true,
     llmShared: true,
     llm: { baseUrl: 'https://api.deepseek.com/v1', apiKey: '', model: 'deepseek-flash' },
     candidates: 30,
@@ -87,17 +92,23 @@ const MIGRATIONS: Record<number, Migration> = {
     const sources = stored.sources as { baidu?: object } | undefined;
     return { ...stored, sources: { ...sources, baidu: { ...sources?.baidu, enabled: false } } };
   },
-  // The decision model can be any chat model now, and a chat model needs more time than System One. A settings page that had saved
-  // the old defaults (TypeSafe with no key, 6 s and 3 s) gets the new ones; a TypeSafe key the user typed keeps TypeSafe.
+  // The decision model may fall back to a chat model, which needs more time than System One: a settings page that had saved the
+  // old defaults (6 s and 3 s) gets the new ones. The provider is called `systemone` now (TypeSafe is its preset).
   3: (stored) => {
-    const judge = { ...(stored.judge as { provider?: string; apiKey?: string; timeoutMs?: number } | undefined) };
+    const judge = { ...(stored.judge as { provider?: string; timeoutMs?: number } | undefined) };
     const intent = { ...(stored.intent as { timeoutMs?: number } | undefined) };
-    if (judge.provider === 'typesafe' && !judge.apiKey) judge.provider = 'llm';
     if (judge.timeoutMs === 6000) judge.timeoutMs = 12000;
     if (intent.timeoutMs === 3000) intent.timeoutMs = 8000;
-    return { ...stored, judge, intent };
+    return renameTypesafe({ ...stored, judge, intent });
   },
+  // `typesafe` became `systemone` (a version-4 config was only ever written by a development build).
+  4: renameTypesafe,
 };
+
+function renameTypesafe(stored: Record<string, unknown>): Record<string, unknown> {
+  const judge = stored.judge as { provider?: string } | undefined;
+  return judge?.provider === 'typesafe' ? { ...stored, judge: { ...judge, provider: 'systemone' } } : stored;
+}
 
 /** Bring a stored config (unversioned means version 1) up to CONFIG_VERSION before merging. */
 export function migrateConfig(stored: unknown): DeepPartial<FusionConfig> | undefined {

@@ -204,8 +204,12 @@ export interface SourceSettings {
 }
 
 export type RerankProvider = 'none' | 'llm' | 'jina' | 'cohere';
-/** `typesafe`: TypeSafe's System One (Jev). `llm`: any OpenAI-compatible chat model the user points it at (see `decision.ts`). */
-export type JudgeProvider = 'none' | 'typesafe' | 'llm';
+/**
+ * `systemone`: a dedicated decision model behind a System One-compatible endpoint (TypeSafe's Jev is the preset; anyone's service that
+ * speaks the protocol works). `llm`: only the user's chat model. When a `systemone` provider isn't set up, or fails outright, the chat
+ * model stands in if `judge.fallbackToLlm` (see `decision.ts`).
+ */
+export type JudgeProvider = 'none' | 'systemone' | 'llm';
 export type ContentFetcher = 'none' | 'direct' | 'jina';
 export type SummaryProvider = 'api' | 'chrome-builtin';
 
@@ -236,13 +240,17 @@ export interface FusionConfig {
   /** Decision-model filtering and ranking; when active it replaces `rerank`. */
   judge: {
     provider: JudgeProvider;
-    /** TypeSafe key (provider `typesafe`). */
+    /** Provider `systemone`: where to send the questions (POST, System One's request and response shape). */
+    endpoint: string;
+    /** Provider `systemone`: sent as `Authorization: Bearer`. */
     apiKey: string;
-    /** TypeSafe model name (provider `typesafe`). */
+    /** Provider `systemone`: the `model` field of the request. */
     model: string;
-    /** Provider `llm`: use the same model as the AI overview (`llm` at the top level) instead of `judge.llm`. */
+    /** Provider `systemone`: when it isn't set up or fails outright (not a timeout), let the chat model decide instead. */
+    fallbackToLlm: boolean;
+    /** The chat model's settings: use the same model as the AI overview (`llm` at the top level) instead of `judge.llm`. */
     llmShared: boolean;
-    /** Provider `llm`, when not shared: a separate model, ideally a small fast one. */
+    /** The chat model's settings when not shared: a separate model, ideally a small fast one. */
     llm: LlmSettings;
     /** How many fused candidates are judged. */
     candidates: number;

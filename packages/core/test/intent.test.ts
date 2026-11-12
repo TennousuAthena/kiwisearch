@@ -11,7 +11,7 @@ const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 function configFor(...enabled: string[]): FusionConfig {
   const config = structuredClone(DEFAULT_CONFIG);
   for (const [id, settings] of Object.entries(config.sources)) if (settings) settings.enabled = enabled.includes(id);
-  config.judge.provider = 'typesafe';
+  config.judge.provider = 'systemone';
   config.judge.apiKey = KEY;
   config.summary.enabled = false;
   config.rerank.provider = 'none';
