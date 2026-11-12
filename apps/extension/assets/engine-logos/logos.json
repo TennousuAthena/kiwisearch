@@ -1,0 +1,148 @@
+{
+  "google": {
+    "file": "google.svg",
+    "from": "@iconify-json/logos 1.2.19 (\"SVG Logos\"), icon \"google-icon\"",
+    "license": "CC0-1.0 (the artwork itself is the brand's trademark)"
+  },
+  "bing": {
+    "file": "bing.svg",
+    "from": "@iconify-json/logos 1.2.19 (\"SVG Logos\"), icon \"bing\"",
+    "license": "CC0-1.0 (the artwork itself is the brand's trademark)"
+  },
+  "baidu": {
+    "file": "baidu.svg",
+    "from": "simple-icons 16.37.0, icon \"baidu\", brand colour #2932E1",
+    "license": "CC0-1.0 data (the glyph itself is the brand's trademark)",
+    "dark": "baidu.dark.svg",
+    "darkNote": "#2932E1 lightened to #545BE7 to stay visible (3:1) on the dark page"
+  },
+  "yandex": {
+    "file": "yandex.svg",
+    "from": "@iconify-json/fa6-brands 1.2.6 (Font Awesome Free Brands), icon \"yandex-international\", painted #FC3F1D",
+    "license": "CC-BY-4.0 (Font Awesome Free, attribution required: see NOTICE.md)"
+  },
+  "duckduckgo": {
+    "file": "duckduckgo.svg",
+    "from": "@iconify-json/logos 1.2.19 (\"SVG Logos\"), icon \"duckduckgo\"",
+    "license": "CC0-1.0 (the artwork itself is the brand's trademark)"
+  },
+  "scholar": {
+    "file": "scholar.png",
+    "from": "https://scholar.google.com/favicon.ico (largest frame)",
+    "license": "the brand's own icon, used only to name the engine"
+  },
+  "brave": {
+    "file": "brave.svg",
+    "from": "@iconify-json/logos 1.2.19 (\"SVG Logos\"), icon \"brave\"",
+    "license": "CC0-1.0 (the artwork itself is the brand's trademark)"
+  },
+  "exa": {
+    "file": "exa.svg",
+    "from": "@iconify-json/logos 1.2.19 (\"SVG Logos\"), icon \"exa-icon\"",
+    "license": "CC0-1.0 (the artwork itself is the brand's trademark)"
+  },
+  "deepseek": {
+    "file": "deepseek.svg",
+    "from": "@iconify-json/logos 1.2.19 (\"SVG Logos\"), icon \"deepseek-icon\"",
+    "license": "CC0-1.0 (the artwork itself is the brand's trademark)"
+  },
+  "openalex": {
+    "file": "openalex.png",
+    "from": "https://openalex.org/tricon-outlined.png (the site's <link rel=icon>); black glyph, inverted on the dark page",
+    "license": "the brand's own icon, used only to name the engine",
+    "invertInDark": true
+  },
+  "arxiv": {
+    "file": "arxiv.svg",
+    "from": "simple-icons 16.37.0, icon \"arxiv\", brand colour #B31B1B",
+    "license": "CC0-1.0 data (the glyph itself is the brand's trademark)",
+    "dark": "arxiv.dark.svg",
+    "darkNote": "#B31B1B lightened to #BB3232 to stay visible (3:1) on the dark page"
+  },
+  "crossref": {
+    "file": "crossref.png",
+    "from": "https://www.crossref.org/favicon.ico",
+    "license": "the brand's own icon, used only to name the engine"
+  },
+  "openverse": {
+    "file": "openverse.png",
+    "from": "https://openverse.org/favicon.ico",
+    "license": "the brand's own icon, used only to name the engine"
+  },
+  "pubmed": {
+    "file": "pubmed.svg",
+    "from": "simple-icons 16.37.0, icon \"pubmed\", brand colour #326599",
+    "license": "CC0-1.0 data (the glyph itself is the brand's trademark)",
+    "dark": "pubmed.dark.svg",
+    "darkNote": "#326599 lightened to #3C6D9E to stay visible (3:1) on the dark page"
+  },
+  "europepmc": {
+    "file": "europepmc.png",
+    "from": "the red \"Europe PMC\" disc cropped from the avatar of github.com/EuropePMC (europepmc.org refuses scripted requests, so its own favicon could not be fetched); the knocked-out white lettering filled white",
+    "license": "the brand's own icon, used only to name the engine"
+  },
+  "dblp": {
+    "file": "dblp.png",
+    "from": "https://dblp.org/favicon.ico",
+    "license": "the brand's own icon, used only to name the engine"
+  },
+  "baiduxueshu": {
+    "file": "baiduxueshu.png",
+    "from": "https://xueshu.baidu.com/favicon.ico (largest frame)",
+    "license": "the brand's own icon, used only to name the engine"
+  },
+  "cnki": {
+    "file": "cnki.png",
+    "from": "https://www.cnki.net/favicon.ico (16x16 is all CNKI publishes)",
+    "license": "the brand's own icon, used only to name the engine"
+  },
+  "wos": {
+    "file": "wos.png",
+    "from": "https://www.webofscience.com/wos/static/favicon.png",
+    "license": "the brand's own icon, used only to name the engine",
+    "dark": "wos.dark.png",
+    "darkNote": "near-black pixels (the black arc) swapped to #ECECF6 for the dark page; the other colours are untouched"
+  },
+  "youtube": {
+    "file": "youtube.svg",
+    "from": "@iconify-json/logos 1.2.19 (\"SVG Logos\"), icon \"youtube-icon\"",
+    "license": "CC0-1.0 (the artwork itself is the brand's trademark)"
+  },
+  "bilibili": {
+    "file": "bilibili.svg",
+    "from": "simple-icons 16.37.0, icon \"bilibili\", brand colour #00A1D6",
+    "license": "CC0-1.0 data (the glyph itself is the brand's trademark)"
+  },
+  "zhihu": {
+    "file": "zhihu.svg",
+    "from": "simple-icons 16.37.0, icon \"zhihu\", brand colour #0084FF",
+    "license": "CC0-1.0 data (the glyph itself is the brand's trademark)"
+  },
+  "xiaohongshu": {
+    "file": "xiaohongshu.png",
+    "from": "https://www.rednote.com/favicon.ico",
+    "license": "the brand's own icon, used only to name the engine"
+  },
+  "sogou": {
+    "file": "sogou.svg",
+    "from": "simple-icons 16.37.0, icon \"sogou\", brand colour #FB6022",
+    "license": "CC0-1.0 data (the glyph itself is the brand's trademark)"
+  },
+  "wechat": {
+    "file": "wechat.svg",
+    "from": "simple-icons 16.37.0, icon \"wechat\", brand colour #07C160",
+    "license": "CC0-1.0 data (the glyph itself is the brand's trademark)"
+  },
+  "x": {
+    "file": "x.svg",
+    "from": "@iconify-json/logos 1.2.19 (\"SVG Logos\"), icon \"x\"",
+    "license": "CC0-1.0 (the artwork itself is the brand's trademark)",
+    "dark": "x.dark.svg",
+    "darkNote": "unpainted in the set (black); painted #F2F2F8 for the dark page"
+  },
+  "searxng": {
+    "file": "searxng.svg",
+    "from": "simple-icons 16.37.0, icon \"searxng\", brand colour #3050FF",
+    "license": "CC0-1.0 data (the glyph itself is the brand's trademark)"
+  }
+}

@@ -1,120 +1,42 @@
-// Builds lib/sourceIcons.ts: the little marks shown next to a result that several engines agree on.
+// Builds lib/sourceIcons.ts from assets/engine-logos: the little marks shown next to a result that several engines agree on.
 //
-//   npm pack simple-icons --pack-destination <dir> && tar -xzf <dir>/simple-icons-*.tgz -C <dir>
-//   node apps/extension/scripts/gen-source-icons.mjs <dir>/package
+//   node apps/extension/scripts/gen-source-icons.mjs
 //
-// Brand glyphs are copied out of Simple Icons (CC0; the marks themselves belong to their owners and are used here only to
-// name the engine they stand for). Engines Simple Icons doesn't carry get a letter badge. Nothing is fetched at run time.
+// The logos are not drawn here. Each file in assets/engine-logos is a brand's real logo, from an open icon collection or from the
+// brand's own site; logos.json says where each came from and NOTICE.md carries the licences. This script only turns those files into
+// data URIs, so nothing is fetched at run time. A new engine needs its logo file and a logos.json entry first.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const pkg = process.argv[2];
-if (!pkg) {
-  console.error('usage: gen-source-icons.mjs <path to an extracted simple-icons package>');
-  process.exit(1);
+const here = dirname(fileURLToPath(import.meta.url));
+const dir = join(here, '..', 'assets', 'engine-logos');
+const manifest = JSON.parse(readFileSync(join(dir, 'logos.json'), 'utf8'));
+
+function dataUri(file) {
+  const bytes = readFileSync(join(dir, file));
+  const type = file.endsWith('.svg') ? 'image/svg+xml' : file.endsWith('.png') ? 'image/png' : null;
+  if (!type) throw new Error(`unsupported logo type: ${file}`);
+  if (type === 'image/svg+xml' && /<script|onload\s*=|javascript:/i.test(bytes.toString('utf8'))) throw new Error(`${file} contains script`);
+  return `data:${type};base64,${bytes.toString('base64')}`;
 }
 
-/** key → Simple Icons slug, or a letter badge with its own colour. Keep keys in step with lib/sourceMarks.ts. */
-const MARKS = {
-  google: { slug: 'google' },
-  bing: { letter: 'b', color: '#0C6FD4' },
-  baidu: { slug: 'baidu' },
-  yandex: { letter: 'Y', color: '#E0301E' },
-  duckduckgo: { slug: 'duckduckgo' },
-  scholar: { slug: 'googlescholar' },
-  brave: { slug: 'brave' },
-  exa: { letter: 'E', color: '#3556E0' },
-  deepseek: { slug: 'deepseek' },
-  openalex: { letter: 'O', color: '#C2410C' },
-  arxiv: { slug: 'arxiv' },
-  crossref: { letter: 'C', color: '#C2410C' },
-  openverse: { slug: 'openverse' },
-  pubmed: { slug: 'pubmed' },
-  europepmc: { letter: 'P', color: '#1A7F5A' },
-  dblp: { slug: 'dblp' },
-  // Not Baidu's own glyph: two marks that look the same for two engines would read as one engine counted twice.
-  baiduxueshu: { letter: '学', color: '#2932E1' },
-  cnki: { letter: '知', color: '#C8161D' },
-  // Not Clarivate's glyph: that is the company's mark, not the product's.
-  wos: { letter: 'W', color: '#5E33BF' },
-  youtube: { slug: 'youtube' },
-  bilibili: { slug: 'bilibili' },
-  zhihu: { slug: 'zhihu' },
-  xiaohongshu: { slug: 'xiaohongshu' },
-  sogou: { slug: 'sogou' },
-  wechat: { slug: 'wechat' },
-  x: { slug: 'x' },
-  searxng: { slug: 'searxng' },
-};
-
-// Page backgrounds the marks sit on (--surface in lib/base.css, light and dark), as sRGB 0-255.
-function oklchToRgb(l, c, hDeg) {
-  const h = (hDeg * Math.PI) / 180;
-  const a = c * Math.cos(h);
-  const b = c * Math.sin(h);
-  const l_ = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-  const m_ = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-  const s_ = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
-  const lin = [4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_, -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_, -0.0041960863 * l_ - 0.7034186147 * m_ + 1.707614701 * s_];
-  return lin.map((v) => Math.round(255 * Math.min(1, Math.max(0, v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055))));
-}
-const LIGHT_BG = oklchToRgb(0.995, 0.003, 280);
-const DARK_BG = oklchToRgb(0.215, 0.016, 280);
-
-const toRgb = (hex) => [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
-const toHex = (rgb) => rgb.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase();
-const luminance = (rgb) => {
-  const [r, g, b] = rgb.map((v) => {
-    const s = v / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-};
-const contrast = (a, b) => {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-};
-/** Move the colour toward `target` until it reads (3:1, the minimum for a graphic) on `bg`. */
-function reach(rgb, bg, target) {
-  let out = rgb;
-  for (let t = 0; contrast(out, bg) < 3 && t <= 1; t += 0.05) out = rgb.map((v, i) => v + (target[i] - v) * t);
-  return out;
-}
-
-const data = JSON.parse(readFileSync(join(pkg, 'data', 'simple-icons.json'), 'utf8'));
-const entries = [];
-for (const [key, spec] of Object.entries(MARKS)) {
-  let hex;
-  let path;
-  if (spec.slug) {
-    const meta = data.find((icon) => (icon.slug ?? icon.title.toLowerCase().replace(/[^a-z0-9]/g, '')) === spec.slug);
-    const svg = readFileSync(join(pkg, 'icons', `${spec.slug}.svg`), 'utf8');
-    path = svg.match(/<path d="([^"]+)"/)?.[1];
-    hex = meta?.hex;
-    if (!path || !hex) throw new Error(`no glyph or colour for ${spec.slug}`);
-    if (!/^[MmLlHhVvCcSsQqTtAaZz0-9eE.,\s-]+$/.test(path) || !/^[0-9A-Fa-f]{6}$/.test(hex)) throw new Error(`unexpected data for ${spec.slug}`);
-  } else {
-    hex = spec.color.slice(1);
-  }
-  const rgb = toRgb(hex);
-  const light = reach(rgb, LIGHT_BG, [0, 0, 0]);
-  const dark = reach(rgb, DARK_BG, [255, 255, 255]);
-  entries.push({ key, path, letter: spec.letter, color: `#${toHex(light)}`, colorDark: `#${toHex(dark)}` });
-}
-
-const body = entries
-  .map(({ key, path, letter, color, colorDark }) => `  ${key}: { ${path ? `path: '${path}'` : `letter: '${letter}'`}, color: '${color}', colorDark: '${colorDark}' },`)
+const body = Object.entries(manifest)
+  .map(([key, entry]) => {
+    if (!entry.from || !entry.license) throw new Error(`${key}: logos.json must say where the logo came from and under what licence`);
+    const parts = [`src: '${dataUri(entry.file)}'`];
+    if (entry.dark) parts.push(`dark: '${dataUri(entry.dark)}'`);
+    if (entry.invertInDark) parts.push('invertInDark: true');
+    return `  ${key}: { ${parts.join(', ')} },`;
+  })
   .join('\n');
 
-const out = `// Generated by scripts/gen-source-icons.mjs (Simple Icons ${JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8')).version}, CC0). Do not edit by hand.
-// \`path\` is a 24px-grid glyph; \`letter\` is a badge for engines Simple Icons doesn't carry. Colours are the brand's own,
-// moved just far enough to keep 3:1 against the page in each theme (\`color\` on light, \`colorDark\` on dark).
+const out = `// Generated by scripts/gen-source-icons.mjs from assets/engine-logos (provenance and licences: assets/engine-logos/NOTICE.md). Do not edit by hand.
+// \`src\` is the brand's logo as a data URI; \`dark\` replaces it on the dark page where it would vanish; \`invertInDark\` marks a black raster that is inverted there.
 export interface MarkArt {
-  path?: string;
-  letter?: string;
-  color: string;
-  colorDark: string;
+  src: string;
+  dark?: string;
+  invertInDark?: boolean;
 }
 
 export const MARK_ART = {
@@ -123,6 +45,6 @@ ${body}
 
 export type MarkKey = keyof typeof MARK_ART;
 `;
-const target = join(dirname(fileURLToPath(import.meta.url)), '..', 'lib', 'sourceIcons.ts');
+const target = join(here, '..', 'lib', 'sourceIcons.ts');
 writeFileSync(target, out);
-console.log(`wrote ${target} (${entries.length} marks)`);
+console.log(`wrote ${target} (${Object.keys(manifest).length} marks, ${(out.length / 1024).toFixed(0)} KB)`);

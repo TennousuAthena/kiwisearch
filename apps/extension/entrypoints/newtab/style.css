@@ -103,26 +103,27 @@
 .result { padding: 0.25rem 0.75rem; margin: -0.25rem -0.75rem; border-radius: var(--radius-md); transition: background-color 0.15s var(--ease-out); }
 .result.hl { background: var(--accent-soft); }
 .site { display: flex; align-items: center; gap: 0.75rem; min-width: 0; margin-bottom: 0.2rem; }
-.site img { flex: none; width: 1.75rem; height: 1.75rem; padding: 4px; border: 1px solid var(--border); border-radius: 50%; background: var(--surface-2); object-fit: contain; }
+.site > img { flex: none; width: 1.75rem; height: 1.75rem; padding: 4px; border: 1px solid var(--border); border-radius: 50%; background: var(--surface-2); object-fit: contain; }
 .site .site-fallback { display: grid; flex: none; place-items: center; width: 1.75rem; height: 1.75rem; border: 1px solid var(--border); border-radius: 50%; background: var(--surface-2); color: var(--fg-3); font-size: 0.8125rem; font-weight: 600; line-height: 1; }
 .site-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
 .site-name { color: var(--fg); font-size: 0.875rem; }
 .site-line { display: flex; align-items: center; min-width: 0; }
 
 /* Engine marks: the engines that agree on a result. Three at most, fading to the right; any more stay folded until the row is
-   hovered or focused, when all of them unfold at full strength. Colours (--c, --cd) are set per mark from lib/sourceIcons.ts. */
+   hovered or focused, when all of them unfold at full strength. The logos themselves are in lib/sourceIcons.ts (generated from assets/engine-logos). */
 .src-marks { --mark: 0.9375rem; display: inline-flex; flex: none; align-items: center; margin: -0.25rem 0 -0.25rem 0.5rem; padding: 0.25rem 0.125rem; border-radius: 6px; vertical-align: middle; cursor: default; }
-.src-mark { flex: none; width: var(--mark); max-width: var(--mark); height: var(--mark); margin-left: 0.3rem; overflow: hidden; color: var(--c); transition: opacity 0.2s var(--ease-out), max-width 0.3s var(--ease-out), margin-left 0.3s var(--ease-out); }
+.src-mark { flex: none; width: var(--mark); max-width: var(--mark); height: var(--mark); margin-left: 0.3rem; overflow: hidden; transition: opacity 0.2s var(--ease-out), max-width 0.3s var(--ease-out), margin-left 0.3s var(--ease-out); }
 .src-mark:first-child { margin-left: 0; }
 .src-mark:nth-child(2) { opacity: 0.65; }
 .src-mark:nth-child(3) { opacity: 0.4; }
 .src-mark:nth-child(n + 4) { max-width: 0; margin-left: 0; opacity: 0; }
-.src-mark svg { display: block; }
-.src-mark text { fill: var(--surface); font: 700 16px system-ui, sans-serif; }
+.src-mark picture, .src-mark img { display: block; width: 100%; height: 100%; }
+.src-mark img { padding: 0; border: 0; border-radius: 0; background: none; object-fit: contain; }
 .src-marks:hover .src-mark, .src-marks:focus-visible .src-mark { max-width: var(--mark); opacity: 1; transition-delay: calc(var(--i) * 30ms); }
 .src-marks:hover .src-mark:nth-child(n + 4), .src-marks:focus-visible .src-mark:nth-child(n + 4) { margin-left: 0.3rem; }
 .paper-links .src-marks { margin-left: 0; }
-@media (prefers-color-scheme: dark) { .src-mark { color: var(--cd); } }
+/* A black raster logo has no dark variant: invert it on the dark page. */
+@media (prefers-color-scheme: dark) { .src-mark img.inv { filter: invert(1); } }
 @media (prefers-reduced-motion: reduce) { .src-mark { transition: none; } }
 .site cite { overflow: hidden; color: var(--fg-3); font-size: 0.75rem; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
 .result-title { margin: 0.1rem 0 0.15rem; font-size: 1.25rem; font-weight: 400; line-height: 1.3; }
