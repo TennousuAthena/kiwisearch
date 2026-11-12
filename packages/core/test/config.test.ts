@@ -16,6 +16,20 @@ describe('config versioning', () => {
     expect(merged.sources.bing?.enabled).toBe(true);
   });
 
+  it('gives a config stored before block lists existed the defaults, and fills what a partial one leaves out', () => {
+    const before = mergeConfig(DEFAULT_CONFIG, migrateConfig({ judge: { blockedDomains: ['a.com'] } }));
+    expect(before.judge.blockedDomains).toEqual(['a.com']);
+    expect(before.judge.blocklists).toEqual({ recommended: [], subscriptions: [], custom: '' });
+    const partial = mergeConfig(DEFAULT_CONFIG, migrateConfig({ judge: { blocklists: { recommended: ['x'] } } }));
+    expect(partial.judge.blocklists).toEqual({ recommended: ['x'], subscriptions: [], custom: '' });
+  });
+
+  it('does not share the default block lists between configs', () => {
+    const merged = mergeConfig(DEFAULT_CONFIG, undefined);
+    merged.judge.blocklists.recommended.push('x');
+    expect(DEFAULT_CONFIG.judge.blocklists.recommended).toEqual([]);
+  });
+
   it('ignores junk and keeps unknown newer versions readable', () => {
     expect(migrateConfig(undefined)).toBeUndefined();
     expect(migrateConfig('nope')).toBeUndefined();

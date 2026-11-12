@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG } from '../src/config';
 import { createSourceCache } from '../src/cache';
+import { parseBlocklist } from '../src/blocklist';
 import { runSearch } from '../src/pipeline';
-import type { Env, FusionConfig, PipelineEvent, SearchHit, SourceId } from '../src/types';
+import type { Env, FusedResult, FusionConfig, PipelineEvent, SearchHit, SourceId } from '../src/types';
 
 function configFor(...enabled: SourceId[]): FusionConfig {
   const config = structuredClone(DEFAULT_CONFIG);
@@ -334,6 +335,79 @@ describe('runSearch', () => {
     expect(fused.map((event) => event.type === 'fused' && !!event.partial)).toEqual([true, false]);
     expect(fused[0].type === 'fused' && fused[0].results).toHaveLength(1);
     expect(fused[1].type === 'fused' && fused[1].results).toHaveLength(2);
+  });
+
+  describe('block lists', () => {
+    const hitsFor = (engine: { id: SourceId }) => [hit(engine.id, 'https://farm.example.com/a', 'farm page'), hit(engine.id, `https://good.example.org/${engine.id}`, `good ${engine.id}`)];
+    const envWith = (extra: Partial<Env> = {}, slow?: SourceId): Env => ({
+      fetch,
+      runBrowserEngine: async (engine) => {
+        if (engine.id === slow) await delay(40);
+        return hitsFor(engine);
+      },
+      ...extra,
+    });
+    const hiddenTitles = (results: FusedResult[]) => results.filter((r) => r.hidden).map((r) => [r.title, r.hidden]);
+
+    it('hides what the user\'s own rules name, in the partial updates as well as the final list', async () => {
+      const config = configFor('google', 'bing');
+      config.judge.blocklists.custom = '*://*.example.com/*';
+      const events: PipelineEvent[] = [];
+      const result = await runSearch('query', config, envWith({}, 'bing'), { onEvent: (event) => events.push(event) });
+      expect(hiddenTitles(result.results)).toEqual([['farm page', { reason: 'blocked', list: '自定义规则' }]]);
+      const partial = events.find((event) => event.type === 'fused' && event.partial);
+      expect(partial?.type === 'fused' && hiddenTitles(partial.results)).toEqual([['farm page', { reason: 'blocked', list: '自定义规则' }]]);
+    });
+
+    it('applies the subscribed lists the caller keeps, asking for them with this search\'s settings', async () => {
+      const config = configFor('google');
+      config.judge.blocklists.recommended = ['content-farm-terminator'];
+      const asked: unknown[] = [];
+      const env = envWith({
+        loadBlocklists: async (settings) => {
+          asked.push(settings);
+          return [{ id: 'content-farm-terminator', name: 'Content Farm Terminator', rules: parseBlocklist('example.com\n@@||good.example.org^').rules }];
+        },
+      });
+      const result = await runSearch('query', config, env);
+      expect(asked).toEqual([config.judge.blocklists]);
+      expect(hiddenTitles(result.results)).toEqual([['farm page', { reason: 'blocked', list: 'Content Farm Terminator' }]]);
+    });
+
+    it('still searches when the lists cannot be read', async () => {
+      const config = configFor('google');
+      config.judge.blocklists.custom = 'farm.example.com';
+      const env = envWith({
+        loadBlocklists: async () => {
+          throw new Error('storage unavailable');
+        },
+      });
+      const result = await runSearch('query', config, env);
+      expect(result.results).toHaveLength(2);
+      expect(hiddenTitles(result.results)).toEqual([['farm page', { reason: 'blocked', list: '自定义规则' }]]);
+    });
+
+    it('changes nothing when no list is set', async () => {
+      const result = await runSearch('query', configFor('google'), envWith());
+      expect(hiddenTitles(result.results)).toEqual([]);
+    });
+
+    it('also filters sources that arrive after the soft deadline', async () => {
+      const config = configFor('google', 'bing');
+      config.judge.blocklists.custom = 'farm.example.com';
+      const events: PipelineEvent[] = [];
+      const env: Env = {
+        fetch,
+        runBrowserEngine: async (engine) => {
+          if (engine.id === 'bing') await delay(120);
+          return engine.id === 'bing' ? [hit('bing', 'https://farm.example.com/late', 'late farm')] : hitsFor(engine);
+        },
+      };
+      await runSearch('query', config, env, { softDeadlineMs: 30, onEvent: (event) => events.push(event) });
+      await delay(200);
+      const late = events.find((event) => event.type === 'late_results');
+      expect(late?.type === 'late_results' && late.results.filter((r) => r.hidden).map((r) => r.title).sort()).toEqual(['farm page', 'late farm']);
+    });
   });
 
   it('lets slow sources merge in late after the soft deadline', async () => {

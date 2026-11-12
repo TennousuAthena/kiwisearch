@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { compileBlocklist, parseBlocklist } from '../src/blocklist';
 import { DEFAULT_CONFIG } from '../src/config';
 import { fuse } from '../src/fusion';
 import {
@@ -261,6 +262,48 @@ describe('applyDomainRules', () => {
   it('is a no-op without lists', () => {
     const input = list();
     expect(applyDomainRules(input, judgeConfig().judge)).toBe(input);
+  });
+
+  describe('with block lists', () => {
+    const farm = compileBlocklist([{ id: 'farm', name: '农场清单', rules: parseBlocklist('spamsite.com\n@*://docs.spamsite.com/*').rules }]);
+
+    it('hides what a list names, says which list did, and leaves the rest', () => {
+      const out = applyDomainRules(list(), judgeConfig().judge, farm);
+      expect(out.filter((r) => r.hidden).map((r) => [r.title, r.hidden])).toEqual([
+        ['one', { reason: 'blocked', list: '农场清单' }],
+        ['two', { reason: 'blocked', list: '农场清单' }],
+      ]);
+      expect(out.slice(0, 2).map((r) => r.title)).toEqual(['three', 'four']);
+    });
+
+    it('keeps an excepted address and lets the user\'s own list win with no list name', () => {
+      const input = results(hit('https://docs.spamsite.com/a', 'docs', 1), hit('https://blog.spamsite.com/b', 'blog', 2));
+      expect(applyDomainRules(input, judgeConfig().judge, farm).map((r) => [r.title, !!r.hidden])).toEqual([['docs', false], ['blog', true]]);
+      const own = applyDomainRules(input, judgeConfig({ blockedDomains: ['docs.spamsite.com'] }).judge, farm);
+      expect(own.find((r) => r.title === 'docs')?.hidden).toEqual({ reason: 'blocked' });
+    });
+
+    it('does not let a list hide a site the user boosted', () => {
+      const out = applyDomainRules(list(), judgeConfig({ boostedDomains: ['blog.spamsite.com'] }).judge, farm);
+      expect(out.filter((r) => r.hidden).map((r) => r.title)).toEqual(['one']);
+      expect(out[0].title).toBe('two');
+    });
+
+    it('is repeatable, and lifts the label when the list no longer applies', () => {
+      const once = applyDomainRules(list(), judgeConfig().judge, farm);
+      expect(applyDomainRules(once, judgeConfig().judge, farm).map((r) => [r.title, r.hidden])).toEqual(once.map((r) => [r.title, r.hidden]));
+      const lifted = applyDomainRules(once, judgeConfig({ boostedDomains: ['x.example'] }).judge);
+      expect(lifted.filter((r) => r.hidden)).toHaveLength(0);
+    });
+
+    it('keeps a list-blocked result hidden through judging', () => {
+      const blocked = applyDomainRules(list(), judgeConfig().judge, farm);
+      const judged = applyJudgments(blocked, new Map(blocked.map((r) => [r.key, judgment(3)])), judgeConfig().judge);
+      expect(judged.filter((r) => r.hidden).map((r) => r.hidden)).toEqual([
+        { reason: 'blocked', list: '农场清单' },
+        { reason: 'blocked', list: '农场清单' },
+      ]);
+    });
   });
 });
 

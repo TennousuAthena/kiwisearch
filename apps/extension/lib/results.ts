@@ -13,7 +13,7 @@ export function hiddenLabel(hidden: HiddenReason): string {
     case 'rule':
       return `符合你的过滤规则：${hidden.rule}`;
     case 'blocked':
-      return '来自你屏蔽的网站';
+      return hidden.list ? `命中屏蔽列表「${hidden.list}」` : '来自你屏蔽的网站';
   }
 }
 

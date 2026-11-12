@@ -160,6 +160,15 @@
 .rules-add { display: flex; gap: 0.5rem; }
 .rules-add input { flex: 1; min-width: 0; }
 
+/* Block lists */
+.source-name .list-url { overflow: hidden; font-family: var(--font-mono); font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; }
+.group > .sources + .card { margin-top: 0.75rem; }
+.list-status { display: block; margin-top: 0.15rem; font-size: 0.8125rem; line-height: 1.5; overflow-wrap: anywhere; }
+.list-status.ok { color: var(--ok); }
+.list-status.bad { color: var(--bad); }
+.source-side .license { color: var(--fg-3); font-size: 0.75rem; white-space: nowrap; }
+.options-page textarea.rules-text { min-height: 8rem; font: 0.8125rem/1.6 var(--font-mono); white-space: pre; overflow-x: auto; }
+
 /* LLM test */
 .test-row { display: flex; align-items: center; gap: 0.75rem; }
 .test-result { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8125rem; overflow-wrap: anywhere; }

@@ -48,7 +48,8 @@ describe('result helpers', () => {
     expect(hiddenLabel({ reason: 'junk' })).toMatch(/内容农场/);
     expect(hiddenLabel({ reason: 'irrelevant' })).toMatch(/关系不大/);
     expect(hiddenLabel({ reason: 'rule', rule: '搬运文' })).toContain('搬运文');
-    expect(hiddenLabel({ reason: 'blocked' })).toMatch(/屏蔽/);
+    expect(hiddenLabel({ reason: 'blocked' })).toBe('来自你屏蔽的网站');
+    expect(hiddenLabel({ reason: 'blocked', list: 'Content Farm Terminator' })).toBe('命中屏蔽列表「Content Farm Terminator」');
   });
 
   it('builds a Google-style address line', () => {

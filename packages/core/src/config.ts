@@ -70,6 +70,8 @@ export const DEFAULT_CONFIG: FusionConfig = {
     timeoutMs: 12000,
     blockedDomains: [],
     boostedDomains: [],
+    // Off until the user subscribes: a subscription is a request to a third-party host, so it is their call.
+    blocklists: { recommended: [], subscriptions: [], custom: '' },
     rules: [],
   },
   intent: { enabled: true, threshold: 0.6, timeoutMs: 8000, autoSwitch: true, switchThreshold: 0.85 },
@@ -129,7 +131,12 @@ export function mergeConfig(base: FusionConfig, patch: DeepPartial<FusionConfig>
     ...base,
     ...stripUndefined(patch),
     sources,
-    judge: { ...base.judge, ...stripUndefined(patch.judge), llm: { ...base.judge.llm, ...stripUndefined(patch.judge?.llm) } },
+    judge: {
+      ...base.judge,
+      ...stripUndefined(patch.judge),
+      llm: { ...base.judge.llm, ...stripUndefined(patch.judge?.llm) },
+      blocklists: { ...base.judge.blocklists, ...stripUndefined(patch.judge?.blocklists) },
+    },
     intent: { ...base.intent, ...stripUndefined(patch.intent) },
     academic: { ...base.academic, ...stripUndefined(patch.academic) },
     rerank: { ...base.rerank, ...stripUndefined(patch.rerank) },

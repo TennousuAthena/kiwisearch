@@ -1,3 +1,4 @@
+import type { Blocklist } from './blocklist';
 import { askDecision, asProbability, canFallBack, chatForJson, decisionLlm, decisionModelUsable, isHardFailure, numberFrom, postSystemOne, resolveDecisionProvider, type SystemOneResponse } from './decision';
 import { errorMessage, withTimeout } from './http';
 import { truncate } from './text';
@@ -253,22 +254,33 @@ function arrange(results: FusedResult[]): FusedResult[] {
 }
 
 /**
- * Deterministic filtering: blocked domains are hidden, boosted ones move up.
+ * Deterministic filtering: blocked sites are hidden, boosted ones move up.
  * Needs no decision model, so it also runs without an API key.
+ *
+ * What hides a result, in order: the user's own "sites I don't want" list; then the block lists (subscribed ones and the user's
+ * own rules), unless an exception in any list names the address or the user boosted the site.
  */
-export function applyDomainRules(results: FusedResult[], judge: FusionConfig['judge']): FusedResult[] {
+export function applyDomainRules(results: FusedResult[], judge: FusionConfig['judge'], lists?: Blocklist): FusedResult[] {
   const blocked = normalizedDomains(judge.blockedDomains);
   const boosted = normalizedDomains(judge.boostedDomains);
-  if (!blocked.length && !boosted.length) return results;
+  if (!blocked.length && !boosted.length && !lists) return results;
+  const blockedBy = (result: FusedResult): HiddenReason | undefined => {
+    if (matchesDomain(result, blocked)) return { reason: 'blocked' };
+    if (!lists || matchesDomain(result, boosted)) return undefined;
+    const list = lists.match(result.url, result.host ?? hostOf(result.url));
+    return list === undefined ? undefined : { reason: 'blocked', list };
+  };
+  const reasons = results.map(blockedBy);
   const maxRrf = Math.max(...results.map((r) => r.rrfScore), 1e-9);
   // Only plain RRF scores are derived here (from rrfScore, so repeating this is harmless);
   // judged and reranked results get their boost in applyJudgments / keep their scores.
   const isPlain = (r: FusedResult) => !r.hidden && !r.judgment && r.rerankScore === undefined && !r.late;
   const boostedRaw = (r: FusedResult) => (r.rrfScore / maxRrf) * (matchesDomain(r, boosted) ? BOOST : 1);
-  const plain = results.filter((r) => !matchesDomain(r, blocked) && isPlain({ ...r, hidden: undefined }));
+  const plain = results.filter((r, i) => !reasons[i] && isPlain({ ...r, hidden: undefined }));
   const plainMax = Math.max(...plain.map(boostedRaw), 1e-9);
-  const out = results.map((result): FusedResult => {
-    if (matchesDomain(result, blocked)) return { ...result, hidden: { reason: 'blocked' } };
+  const out = results.map((result, i): FusedResult => {
+    const reason = reasons[i];
+    if (reason) return { ...result, hidden: reason };
     let next = result;
     if (next.hidden?.reason === 'blocked') {
       const { hidden: _hidden, ...rest } = next;

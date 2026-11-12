@@ -1,5 +1,6 @@
 import { DEFAULT_CONFIG, resultCount, sourcesForRoutes, usableSources } from './config';
 import { landmarksOf, planAcademicQuery, planSourceIds, searchWithPlan, verifyPapers } from './academic';
+import { loadBlocklist, type Blocklist } from './blocklist';
 import { fetchContents } from './content';
 import { applyRerank, fuse, mergeLateHits } from './fusion';
 import { errorMessage, withTimeout } from './http';
@@ -56,6 +57,12 @@ export async function runSearch(
         : `No usable sources for ${mode} search. Enable one in settings.`,
     );
   }
+
+  // The block lists are read while the sources start, and every list of results is filtered with the same snapshot of them.
+  let lists: Blocklist | undefined;
+  const listsReady = loadBlocklist(config, env).then((loaded) => {
+    lists = loaded;
+  });
 
   const sourceStats: PipelineResult['sourceStats'] = [];
   const recordStat = (stat: PipelineResult['sourceStats'][number]) => {
@@ -176,7 +183,8 @@ export async function runSearch(
     }
     emit({ type: 'source_done', source: run.id, count: outcome.hits.length, ms: outcome.ms });
     if (signal?.aborted) return;
-    let merged = applyDomainRules(mergeLateHits(currentResults, outcome.hits, weights), config.judge);
+    await listsReady;
+    let merged = applyDomainRules(mergeLateHits(currentResults, outcome.hits, weights), config.judge, lists);
     if (judgeEnabled(config)) {
       const unjudged = merged.filter((r) => !r.judgment && !r.hidden).slice(0, config.judge.candidates);
       if (unjudged.length) {
@@ -256,7 +264,10 @@ export async function runSearch(
       textSeen = true;
       resolveFirstText();
     }
-    if (pending > 0 || intentPending || planPending) emit({ type: 'fused', results: fuse(collected(), weights), partial: true });
+    if (pending > 0 || intentPending || planPending) {
+      await listsReady;
+      emit({ type: 'fused', results: applyDomainRules(fuse(collected(), weights), config.judge, lists), partial: true });
+    }
   };
 
   const runs: SourceRun[] = [];
@@ -356,7 +367,9 @@ export async function runSearch(
   }
   signal?.throwIfAborted();
 
-  let results: FusedResult[] = applyDomainRules(fuse(collected(), weights), config.judge);
+  await listsReady;
+  signal?.throwIfAborted();
+  let results: FusedResult[] = applyDomainRules(fuse(collected(), weights), config.judge, lists);
   emit({ type: 'fused', results });
 
   const textual = modeHasText(mode);
