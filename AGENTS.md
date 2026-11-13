@@ -77,5 +77,5 @@ For people (Chinese), indexed in [docs/README.md](docs/README.md): [docs/USAGE.m
 - **One topic, one file** in `docs/internals/`, named for the topic (not for a date or a change). Design decisions and "checked on <date>: … / not checked: …" records go there. A new file gets a row in the docs map above.
 - **Change the code and its topic file together**, and write dates as absolute dates.
 - **Docs for people are Chinese** and live in `docs/*.md`, indexed by `docs/README.md`; the internals are English.
-- **`README.md` (English) and `README.zh-CN.md` only introduce the product**: features, a notice, the license. Install, usage and everything else go in `docs/`. Keep the two READMEs in step.
+- **`README.md` (English) and `README.zh-CN.md` only introduce the product**: features, a notice, the license. Install, usage and everything else go in `docs/`. Keep the two READMEs in step. The READMEs and the social preview (`design/social/`) never hardcode counts or lists of sources, engines, modes or supported browsers, because they keep growing: describe them by category and point to the extension's settings or `docs/USAGE.md`.
 - If a rule here needs more than a few lines, move the explanation into its topic file and keep a one-line rule with a link.

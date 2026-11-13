@@ -21,8 +21,8 @@ apps/extension/.output/chrome-mv3
 
 ## 功能详情
 
-- **十种搜索模式**：网页、图片、视频、新闻、购物、学术、知乎、小红书、公众号、X。每个来源声明自己支持哪些模式，搜索时只查支持当前模式的来源。
-- **34 个来源**：23 个由浏览器渲染（Google、Bing、DuckDuckGo、Brave 网页、Google Scholar、YouTube、哔哩哔哩、知乎、小红书、X 等），11 个走官方 API（OpenAlex、Crossref、arXiv、PubMed、Exa、Brave API 等）。见下文“搜索模式与来源”。
+- **搜索模式**：网页、图片、视频、新闻、购物、学术，以及知乎、小红书、公众号、X 等平台。每个来源声明自己支持哪些模式，搜索时只查支持当前模式的来源。模式会陆续增加，当前的完整列表见下文“搜索模式与来源”。
+- **多个来源**：一部分由浏览器渲染（Google、Bing、DuckDuckGo、Brave 网页、Google Scholar、YouTube、哔哩哔哩、知乎、小红书、X 等），一部分走官方 API（OpenAlex、Crossref、arXiv、PubMed、Exa、Brave API 等）。来源会陆续增加，当前的完整列表见下文“搜索模式与来源”和扩展的设置页。
 - **去重与融合**：URL 归一化（去跟踪参数，DOI、arXiv、视频、笔记各有自己的键），论文按 DOI 或标题加年份合并，同一篇文章的多站点转载折叠成一条，维基百科同一词条的各语言版本和简繁体（粤语、吴语、文言等）按浏览器语言只留一份，最后 RRF 融合，每个来源的权重可调。
 - **决策模型过滤**：判断每条结果是否相关、是否内容农场或搬运内容，以及你写的自然语言规则；被隐藏的结果折叠在页面底部，注明原因，一次点击展开。决策模型是可换服务商的一层，见 [docs/DECISION-PROVIDERS.md](DECISION-PROVIDERS.md)。
 - **屏蔽列表**：订阅别人维护的内容农场名单，或粘贴自己的规则，支持 uBlock Origin、uBlacklist 和 hosts 格式，不需要任何 Key。见 [docs/BLOCKLISTS.md](BLOCKLISTS.md)。
@@ -141,7 +141,7 @@ pnpm --filter @kiwi-search/mcp build
 
 Cursor 的 MCP 配置使用相同的 `command` / `args`，写入项目或用户的 `mcp.json`。
 
-MCP 服务首次运行时，会在 `~/.kiwi-search/token` 以 `0600` 权限生成配对令牌，并将令牌和设置说明输出到 stderr。将令牌复制到扩展“设置 → 高级 → MCP 桥 → 配对令牌”，保存并保持 Chrome / Edge 运行。服务只监听 `127.0.0.1`；如需额外限制扩展 ID，可设置 `KIWI_EXTENSION_ID`。默认端口为 `17345`，可通过 `KIWI_PORT` 修改；同一端口上后续启动的 MCP 客户端会通过现有本地服务中继到扩展。
+MCP 服务首次运行时，会在 `~/.kiwi-search/token` 以 `0600` 权限生成配对令牌，并将令牌和设置说明输出到 stderr。将令牌复制到扩展“设置 → 高级 → MCP 桥 → 配对令牌”，保存并保持浏览器运行。服务只监听 `127.0.0.1`；如需额外限制扩展 ID，可设置 `KIWI_EXTENSION_ID`。默认端口为 `17345`，可通过 `KIWI_PORT` 修改；同一端口上后续启动的 MCP 客户端会通过现有本地服务中继到扩展。
 
 提供的工具：
 
