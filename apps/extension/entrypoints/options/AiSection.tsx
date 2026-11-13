@@ -28,7 +28,6 @@ export function AiSection({ config, onChange }: Props) {
   const { judge } = config;
   const provider = judge.provider;
   const dedicatedReady = systemOneUsable(judge);
-  const summaryOn = config.summary.enabled;
   // The chat model is the main decision model (`llm`), or the stand-in behind a dedicated one.
   const chatModelInUse = provider === 'llm' || (provider === 'systemone' && judge.fallbackToLlm);
 
@@ -52,18 +51,17 @@ export function AiSection({ config, onChange }: Props) {
       </div>
 
       <div className="card">
-        <SwitchRow checked={summaryOn} onChange={(enabled) => setSummary({ enabled })} title={t('options.ai.summaryTitle')} hint={t('options.ai.summaryHint')} />
-        {summaryOn && (
-          <div className="card-body">
-            <Field label={t('options.ai.summarySourceLabel')}>
-              <select value={config.summary.provider} onChange={(event) => setSummary({ provider: event.target.value as FusionConfig['summary']['provider'] })}>
-                <option value="api">{t('options.ai.summarySourceApi')}</option>
-                <option value="chrome-builtin">{t('options.ai.summarySourceBuiltin')}</option>
-              </select>
-            </Field>
-            <LanguageFields summary={config.summary} onChange={setSummary} />
-          </div>
-        )}
+        <strong className="card-title">{t('options.ai.summaryTitle')}</strong>
+        <p className="card-lead">{t('options.ai.summaryHint')} <a href="#preferences">{t('options.ai.summaryPreferences')}</a></p>
+        <div className="card-body">
+          <Field label={t('options.ai.summarySourceLabel')}>
+            <select value={config.summary.provider} onChange={(event) => setSummary({ provider: event.target.value as FusionConfig['summary']['provider'] })}>
+              <option value="api">{t('options.ai.summarySourceApi')}</option>
+              <option value="chrome-builtin">{t('options.ai.summarySourceBuiltin')}</option>
+            </select>
+          </Field>
+          <LanguageFields summary={config.summary} onChange={setSummary} />
+        </div>
       </div>
 
       <div className="card">

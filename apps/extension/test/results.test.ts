@@ -8,6 +8,7 @@ import {
   COMMUNITY_MODES,
   MODES,
   isCommunityMode,
+  hasCjk,
   hiddenLabel,
   iconHost,
   modeHasOverview,
@@ -50,6 +51,14 @@ describe('result helpers', () => {
     expect(hiddenLabel({ reason: 'rule', rule: '搬运文' })).toContain('搬运文');
     expect(hiddenLabel({ reason: 'blocked' })).toBe('来自你屏蔽的网站');
     expect(hiddenLabel({ reason: 'blocked', list: 'Content Farm Terminator' })).toBe('命中屏蔽列表“Content Farm Terminator”');
+    expect(hiddenLabel({ reason: 'language' })).toBe('语言不符：当前只看英文文献');
+  });
+
+  it('tells text with Chinese, Japanese or Korean characters from text without', () => {
+    expect(hasCjk('深度学习 review')).toBe(true);
+    expect(hasCjk('ディープラーニング')).toBe(true);
+    expect(hasCjk('딥러닝')).toBe(true);
+    expect(hasCjk('deep learning α-synuclein')).toBe(false);
   });
 
   it('builds a Google-style address line', () => {
@@ -102,16 +111,19 @@ describe('result helpers', () => {
   });
 
   it('lists the modes in tab order and knows which have an AI overview', () => {
-    expect(MODES).toEqual(['web', 'images', 'video', 'academic', 'zhihu', 'xiaohongshu', 'wechat', 'x']);
-    expect(MODES.filter(modeHasOverview)).toEqual(['web', 'academic', 'zhihu', 'wechat']);
+    expect(MODES).toEqual(['web', 'images', 'video', 'news', 'shopping', 'academic', 'zhihu', 'xiaohongshu', 'wechat', 'x']);
+    expect(MODES.filter(modeHasOverview)).toEqual(['web', 'news', 'academic', 'zhihu', 'wechat']);
   });
 
   it('names the video platforms from the result link, not from the search source', () => {
     expect(siteLabel({ url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', host: 'youtube.com', meta: {} })).toBe('YouTube');
     expect(siteLabel({ url: 'https://www.bilibili.com/video/BV1N2WT6tE1H/', host: 'bilibili.com', meta: {} })).toBe('哔哩哔哩');
+    expect(siteLabel({ url: 'https://www.douyin.com/video/123', host: 'douyin.com', meta: {} })).toBe('抖音');
   });
 
   it('round-trips the mode through the page URL, keeping web search URLs clean', () => {
+    expect(parseMode('shopping')).toBe('shopping');
+    expect(searchUrl('chrome-extension://abc/newtab.html', '耳机', 'shopping')).toBe('chrome-extension://abc/newtab.html?q=%E8%80%B3%E6%9C%BA&m=shopping');
     expect(parseMode('images')).toBe('images');
     expect(parseMode('academic')).toBe('academic');
     expect(parseMode('video')).toBe('video');
@@ -125,6 +137,16 @@ describe('result helpers', () => {
     expect(parseMode(null)).toBe('web');
     expect(searchUrl('chrome-extension://abc/newtab.html?m=images', 'a b', 'web')).toBe('chrome-extension://abc/newtab.html?q=a+b');
     expect(searchUrl('chrome-extension://abc/newtab.html', 'a', 'academic')).toBe('chrome-extension://abc/newtab.html?q=a&m=academic');
+  });
+
+  it('names shopping platforms and retains the shopping tab with an empty query', () => {
+    expect(siteLabel({ url: 'https://item.taobao.com/item.htm?id=123', meta: {} })).toBe('淘宝');
+    expect(siteLabel({ url: 'https://detail.tmall.com/item.htm?id=123', meta: {} })).toBe('天猫');
+    expect(siteLabel({ url: 'https://item.jd.com/123.html', meta: {} })).toBe('京东');
+    expect(siteLabel({ url: 'https://www.amazon.com/dp/B012345678', meta: {} })).toBe('Amazon');
+    expect(searchUrl('chrome-extension://abc/newtab.html?q=old&m=news&range=week&sort=date', '', 'shopping')).toBe('chrome-extension://abc/newtab.html?m=shopping');
+    expect(isCommunityMode('shopping')).toBe(false);
+    expect(modeHasOverview('shopping')).toBe(false);
   });
 });
 
@@ -177,7 +199,7 @@ describe('community platforms in a general list', () => {
 
 describe('tab structure', () => {
   it('folds the platforms into one tab and leaves the content types', () => {
-    expect(MODES.filter((m) => !isCommunityMode(m))).toEqual(['web', 'images', 'video', 'academic']);
+    expect(MODES.filter((m) => !isCommunityMode(m))).toEqual(['web', 'images', 'video', 'news', 'shopping', 'academic']);
     expect(COMMUNITY_MODES).toEqual(['zhihu', 'xiaohongshu', 'wechat', 'x']);
     for (const mode of COMMUNITY_MODES) expect(MODES).toContain(mode);
   });

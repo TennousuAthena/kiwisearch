@@ -29,11 +29,16 @@ Font Awesome Free Brands icons are licensed CC BY 4.0 by Fonticons, Inc. (https:
 | wos | `wos.png` | https://www.webofscience.com/wos/static/favicon.png | the brand's own icon, used only to name the engine |
 | youtube | `youtube.svg` | @iconify-json/logos 1.2.19 ("SVG Logos"), icon "youtube-icon" | CC0-1.0 (the artwork itself is the brand's trademark) |
 | bilibili | `bilibili.svg` | simple-icons 16.37.0, icon "bilibili", brand colour #00A1D6 | CC0-1.0 data (the glyph itself is the brand's trademark) |
+| douyin | `douyin.png` | https://www.douyin.com/favicon.ico (32x32 frame, converted to PNG) | the brand's own icon, used only to name the engine |
 | zhihu | `zhihu.svg` | simple-icons 16.37.0, icon "zhihu", brand colour #0084FF | CC0-1.0 data (the glyph itself is the brand's trademark) |
 | xiaohongshu | `xiaohongshu.png` | https://www.rednote.com/favicon.ico | the brand's own icon, used only to name the engine |
 | sogou | `sogou.svg` | simple-icons 16.37.0, icon "sogou", brand colour #FB6022 | CC0-1.0 data (the glyph itself is the brand's trademark) |
+| yuanbao | `yuanbao.png` | https://img04.sogoucdn.com/app/a/200797/67ccebd6-a50c-45f8-8a4c-7a5276422e19 (the rel=icon on https://so.qq.com/, checked 2026-11-13) | the brand's own icon, used only to name the engine |
 | wechat | `wechat.svg` | simple-icons 16.37.0, icon "wechat", brand colour #07C160 | CC0-1.0 data (the glyph itself is the brand's trademark) |
 | x | `x.svg` | @iconify-json/logos 1.2.19 ("SVG Logos"), icon "x" | CC0-1.0 (the artwork itself is the brand's trademark) |
 | searxng | `searxng.svg` | simple-icons 16.37.0, icon "searxng", brand colour #3050FF | CC0-1.0 data (the glyph itself is the brand's trademark) |
+| taobao | `taobao.png` | https://www.taobao.com/favicon.ico (64x64 frame, converted to PNG; checked 2026-11-13) | the brand's own icon, used only to name the engine |
+| jd | `jd.png` | https://www.jd.com/favicon.ico (48x48 frame, converted to PNG; checked 2026-11-13) | the brand's own icon, used only to name the engine |
+| amazon | `amazon.png` | https://www.amazon.com/favicon.ico (48x48 frame, converted to PNG; checked 2026-11-13) | the brand's own icon, used only to name the engine |
 
 `logos.json` is the same table for the generator (`dark` = a variant for the dark page, `invertInDark` = the raster is black and is inverted there).

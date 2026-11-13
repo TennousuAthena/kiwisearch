@@ -6,8 +6,9 @@ import { ChevronDownIcon, ExternalLinkIcon, TriangleAlertIcon } from '@/lib/icon
 import { GROUPS, GROUP_PRESETS, SOURCE_INFO, sourcesInGroup, type SourceGroup } from '@/lib/sourceCatalog';
 import type { SourceHealthMap } from '@/lib/sourceHealth';
 import { sourceLabel } from '@/lib/sourceMeta';
+import { sourceNeedsAttention, sourcePresetUndo, undoSourcePreset, type SourcePresetUndo, type SourceEnabledPatch } from '@/lib/sourceControls';
 import { describeSource, type SourceBadge } from '@/lib/sourceView';
-import { Field, SecretInput, Switch } from './controls';
+import { Field, SecretInput, Segmented, Switch } from './controls';
 
 type SourceField = 'enabled' | 'apiKey' | 'baseUrl';
 
@@ -31,6 +32,51 @@ async function openFor(id: SourceId, action: 'login' | 'verify') {
 
 export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfirmEnable }: Props) {
   const [open, setOpen] = useState<Set<SourceId>>(new Set());
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<'all' | 'enabled' | 'attention'>('all');
+  const [editingSource, setEditingSource] = useState<SourceId | null>(null);
+  const [presetUndo, setPresetUndo] = useState<Partial<Record<SourceGroup, SourcePresetUndo>>>({});
+  const [presetFeedback, setPresetFeedback] = useState('');
+  const term = query.trim().toLocaleLowerCase();
+  const filtered = !!term || filter !== 'all';
+  const matches = (id: SourceId) => (filter !== 'enabled' || config.sources[id]?.enabled) && (filter !== 'attention' || editingSource === id || sourceNeedsAttention(id, config, health[id])) && (!term || `${sourceLabel(id)} ${id} ${t(`source.blurb.${id}`)}`.toLocaleLowerCase().includes(term));
+  const visibleCount = GROUPS.flatMap((group) => sourcesInGroup(group.id)).filter(matches).length;
+  const changeEnabled = (id: SourceId, next: boolean) => {
+    if (next && SOURCE_INFO[id].confirm) { onConfirmEnable(id); return; }
+    const group = SOURCE_INFO[id].group;
+    setPresetUndo((current) => {
+      const receipt = current[group];
+      if (!receipt || !(id in receipt.before)) return current;
+      const before = { ...receipt.before }; const after = { ...receipt.after };
+      delete before[id]; delete after[id];
+      const updated = { ...current };
+      if (Object.keys(before).length) updated[group] = { before, after };
+      else delete updated[group];
+      return updated;
+    });
+    const visible = GROUPS.flatMap((group) => sourcesInGroup(group.id)).filter(matches);
+    const index = visible.indexOf(id);
+    onUpdate(id, 'enabled', next);
+    if (!next && filter !== 'all') {
+      const neighbour = visible[index + 1] ?? visible[index - 1];
+      requestAnimationFrame(() => (document.getElementById(neighbour ? `source-switch-${neighbour}` : 'source-search') as HTMLElement | null)?.focus());
+    }
+  };
+  const applyPreset = (group: SourceGroup, changes: SourceEnabledPatch) => {
+    const receipt = sourcePresetUndo(config, changes);
+    if (!receipt) return;
+    setPresetUndo((current) => ({ ...current, [group]: receipt }));
+    setPresetFeedback(t('options.ux.presetApplied', { group: t(`group.${group}.title`) }));
+    onSetEnabled(changes);
+  };
+  const restorePreset = (group: SourceGroup) => {
+    const receipt = presetUndo[group];
+    if (!receipt) return;
+    onSetEnabled(undoSourcePreset(config, receipt));
+    setPresetUndo((current) => { const next = { ...current }; delete next[group]; return next; });
+    setPresetFeedback(t('options.ux.presetUndone', { group: t(`group.${group}.title`) }));
+    requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`#group-${group} .presets button`)?.focus());
+  };
   const toggleOpen = (id: SourceId, next?: boolean) =>
     setOpen((current) => {
       const copy = new Set(current);
@@ -47,17 +93,18 @@ export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfi
     const hasFields = !!info.key || !!info.baseUrl;
     // A source that can't run without its key opens its fields by itself once it is switched on.
     const needsInput = settings.enabled && (badge?.action === 'key');
-    const expanded = hasFields && (needsInput || open.has(id));
+    const expanded = hasFields && (needsInput || open.has(id) || editingSource === id);
     return (
       <li key={id} className={settings.enabled ? 'source on' : 'source'}>
         <div className="source-main">
           <Switch
+            id={`source-switch-${id}`}
             checked={settings.enabled}
             label={label}
-            onChange={(next) => (next && info.confirm ? onConfirmEnable(id) : onUpdate(id, 'enabled', next))}
+            onChange={(next) => changeEnabled(id, next)}
           />
           <div className="source-name">
-            <strong>{label}</strong>
+            <label htmlFor={`source-switch-${id}`}><strong>{label}</strong></label>
             <span>{t(`source.blurb.${id}`)}</span>
           </div>
           <div className="source-side">
@@ -70,7 +117,7 @@ export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfi
           </div>
         </div>
         {expanded && (
-          <div className="source-fields">
+          <div className="source-fields" onFocusCapture={() => setEditingSource(id)} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setEditingSource(null); }}>
             {info.baseUrl && (
               <Field label={t('options.sources.serviceAddress')}>
                 <input type="url" value={settings.baseUrl ?? ''} placeholder="https://searx.example" onChange={(event) => onUpdate(id, 'baseUrl', event.target.value)} />
@@ -100,18 +147,26 @@ export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfi
     <section className="section" id="sources" aria-labelledby="sources-title">
       <h2 id="sources-title">{t('options.sources.title')}</h2>
       <p className="lead">{t('options.sources.lead')}</p>
+      <div className="sources-toolbar">
+        <input id="source-search" type="search" aria-label={t('options.ux.sourceSearch')} placeholder={t('options.ux.sourceSearchPlaceholder')} value={query} onChange={(event) => setQuery(event.target.value)} />
+        <Segmented label={t('options.ux.sourceFilter')} value={filter} options={[{ value: 'all', label: t('options.ux.sourceAll') }, { value: 'enabled', label: t('options.ux.sourceEnabled') }, { value: 'attention', label: t('options.ux.sourceAttention') }]} onChange={setFilter} />
+      </div>
+      <p className="note" role="status">{t('options.ux.sourceCount', { count: visibleCount })}</p>
+      {presetFeedback && <p className="note" role="status">{presetFeedback}</p>}
+      {filtered && <p className="note">{t('options.ux.filteredPresets')}</p>}
+      {!visibleCount && <div className="sources-empty"><p>{t('options.ux.sourceEmpty')}</p><button type="button" className="btn" onClick={() => { setQuery(''); setFilter('all'); }}>{t('options.ux.clearSourceFilter')}</button></div>}
       {GROUPS.map((group) => {
-        const ids = sourcesInGroup(group.id);
+        const ids = sourcesInGroup(group.id).filter(matches);
         if (!ids.length) return null;
         const enabled = ids.filter((id) => config.sources[id]?.enabled);
         return (
-          <div className="group" key={group.id}>
+          <div className="group" id={`group-${group.id}`} key={group.id}>
             <div className="group-head">
               <h3>{t(`group.${group.id}.title`)}</h3>
               <span className="count">
                 {t('options.sources.enabledCount', { enabled: enabled.length, total: ids.length })}
               </span>
-              <Presets group={group.id} ids={ids} enabled={enabled} onSetEnabled={onSetEnabled} />
+              {!filtered && <Presets group={group.id} ids={ids} enabled={enabled} onSetEnabled={(changes) => applyPreset(group.id, changes)} undo={presetUndo[group.id] ? () => restorePreset(group.id) : undefined} />}
             </div>
             <p className="note">{t(`group.${group.id}.lead`)}</p>
             <ul className="sources">{ids.map(row)}</ul>
@@ -127,7 +182,7 @@ export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfi
   );
 }
 
-function Presets({ group, ids, enabled, onSetEnabled }: { group: SourceGroup; ids: SourceId[]; enabled: SourceId[]; onSetEnabled: Props['onSetEnabled'] }) {
+function Presets({ group, ids, enabled, onSetEnabled, undo }: { group: SourceGroup; ids: SourceId[]; enabled: SourceId[]; onSetEnabled: Props['onSetEnabled']; undo?: () => void }) {
   const presets = GROUP_PRESETS[group];
   if (!presets?.length) return null;
   return (
@@ -146,6 +201,7 @@ function Presets({ group, ids, enabled, onSetEnabled }: { group: SourceGroup; id
           </button>
         );
       })}
+      {undo && <button type="button" className="btn small" onClick={undo}>{t('options.ux.undoPreset')}</button>}
     </div>
   );
 }

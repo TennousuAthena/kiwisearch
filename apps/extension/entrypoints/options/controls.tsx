@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { CloseIcon } from '@/lib/icons';
 import { addDomains } from '@/lib/domains';
 import { t } from '@/lib/i18n';
 
 /** An on/off switch. Used instead of a checkbox where the change takes effect at once. */
-export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (next: boolean) => void; label: string; disabled?: boolean }) {
+export function Switch({ checked, onChange, label, disabled, id }: { checked: boolean; onChange: (next: boolean) => void; label: string; disabled?: boolean; id?: string }) {
   return (
-    <button type="button" role="switch" aria-checked={checked} aria-label={label} className="switch" disabled={disabled} onClick={() => onChange(!checked)}>
+    <button id={id} type="button" role="switch" aria-checked={checked} aria-label={label} className="switch" disabled={disabled} onClick={() => onChange(!checked)}>
       <span className="switch-knob" />
     </button>
   );
@@ -14,11 +14,12 @@ export function Switch({ checked, onChange, label, disabled }: { checked: boolea
 
 /** A switch with its words beside it; the words toggle it too. */
 export function SwitchRow({ checked, onChange, title, hint, disabled }: { checked: boolean; onChange: (next: boolean) => void; title: string; hint?: ReactNode; disabled?: boolean }) {
+  const id = useId();
   return (
     <div className={disabled ? 'switch-row disabled' : 'switch-row'}>
-      <Switch checked={checked} onChange={onChange} label={title} disabled={disabled} />
+      <Switch id={id} checked={checked} onChange={onChange} label={title} disabled={disabled} />
       <div>
-        <strong>{title}</strong>
+        <label htmlFor={id}><strong>{title}</strong></label>
         {hint && <p>{hint}</p>}
       </div>
     </div>
@@ -29,8 +30,14 @@ export function SwitchRow({ checked, onChange, title, hint, disabled }: { checke
 export function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: { value: T; label: string }[]; onChange: (next: T) => void }) {
   return (
     <div className="segmented" role="radiogroup" aria-label={label}>
-      {options.map((option) => (
-        <button key={option.value} type="button" role="radio" aria-checked={option.value === value} className="seg" onClick={() => onChange(option.value)}>
+      {options.map((option, index) => (
+        <button key={option.value} type="button" role="radio" aria-checked={option.value === value} tabIndex={option.value === value || (!options.some((item) => item.value === value) && index === 0) ? 0 : -1} className="seg" onClick={() => onChange(option.value)} onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1 : (index + (event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1) + options.length) % options.length;
+          onChange(options[next].value);
+          event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[next]?.focus();
+        }}>
           {option.label}
         </button>
       ))}
@@ -119,6 +126,7 @@ export function DomainInput({ label, values, onChange, placeholder }: { label: s
           placeholder={values.length ? '' : placeholder}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
             if (['Enter', ',', ' ', '，'].includes(event.key) && draft.trim()) { // i18n-ignore (data, not interface text)
               event.preventDefault();
               commit(draft);

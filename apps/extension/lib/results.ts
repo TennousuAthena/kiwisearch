@@ -1,4 +1,4 @@
-import type { FusedResult, HiddenReason, SearchMode, VerifiedLandmark } from '@kiwi-search/core';
+import type { FusedResult, HiddenReason, NewsOptions, SearchMode, VerifiedLandmark } from '@kiwi-search/core';
 import { t, type MessageKey } from './i18n';
 
 export function splitResults(results: FusedResult[]): { visible: FusedResult[]; hidden: FusedResult[] } {
@@ -15,8 +15,15 @@ export function hiddenLabel(hidden: HiddenReason): string {
       return t('newtab.hidden.rule', { rule: hidden.rule });
     case 'blocked':
       return hidden.list ? t('newtab.hidden.blockedList', { list: hidden.list }) : t('newtab.hidden.blocked');
+    case 'language':
+      return t('newtab.hidden.language');
+    case 'time':
+      return t(`newtab.hidden.time.${hidden.detail}`);
   }
 }
+
+/** The text has Chinese, Japanese or Korean characters in it. Mirrors `hasCjk` in core, which this bundle avoids importing. */
+export const hasCjk = (text: string): boolean => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(text);
 
 export function hostOf(url: string): string {
   try {
@@ -75,8 +82,12 @@ const KNOWN_SITES: Record<string, string> = {
 
 /** Sites whose name is written in the interface language (the message is `site.<name>`). */
 const LOCALIZED_SITES: Record<string, Extract<MessageKey, `site.${string}`>> = {
+  taobao: 'site.taobao',
+  tmall: 'site.tmall',
+  jd: 'site.jd',
   zhihu: 'site.zhihu',
   bilibili: 'site.bilibili',
+  douyin: 'site.douyin',
   juejin: 'site.juejin',
   cnblogs: 'site.cnblogs',
   jianshu: 'site.jianshu',
@@ -181,7 +192,7 @@ export function sortPapers(results: FusedResult[], by: PaperSort): FusedResult[]
 }
 
 /** Every mode, in tab order; typed over `SearchMode`, so a new mode can't be left out. */
-const MODE_ORDER = { web: true, images: true, video: true, academic: true, zhihu: true, xiaohongshu: true, wechat: true, x: true } satisfies Record<SearchMode, true>;
+const MODE_ORDER = { web: true, images: true, video: true, news: true, shopping: true, academic: true, zhihu: true, xiaohongshu: true, wechat: true, x: true } satisfies Record<SearchMode, true>;
 export const MODES = Object.keys(MODE_ORDER) as SearchMode[];
 
 /** The tab's name in the interface language. */
@@ -193,7 +204,7 @@ export const isCommunityMode = (mode: SearchMode): boolean => COMMUNITY_MODES.in
 
 /** Whether the AI overview and the hidden-results fold apply. Mirrors `modeHasText` in core, which this bundle avoids importing. */
 export function modeHasOverview(mode: SearchMode): boolean {
-  return mode === 'web' || mode === 'academic' || mode === 'zhihu' || mode === 'wechat';
+  return mode === 'web' || mode === 'news' || mode === 'academic' || mode === 'zhihu' || mode === 'wechat';
 }
 
 /**
@@ -235,10 +246,15 @@ export function parseMode(value: string | null): SearchMode {
   return MODES.find((mode) => mode === value) ?? 'web';
 }
 
-export function searchUrl(base: string, query: string, mode: SearchMode): string {
+export function searchUrl(base: string, query: string, mode: SearchMode, news?: NewsOptions): string {
   const url = new URL(base);
-  url.searchParams.set('q', query);
+  if (query) url.searchParams.set('q', query);
+  else url.searchParams.delete('q');
   if (mode === 'web') url.searchParams.delete('m');
   else url.searchParams.set('m', mode);
+  if (mode === 'news' && news?.range && news.range !== 'any') url.searchParams.set('range', news.range);
+  else url.searchParams.delete('range');
+  if (mode === 'news' && news?.sort === 'date') url.searchParams.set('sort', news.sort);
+  else url.searchParams.delete('sort');
   return url.toString();
 }

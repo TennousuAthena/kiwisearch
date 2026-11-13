@@ -1,7 +1,7 @@
 import type { SourceId } from '@kiwi-search/core';
 import type { MessageKey } from './i18n';
 
-export type SourceGroup = 'web' | 'academic' | 'video' | 'community' | 'image';
+export type SourceGroup = 'web' | 'shopping' | 'academic' | 'video' | 'community' | 'image';
 
 /** Keys of the texts a source can ask with before it is switched on (`source.confirm.<id>`). */
 export type SourceConfirmKey = Extract<MessageKey, `source.confirm.${string}`>;
@@ -27,7 +27,7 @@ export interface SourceInfo {
 }
 
 /** The order the groups appear in. The words the page uses for them are `group.<id>.title` and `group.<id>.lead`. */
-export const GROUPS: { id: SourceGroup }[] = [{ id: 'web' }, { id: 'academic' }, { id: 'video' }, { id: 'community' }, { id: 'image' }];
+export const GROUPS: { id: SourceGroup }[] = [{ id: 'web' }, { id: 'shopping' }, { id: 'academic' }, { id: 'video' }, { id: 'community' }, { id: 'image' }];
 
 /** Typed over `SourceId`, so a new source can't be left without a place on the settings page. Order inside a group is the order shown. */
 export const SOURCE_INFO: Record<SourceId, SourceInfo> = {
@@ -37,11 +37,15 @@ export const SOURCE_INFO: Record<SourceId, SourceInfo> = {
   bravesearch: { group: 'web' },
   baidu: { group: 'web', confirm: 'source.confirm.baidu' },
   sogou: { group: 'web' },
+  yuanbao: { group: 'web' },
   yandex: { group: 'web' },
   brave: { group: 'web', key: 'required', keyUrl: 'https://brave.com/search/api/' },
   exa: { group: 'web', key: 'required', keyUrl: 'https://exa.ai' },
   deepseek: { group: 'web', key: 'required', keyUrl: 'https://platform.deepseek.com' },
   searxng: { group: 'web', baseUrl: true, key: 'optional' },
+  taobao: { group: 'shopping', login: true, loginUrl: 'https://www.taobao.com' },
+  jd: { group: 'shopping', login: true, loginUrl: 'https://www.jd.com' },
+  amazon: { group: 'shopping', loginUrl: 'https://www.amazon.com' },
   scholar: { group: 'academic' },
   openalex: { group: 'academic', key: 'optional', keyUrl: 'https://openalex.org/settings/api' },
   arxiv: { group: 'academic' },
@@ -54,6 +58,7 @@ export const SOURCE_INFO: Record<SourceId, SourceInfo> = {
   crossref: { group: 'academic' },
   youtube: { group: 'video' },
   bilibili: { group: 'video' },
+  douyin: { group: 'video', login: true, loginUrl: 'https://www.douyin.com' },
   zhihu: { group: 'community', login: true, loginUrl: 'https://www.zhihu.com/signin' },
   weixin: { group: 'community' },
   rednote: { group: 'community', login: true, loginUrl: 'https://www.rednote.com' },
