@@ -35,7 +35,7 @@ export const SOURCE_INFO: Record<SourceId, SourceInfo> = {
   bing: { group: 'web' },
   duckduckgo: { group: 'web' },
   bravesearch: { group: 'web' },
-  kagi: { group: 'web', login: true, loginUrl: 'https://kagi.com/signin', confirm: 'source.confirm.kagi' },
+  kagi: { group: 'web', loginUrl: 'https://kagi.com/signin', confirm: 'source.confirm.kagi' },
   baidu: { group: 'web', confirm: 'source.confirm.baidu' },
   sogou: { group: 'web' },
   yuanbao: { group: 'web' },
