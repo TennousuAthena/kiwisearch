@@ -6,14 +6,17 @@ Kiwi Search 是面向 Chrome / Edge 的 MV3 新标签页搜索扩展：在用户
 
 ## 功能一览
 
-- **八种搜索模式**：网页、图片、视频、学术、知乎、小红书、公众号、X。每个来源声明自己支持哪些模式，搜索时只查支持当前模式的来源。
-- **29 个来源**：18 个由浏览器渲染（Google、Bing、DuckDuckGo、Brave 网页、Google Scholar、YouTube、哔哩哔哩、知乎、小红书、X 等），11 个走官方 API（OpenAlex、Crossref、arXiv、PubMed、Exa、Brave API 等）。见下文“搜索模式与来源”。
+- **十种搜索模式**：网页、图片、视频、新闻、购物、学术、知乎、小红书、公众号、X。每个来源声明自己支持哪些模式，搜索时只查支持当前模式的来源。
+- **34 个来源**：23 个由浏览器渲染（Google、Bing、DuckDuckGo、Brave 网页、Google Scholar、YouTube、哔哩哔哩、知乎、小红书、X 等），11 个走官方 API（OpenAlex、Crossref、arXiv、PubMed、Exa、Brave API 等）。见下文“搜索模式与来源”。
 - **去重与融合**：URL 归一化（去跟踪参数，DOI、arXiv、视频、笔记各有自己的键），论文按 DOI 或标题加年份合并，同一篇文章的多站点转载折叠成一条，维基百科同一词条的各语言版本和简繁体（粤语、吴语、文言等）按浏览器语言只留一份，最后 RRF 融合，每个来源的权重可调。
 - **决策模型过滤**：判断每条结果是否相关、是否内容农场或搬运内容，以及你写的自然语言规则；被隐藏的结果折叠在页面底部，注明原因，一次点击展开。决策模型是可换服务商的一层，见 [docs/DECISION-PROVIDERS.md](docs/DECISION-PROVIDERS.md)。
 - **屏蔽列表**：订阅别人维护的内容农场名单，或粘贴自己的规则，支持 uBlock Origin、uBlacklist 和 hosts 格式，不需要任何 Key。见 [docs/BLOCKLISTS.md](docs/BLOCKLISTS.md)。
 - **AI 概览**：用你自己的 OpenAI 兼容模型（或 Chrome 内置模型）流式生成带 `[n]` 引用的概览；多个平台的帖子混在一起时，会分别说明各平台怎么说、有什么不同。概览的语言可以设置：默认跟随浏览器的首选语言，也可以选“自动”（跟着你搜索词的语言）、从 20 种语言里指定一种，或自己写一种。
 - **按意图补搜**：“全部”模式里，决策模型读搜索词，判断要不要同时搜学术、知乎、小红书、公众号，或建议你切到图片、视频、学术标签。
+- **新闻搜索**：输入关键词后切到“新闻”，支持不限时间 / 24 小时 / 一周 / 一个月、按相关性或发布时间排序；显示媒体、时间和来源，手动刷新重新检索。没有关键词时不加载热点。新闻只合并同一 URL，保留不同媒体的独立报道。
+- **购物搜索**：淘宝、京东、亚马逊美国站的商品卡片，展示页面上的图片、价格和店铺信息。三个来源默认开，只在购物标签下查询；需要登录时沿用你当前浏览器的账号。不同商家的商品保留为独立结果，不做 AI 概览，价格以商品页为准。
 - **智能学术搜索**：你自己的模型把查询改写成检索式和代表论文，逐篇到 OpenAlex（或 Crossref）核对，查不到的丢掉，页面上有“核心文献”块。
+- **学术语言**：学术标签里可以选“仅英文”，选择会记住。OpenAlex、PubMed、Europe PMC、Google Scholar 按语言检索；其余来源和所有结果再按标题检查，不是英文的折叠到“已隐藏”，注明语言不符。用中文搜索时，智能学术搜索会把检索式改写成英文。
 - **MCP 服务**：Claude Desktop、Cursor 等 Agent 通过本地 MCP 服务调用同一套搜索，共用队列、限速和缓存。
 
 ## 安装扩展
@@ -48,9 +51,11 @@ Chrome 不允许扩展自动更改默认搜索引擎，因此需要手动添加�
 
 | 模式 | 来源 | 备注 |
 |---|---|---|
-| 网页 | Google、Bing、DuckDuckGo、Brave 网页方式（浏览器渲染，不要 Key）；Brave API、Exa、DeepSeek Search、SearXNG（API，前三个要 Key，SearXNG 要自己的服务地址）；Yandex、百度、搜狗网页（浏览器渲染，默认关） | Brave 有两种方式搜同一个索引：网页方式不要 Key，API 方式要；有 Key 时关掉一个，否则 Brave 在融合里算两次。百度默认关（结果页混有翻译、推荐等不是搜索结果的卡片），勾选时会先弹窗确认 |
+| 网页 | Google、Bing、DuckDuckGo、Brave 网页方式（浏览器渲染，不要 Key）；Brave API、Exa、DeepSeek Search、SearXNG（API，前三个要 Key，SearXNG 要自己的服务地址）；Yandex、百度、搜狗网页、元宝搜索（so.qq.com）（浏览器渲染，默认关） | Brave 有两种方式搜同一个索引：网页方式不要 Key，API 方式要；有 Key 时关掉一个，否则 Brave 在融合里算两次。百度默认关（结果页混有翻译、推荐等不是搜索结果的卡片），勾选时会先弹窗确认 |
 | 图片 | Bing 图片（浏览器渲染）、Openverse（API，自带授权信息） | 不生成概览、不做过滤 |
-| 视频 | YouTube、哔哩哔哩（浏览器渲染） | 不生成概览、不做过滤 |
+| 视频 | YouTube、哔哩哔哩、抖音（浏览器渲染；抖音默认关，需登录） | 不生成概览、不做过滤 |
+| 新闻 | Google、Brave 网页方式（浏览器渲染）；Brave API、Exa（沿用已有 Key 与开关） | 按关键词检索；限定时间时隐藏发表时间未知的报道。Brave 的日期可能是更新日期，保留原始标签，不作为发表时间筛选依据 |
+| 购物 | 淘宝、京东、亚马逊美国站（浏览器渲染，默认开） | 淘宝和京东可能需要登录；显示页面原有币种和价格，不做跨平台最低价判断；不生成概览 |
 | 学术 | Google Scholar（浏览器渲染）；OpenAlex、Crossref、arXiv、PubMed（API，无需 Key）；Europe PMC、DBLP（API）；百度学术、知网、Web of Science（浏览器渲染） | Google Scholar、OpenAlex、Crossref、arXiv、PubMed 默认开；Europe PMC、DBLP、百度学术、知网、Web of Science 默认关，按需打开 |
 | 知乎 | 知乎（浏览器渲染，需登录） | 过滤和概览只用结果卡片里的摘录 |
 | 小红书 | RedNote（国际站，默认开）、小红书国内站（默认关）；浏览器渲染，需登录 | 笔记卡片墙，不做概览和过滤 |
@@ -59,9 +64,9 @@ Chrome 不允许扩展自动更改默认搜索引擎，因此需要手动添加�
 
 ### 浏览器渲染的来源
 
-Google、Bing、DuckDuckGo、Brave（网页）、Google Scholar、YouTube、哔哩哔哩、知乎、小红书（国内站和 RedNote）、搜狗（含微信公众号搜索）、X 等来源通过一个单独的、已最小化的窗口在浏览器中渲染，不占用你正在用的窗口。
+Google、Bing、DuckDuckGo、Brave（网页）、Google Scholar、元宝搜索、YouTube、哔哩哔哩、抖音、知乎、小红书（国内站和 RedNote）、搜狗（含微信公众号搜索）、X 等来源通过一个单独的、已最小化的窗口在浏览器中渲染，不占用你正在用的窗口。
 
-- **登录**：知乎和小红书用的是你自己浏览器里的登录状态，需要先登录；小红书的国内站和国际站账号各自独立，在设置里勾选你登录的那个。
+- **登录**：抖音、知乎和小红书用的是你自己浏览器里的登录状态，需要先登录；小红书的国内站和国际站账号各自独立，在设置里勾选你登录的那个。
 - **验证码**：不会自动破解，也不会自动弹窗。搜索页上会有一行提示和“去验证”，你需要时再点。Brave 网页偶尔会让一个全新的浏览器拖滑块验证。
 - **X**：同样用你浏览器里的登录状态，只有你点开“X”标签时才会访问它，两次请求至少间隔 10 秒，不做结果过滤和概览。X 对自动化使用管得很严，仍有让账号被限制的风险，建议用小号。因为工作窗口是最小化的，X 只会渲染首屏的几条推文，一次搜索通常得到 4–6 条。
 - **学术里的三个**（百度学术、知网、Web of Science）只返回你自己的浏览器能看到的内容：Web of Science 需要机构 IP 或你自己的登录，没有权限时会提示被拦截；知网和百度学术可能要你手动过一次验证码。
@@ -154,8 +159,8 @@ MCP 服务首次运行时，会在 `~/.kiwi-search/token` 以 `0600` 权限生�
 
 提供的工具：
 
-- `search(query, mode?, sources?, limit?)`：返回融合结果、摘要片段以及各来源排名。`mode` 取 `web`（默认）、`images`、`video`、`academic`、`zhihu`、`xiaohongshu`、`wechat`、`x`。被过滤的结果不在列表里，只在 `structuredContent.hidden` 中给出原因（命中屏蔽列表时还带列表名）。
-- `answer(query, mode?, sources?)`：返回带 `[n]` 引用的摘要；`images`、`video`、`xiaohongshu` 和 `x` 模式没有可总结的文本，请用 `search`。
+- `search(query, mode?, language?, sources?, limit?)`：返回融合结果、摘要片段以及各来源排名。`language` 只用于学术模式：`en` 只保留英文文献，默认 `any` 不限；不符的结果在 `structuredContent.hidden` 里，原因是 `language`。`mode` 取 `web`（默认）、`images`、`video`、`academic`、`zhihu`、`xiaohongshu`、`wechat`、`x`。被过滤的结果不在列表里，只在 `structuredContent.hidden` 中给出原因（命中屏蔽列表时还带列表名）。
+- `answer(query, mode?, language?, sources?)`：返回带 `[n]` 引用的摘要；`images`、`video`、`xiaohongshu` 和 `x` 模式没有可总结的文本，请用 `search`。
 - `list_sources()`：查看插件报告的来源可用状态。
 
 ## 文档
@@ -169,6 +174,9 @@ MCP 服务首次运行时，会在 `~/.kiwi-search/token` 以 `0600` 权限生�
 | [docs/DECISION-PROVIDERS.md](docs/DECISION-PROVIDERS.md) | 决策模型的接口协议和服务商选择 |
 | [docs/I18N.md](docs/I18N.md) | 界面文字与多语言：语言包在哪、怎么取词、怎么加一种语言、有哪些检查 |
 | [docs/PLAN.md](docs/PLAN.md) | 计划书：设计理由、各阶段状态、逐条的已知缺口 |
+| [docs/KNOWLEDGE-CARDS.md](docs/KNOWLEDGE-CARDS.md) | 右侧资料卡策划：现有卡片提取、多源聚合、证据内生成、页面布局与分期验收（尚未实现） |
+| [docs/FRONTEND-PLAN.md](docs/FRONTEND-PLAN.md) | 前端改进计划：竞品观察、代码审计、六批实施范围、依赖与验收条件 |
+| [docs/SEARCH-MODULES-PLAN.md](docs/SEARCH-MODULES-PLAN.md) | 搜索模块策划：七家竞品资料、80 项能力台账、数据与组件架构、天气和三市场股票规格、分批实施与验收 |
 | [DESIGN.md](DESIGN.md) | 界面设计：颜色、字体、组件、动效、文案规范 |
 | [AGENTS.md](AGENTS.md) | 给 AI 编码助手的入口说明（英文）：项目简介、命令、代码地图、文档索引、容易踩的规则；`CLAUDE.md` 只有一行，指向它 |
 | [docs/internals/](docs/internals/) | 实现细节和验证记录（英文），按主题分文件：管线、决策模型、融合、屏蔽列表、来源、配置、扩展运行时、MCP 桥、测试夹具等；索引在 AGENTS.md |
