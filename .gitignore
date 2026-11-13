@@ -7,3 +7,4 @@ dist/
 .env
 packages/experiments/data/
 packages/experiments/results/
+.claude/worktrees/
