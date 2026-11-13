@@ -79,8 +79,8 @@ export const europepmc: SearchSource = {
   label: 'Europe PMC',
   modes: ['academic'],
   requiresKey: false,
-  async search(query, { env, count, signal }) {
-    const params = new URLSearchParams({ query, format: 'json', resultType: 'core', pageSize: String(Math.min(count, 30)) });
+  async search(query, { env, count, signal, language }) {
+    const params = new URLSearchParams({ query: language === 'en' ? `(${query}) AND LANG:eng` : query, format: 'json', resultType: 'core', pageSize: String(Math.min(count, 30)) });
     const data = await fetchJson<{ resultList?: { result?: EuropePmcRecord[] } }>(
       env.fetch,
       `https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params}`,

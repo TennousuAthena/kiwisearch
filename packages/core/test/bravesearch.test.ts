@@ -98,7 +98,7 @@ describe('Brave Search block page', () => {
     expect(page.querySelector(bravesearch.readySelector)).toBeTruthy();
   });
 
-  it('is read by the content script on search pages only', () => {
-    expect(bravesearch.matches).toEqual(['*://search.brave.com/search*']);
+  it('is read by the content script on web and news search pages', () => {
+    expect(bravesearch.matches).toEqual(['*://search.brave.com/search*', '*://search.brave.com/news*']);
   });
 });

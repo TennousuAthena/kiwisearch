@@ -35,9 +35,10 @@ export function makeBrowserSource(engine: BrowserEngine): SearchSource {
     modes: engine.modes,
     requiresKey: false,
     requiresBrowser: true,
-    async search(query, { env, mode, count, signal, onBlocked, onStart, renderer }) {
+    minTimeoutMs: engine.minTimeoutMs,
+    async search(query, { env, mode, language, news, count, signal, onBlocked, onStart, renderer }) {
       if (!env.runBrowserEngine) throw new Error(`${engine.label} needs the browser extension`);
-      const hits = await env.runBrowserEngine(engine, query, { mode, count, signal, onBlocked, onStart, renderer });
+      const hits = await env.runBrowserEngine(engine, query, { mode, language, news, count, signal, onBlocked, onStart, renderer });
       const resolved = engine.resolve ? await engine.resolve(hits, { fetch: env.fetch, signal }) : hits;
       return resolved.slice(0, count).map((hit, index): SearchHit => ({ ...hit, source: engine.id, rank: index + 1 }));
     },
@@ -54,7 +55,7 @@ export function isEngineUrl(engine: BrowserEngine, url: string, ...hostnames: st
   }
 }
 
-export type BrowserEngineId = Extract<SourceId, 'google' | 'bing' | 'baidu' | 'baiduxueshu' | 'cnki' | 'wos' | 'duckduckgo' | 'bravesearch' | 'scholar' | 'yandex' | 'youtube' | 'bilibili' | 'zhihu' | 'xiaohongshu' | 'rednote' | 'sogou' | 'weixin' | 'x'>;
+export type BrowserEngineId = Extract<SourceId, 'google' | 'bing' | 'baidu' | 'baiduxueshu' | 'cnki' | 'wos' | 'duckduckgo' | 'bravesearch' | 'scholar' | 'yandex' | 'youtube' | 'bilibili' | 'douyin' | 'zhihu' | 'xiaohongshu' | 'rednote' | 'sogou' | 'yuanbao' | 'weixin' | 'x' | 'taobao' | 'jd' | 'amazon'>;
 
 /** "423", "8,485", "1.2 万", "10万+", "1.2K" → a number. Platforms print counts in their own style, so this is only for sorting and thresholds. */
 export function parseCount(raw: string | null | undefined): number | undefined {

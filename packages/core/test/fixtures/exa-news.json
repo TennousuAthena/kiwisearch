@@ -1,0 +1,25 @@
+{
+  "_note": "Hand-written contract fixture, 2026-11-13, based on https://exa.ai/docs/reference/search; no authenticated news-category response captured.",
+  "results": [
+    {
+      "title": "A reported story",
+      "url": "https://publisher.example/story",
+      "publishedDate": "2026-11-12T14:00:00Z",
+      "author": "Ada Reporter",
+      "image": "https://images.example/story.jpg",
+      "text": "A detailed news article.",
+      "highlights": ["A **reported** event."]
+    },
+    {
+      "title": "Calendar date only",
+      "url": "https://publisher.example/date-only",
+      "publishedDate": "2026-11-11",
+      "author": "Another Reporter"
+    },
+    {
+      "title": "Missing date",
+      "url": "https://publisher.example/undated",
+      "image": "javascript:alert(1)"
+    }
+  ]
+}

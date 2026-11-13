@@ -22,7 +22,7 @@ describe('browser engine extraction fixtures', () => {
     if (files.has(`${id}.html`)) {
       it(`${id} extracts ranked results from a real browser page`, () => {
         const html = readFileSync(fixture, 'utf8');
-        const window = new Window();
+        const window = new Window({ settings: { disableJavaScriptEvaluation: true, disableJavaScriptFileLoading: true, disableCSSFileLoading: true, navigation: { disableChildFrameNavigation: true } } });
         window.document.write(html);
         const hits = engine.extract(window.document as unknown as ParentNode, `https://${id === 'scholar' ? 'scholar.google.com' : id === 'baidu' ? 'www.baidu.com' : `${id}.com`}/`, engine.modes[0]);
         expect(hits.length).toBeGreaterThanOrEqual(8);
@@ -37,12 +37,12 @@ describe('browser engine extraction fixtures', () => {
         }
       });
     }
-    // Yandex, Bilibili, Xiaohongshu and RedNote have no captured block page, and inventing one would only prove the guess.
-    if (!['yandex', 'bilibili', 'xiaohongshu', 'rednote', 'sogou', 'weixin'].includes(id)) {
+    // These engines have no captured block page; inventing one would only prove the guess.
+    if (!['yandex', 'bilibili', 'xiaohongshu', 'rednote', 'sogou', 'weixin', 'yuanbao', 'amazon'].includes(id)) {
       it(`${id} recognizes blocked pages when present`, () => {
         try {
           const html = readFileSync(blockedFixture, 'utf8');
-          const window = new Window();
+          const window = new Window({ settings: { disableJavaScriptEvaluation: true, disableJavaScriptFileLoading: true, disableCSSFileLoading: true, navigation: { disableChildFrameNavigation: true } } });
           window.document.write(html);
           const isBlockedUrl = engine.isBlockedUrl?.(blockedUrl[id] ?? 'https://yandex.com/showcaptcha');
           expect(isBlockedUrl || engine.isLoginUrl?.(blockedUrl[id] ?? 'https://yandex.com/showcaptcha') || window.document.querySelector(engine.blockedSelector) || (engine.loginSelector && window.document.querySelector(engine.loginSelector))).toBeTruthy();

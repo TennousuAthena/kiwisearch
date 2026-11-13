@@ -23,16 +23,56 @@ export type SourceId =
   | 'wos'
   | 'youtube'
   | 'bilibili'
+  | 'douyin'
+  | 'taobao'
+  | 'jd'
+  | 'amazon'
   | 'zhihu'
   | 'xiaohongshu'
   | 'rednote'
   | 'sogou'
+  | 'yuanbao'
   | 'weixin'
   | 'x'
   | 'searxng';
 
-export const SEARCH_MODES = ['web', 'images', 'video', 'academic', 'zhihu', 'xiaohongshu', 'wechat', 'x'] as const;
+export const SEARCH_MODES = ['web', 'images', 'video', 'news', 'shopping', 'academic', 'zhihu', 'xiaohongshu', 'wechat', 'x'] as const;
 export type SearchMode = (typeof SEARCH_MODES)[number];
+
+export const NEWS_RANGES = ['any', 'day', 'week', 'month'] as const;
+export type NewsRange = (typeof NEWS_RANGES)[number];
+export const NEWS_SORTS = ['relevance', 'date'] as const;
+export type NewsSort = (typeof NEWS_SORTS)[number];
+export interface NewsOptions {
+  range: NewsRange;
+  sort: NewsSort;
+}
+
+/** The time a source displayed is distinct from when Kiwi retrieved the result. */
+export interface NewsInfo {
+  publisher?: string;
+  byline?: string;
+  thumbnail?: string;
+  timeText?: string;
+  timeKind: 'published' | 'updated' | 'unknown';
+  timePrecision?: 'minute' | 'hour' | 'day';
+  updatedAt?: string;
+  retrievedAt: string;
+}
+
+export interface NewsSearchInfo extends NewsOptions {
+  requestedAt: string;
+  /** The evidence snapshot used by the overview, not a claim of complete news coverage. */
+  summaryAt?: string;
+}
+
+/** What language the papers of an academic search may be in: `any` is no limit, `en` keeps English-language papers only. */
+export const ACADEMIC_LANGUAGES = ['any', 'en'] as const;
+export type AcademicLanguage = (typeof ACADEMIC_LANGUAGES)[number];
+
+export function isAcademicLanguage(value: unknown): value is AcademicLanguage {
+  return typeof value === 'string' && (ACADEMIC_LANGUAGES as readonly string[]).includes(value);
+}
 
 /** The kinds of extra source the decision model can switch on during a general search. They are modes of their own too. */
 export type Route = Extract<SearchMode, 'academic' | 'zhihu' | 'xiaohongshu' | 'wechat'>;
@@ -76,7 +116,7 @@ export function isSearchMode(value: unknown): value is SearchMode {
  * Image and video results are media tiles with a title at best, so those steps are skipped for them.
  */
 export function modeHasText(mode: SearchMode): boolean {
-  return mode === 'web' || mode === 'academic' || mode === 'zhihu' || mode === 'wechat';
+  return mode === 'web' || mode === 'news' || mode === 'academic' || mode === 'zhihu' || mode === 'wechat';
 }
 
 /** An image result; the hit's `url` is then the page that shows it. */
@@ -118,6 +158,15 @@ export interface NoteInfo {
   likes?: string;
 }
 
+/** A product listing. Values stay as displayed by the shop; prices are not normalized across currencies or variants. */
+export interface ProductInfo {
+  thumbnail?: string;
+  price?: string;
+  shop?: string;
+  sales?: string;
+  rating?: string;
+}
+
 export interface SearchHit {
   url: string;
   host?: string;
@@ -132,6 +181,8 @@ export interface SearchHit {
   image?: ImageInfo;
   video?: VideoInfo;
   note?: NoteInfo;
+  news?: NewsInfo;
+  product?: ProductInfo;
 }
 
 export interface HitMeta {
@@ -170,7 +221,10 @@ export type HiddenReason =
   | { reason: 'blocked'; list?: string }
   | { reason: 'junk' }
   | { reason: 'irrelevant' }
-  | { reason: 'rule'; rule: string };
+  | { reason: 'rule'; rule: string }
+  /** An academic search limited to one language, and the title is not in it (see `academicLanguage.ts`). */
+  | { reason: 'language' }
+  | { reason: 'time'; detail: 'outside' | 'unknown' };
 
 export interface FusedResult {
   /** Normalized URL, used as the dedup key. */
@@ -196,6 +250,8 @@ export interface FusedResult {
   image?: ImageInfo;
   video?: VideoInfo;
   note?: NoteInfo;
+  news?: NewsInfo;
+  product?: ProductInfo;
 }
 
 export interface SourceSettings {
@@ -370,7 +426,7 @@ export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 /** Short-lived per-source result cache so reloads and mode switches don't re-hit rate-limited engines. */
 export interface SourceCache {
   get(key: string): SearchHit[] | undefined;
-  set(key: string, hits: SearchHit[]): void;
+  set(key: string, hits: SearchHit[], ttlMs?: number): void;
 }
 
 /** Why a page can't be read: a verification the user has to solve, or a login wall (the browser isn't signed in to the site). */
@@ -378,6 +434,9 @@ export type BlockReason = 'captcha' | 'login';
 
 export interface BrowserRunOptions {
   mode: SearchMode;
+  news?: NewsOptions;
+  /** Set only for an academic search limited to a language. */
+  language?: AcademicLanguage;
   count: number;
   signal: AbortSignal;
   onBlocked: (message: string, reason?: BlockReason) => void;
@@ -403,6 +462,9 @@ export interface SourceContext {
   env: Env;
   settings: SourceSettings;
   mode: SearchMode;
+  news?: NewsOptions;
+  /** Set only for an academic search limited to a language: a source that can limit by language does, the rest return what they have. */
+  language?: AcademicLanguage;
   count: number;
   signal: AbortSignal;
   onBlocked: (message: string, reason?: BlockReason) => void;
@@ -418,6 +480,8 @@ export interface SearchSource {
   requiresKey: boolean;
   requiresBaseUrl?: boolean;
   requiresBrowser?: boolean;
+  /** Minimum working timeout for this source; the pipeline uses the greater of this and the user setting. Queueing is excluded. */
+  minTimeoutMs?: number;
   search(query: string, ctx: SourceContext): Promise<SearchHit[]>;
 }
 
@@ -425,7 +489,7 @@ export interface BrowserEngine {
   id: SourceId;
   label: string;
   modes: SearchMode[];
-  buildUrl(query: string, count: number, mode: SearchMode): string;
+  buildUrl(query: string, count: number, mode: SearchMode, language?: AcademicLanguage, news?: NewsOptions): string;
   matches: string[];
   /** CSS selector list; a match means results have started to render (may cover several modes). */
   readySelector: string;
@@ -439,7 +503,9 @@ export interface BrowserEngine {
   refusedPattern?: RegExp;
   /** A gap between requests to this engine that is longer than the global `renderer.minIntervalMs`. */
   minIntervalMs?: number;
-  extract(doc: ParentNode, pageUrl: string, mode: SearchMode): Omit<SearchHit, 'source'>[];
+  /** Baseline for a slow-rendering engine, propagated to its source. The user can raise it; explicit cancellation still aborts immediately. */
+  minTimeoutMs?: number;
+  extract(doc: ParentNode, pageUrl: string, mode: SearchMode, now?: Date): Omit<SearchHit, 'source'>[];
   resolve?(hits: SearchHit[], ctx: { fetch: FetchLike; signal: AbortSignal }): Promise<SearchHit[]>;
 }
 
@@ -459,6 +525,7 @@ export type PipelineEvent =
   | { type: 'summary_delta'; text: string }
   | { type: 'summary_done'; text: string }
   | { type: 'summary_error'; error: string }
+  | { type: 'summary_stopped' }
   | { type: 'done'; result: PipelineResult };
 
 export interface Citation {
@@ -470,6 +537,7 @@ export interface Citation {
 export interface PipelineResult {
   query: string;
   mode: SearchMode;
+  news?: NewsSearchInfo;
   results: FusedResult[];
   summary?: string;
   citations: Citation[];
@@ -482,6 +550,11 @@ export interface PipelineResult {
 
 export interface RunOptions {
   mode?: SearchMode;
+  news?: Partial<NewsOptions>;
+  /** Explicit refresh bypasses reads from the source cache, while still respecting renderer queues. */
+  refresh?: boolean;
+  /** Academic mode only: keep papers in this language (`any`, the default, limits nothing). */
+  language?: AcademicLanguage;
   /** Restrict to these sources (still must be enabled/usable). */
   sources?: SourceId[];
   /**
@@ -490,6 +563,10 @@ export interface RunOptions {
    */
   softDeadlineMs?: number;
   summarize?: boolean;
+  /** The UI can stop only the overview while sources continue. MCP callers need not supply this. */
+  summarySignal?: AbortSignal;
+  /** Preserve the precise evidence used by an overview for an explicit retry. */
+  onSummarySnapshot?: (results: FusedResult[], summaryAt: string) => void;
   limit?: number;
   signal?: AbortSignal;
   onEvent?: (e: PipelineEvent) => void;

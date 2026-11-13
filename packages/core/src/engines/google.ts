@@ -1,6 +1,8 @@
 import type { BrowserEngine, FetchLike, SearchHit } from '../types';
 import { normalizeUrl } from '../url';
 import { absoluteHttpUrl, cleanText } from './shared';
+import { normalizeNewsOptions, parseNewsTime } from '../news';
+import { newsThumbnail } from './news';
 
 const GOOGLE_HOST = /(^|\.)google\.(?:com|[a-z]{2,3}|co\.[a-z]{2}|com\.[a-z]{2,3})$/i;
 const MAX_REDIRECT_CONCURRENCY = 5;
@@ -88,13 +90,21 @@ async function resolveRedirect(
 export const google: BrowserEngine = {
   id: 'google',
   label: 'Google',
-  modes: ['web'],
-  buildUrl: (query, count) => `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${Math.min(count, 20)}`,
+  modes: ['web', 'news'],
+  buildUrl(query, count, mode, _language, news) {
+    const base = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${Math.min(count, 20)}`;
+    if (mode !== 'news') return base;
+    const options = normalizeNewsOptions(news);
+    const range = { any: '', day: 'd', week: 'w', month: 'm' }[options.range];
+    const filters = [range ? `qdr:${range}` : '', options.sort === 'date' ? 'sbd:1' : ''].filter(Boolean);
+    return `${base}&tbm=nws${filters.length ? `&tbs=${encodeURIComponent(filters.join(','))}` : ''}`;
+  },
   matches: ['*://*.google.com/search*', '*://*.google.com/sorry/*', '*://*.google.com.hk/search*'],
-  readySelector: '#search a h3, #rso a h3',
+  readySelector: '#search a h3, #rso a h3, #search a [role="heading"][aria-level="3"]',
   blockedSelector: '#captcha-form, form[action*="sorry"], [id*="captcha"], iframe[src*="recaptcha"]',
   isBlockedUrl: (url) => /\/sorry(?:\/|$)|recaptcha/i.test(new URL(url).pathname + new URL(url).search),
-  extract(doc, pageUrl) {
+  extract(doc, pageUrl, mode, now = new Date()) {
+    if (mode === 'news') return extractNews(doc, pageUrl, now);
     const scope = doc.querySelector('#search') ?? doc.querySelector('#rso') ?? doc;
     const hits: ReturnType<BrowserEngine['extract']> = [];
     const seen = new Set<string>();
@@ -126,7 +136,7 @@ export const google: BrowserEngine = {
     const seen = new Set<string>();
     return resolved
       .filter((hit) => {
-        const key = normalizeUrl(hit.url);
+        const key = normalizeUrl(hit.url, !hit.news);
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -134,3 +144,38 @@ export const google: BrowserEngine = {
       .map((hit, index) => ({ ...hit, rank: index + 1 }));
   },
 };
+
+/** Google News search uses role headings, including the individual stories inside topic clusters. */
+function extractNews(doc: ParentNode, pageUrl: string, now: Date): ReturnType<BrowserEngine['extract']> {
+  const hits: ReturnType<BrowserEngine['extract']> = [];
+  const seen = new Set<string>();
+  const scope = doc.querySelector('#search') ?? doc.querySelector('#rso') ?? doc;
+  for (const heading of scope.querySelectorAll('a [role="heading"][aria-level="3"]')) {
+    const card = heading.closest('a');
+    const url = resultUrl(card?.getAttribute('href') ?? null, pageUrl);
+    const title = cleanText(heading);
+    if (!card || !url || !title || seen.has(url)) continue;
+    seen.add(url);
+    const timeElement = card.querySelector('[data-ts]') ?? card.querySelector('time') ?? card.querySelector('.LfVVr');
+    const timeText = cleanText(timeElement);
+    const stamp = Number(timeElement?.getAttribute('data-ts'));
+    const date = stamp > 0 && Number.isFinite(stamp) && stamp * 1000 <= now.getTime() ? new Date(stamp * 1000).toISOString() : undefined;
+    const timeKind = parseNewsTime(timeText, now).news.timeKind;
+    const time = parseNewsTime(date ?? timeElement?.getAttribute('datetime') ?? timeText, now, timeKind);
+    const image = card.querySelector('.gpjNTe img, .uhHOwf img');
+    hits.push({
+      url,
+      title,
+      snippet: cleanText(card.querySelector('.UqSP2b, .GI74Re')).slice(0, 300),
+      rank: hits.length + 1,
+      ...time,
+      news: {
+        ...time.news,
+        ...(timeText ? { timeText } : {}),
+        publisher: cleanText(card.querySelector('.MgUUmf span')) || undefined,
+        thumbnail: newsThumbnail(image?.getAttribute('src') ?? image?.getAttribute('data-src'), pageUrl),
+      },
+    });
+  }
+  return hits;
+}

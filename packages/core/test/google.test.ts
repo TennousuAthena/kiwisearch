@@ -148,6 +148,22 @@ describe('Google result links', () => {
     expect(maximumActive).toBeLessThanOrEqual(5);
   });
 
+  it('keeps distinct news URLs that mention the same DOI while collapsing URL tracking variants', async () => {
+    const urls = [
+      'https://publisher.example/news/10.1234/story',
+      'https://another.example/report/10.1234/story',
+      'https://publisher.example/news/10.1234/story?utm_source=google',
+    ];
+    const news = { timeKind: 'unknown' as const, retrievedAt: '2026-11-13T00:00:00.000Z' };
+    const hits = await google.resolve!(urls.map((url, i) => ({ ...hit(url, i + 4), news })), {
+      fetch: async () => { throw new Error('direct URLs must not be fetched'); },
+      signal: new AbortController().signal,
+    });
+    expect(hits.map((item) => item.url)).toEqual(urls.slice(0, 2));
+    expect(hits.map((item) => item.rank)).toEqual([1, 2]);
+    expect(hits.every((item) => item.news === news)).toBe(true);
+  });
+
   it('runs Google resolution through the browser source with Env.fetch', async () => {
     const wrapper = 'https://www.google.com/goto?url=fixture-redirect-1';
     const env: Env = {

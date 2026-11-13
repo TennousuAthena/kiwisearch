@@ -5,7 +5,9 @@ export const scholar: BrowserEngine = {
   id: 'scholar',
   label: 'Google Scholar',
   modes: ['academic'],
-  buildUrl: (query, count) => `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}&num=${Math.min(count, 20)}`,
+  // `lr=lang_en` is Scholar's "search language" setting as a parameter.
+  buildUrl: (query, count, _mode, language) =>
+    `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}&num=${Math.min(count, 20)}${language === 'en' ? '&lr=lang_en' : ''}`,
   matches: ['*://scholar.google.com/scholar*', '*://scholar.google.com/sorry/*'],
   readySelector: '.gs_r.gs_or.gs_scl',
   blockedSelector: '#captcha-form, form[action*="sorry"], [id*="captcha"]',

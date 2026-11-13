@@ -92,7 +92,7 @@ export const pubmed: SearchSource = {
   label: 'PubMed',
   modes: ['academic'],
   requiresKey: false,
-  async search(query, { env, settings, count, signal }) {
+  async search(query, { env, settings, count, signal, language }) {
     // PubMed's index is English; a query without Latin letters can't match, so don't spend one of the 3 requests a second on it.
     if (!/[A-Za-z]/.test(query)) return [];
     const identify = (params: Record<string, string>) => {
@@ -102,7 +102,7 @@ export const pubmed: SearchSource = {
     };
     const found = await fetchJson<{ esearchresult?: { idlist?: string[] }; error?: string }>(
       env.fetch,
-      `${EUTILS}/esearch.fcgi?${identify({ db: 'pubmed', retmode: 'json', sort: 'relevance', retmax: String(Math.min(count, 30)), term: query })}`,
+      `${EUTILS}/esearch.fcgi?${identify({ db: 'pubmed', retmode: 'json', sort: 'relevance', retmax: String(Math.min(count, 30)), term: language === 'en' ? `(${query}) AND english[la]` : query })}`,
       { signal },
     );
     // Over the rate limit NCBI answers 200 with `{"error": "API rate limit exceeded", ...}`.
