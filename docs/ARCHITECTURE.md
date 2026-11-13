@@ -46,7 +46,7 @@
 | `types.ts` | 所有类型：`SearchMode`、`SourceId`、`FusionConfig`、`PipelineEvent`、`Env`…… |
 | `config.ts` | 默认配置、`CONFIG_VERSION` 与迁移、`mergeConfig`、`usableSources`、每个模式取多少条 |
 | `sources/` | 11 个 API 来源和注册表 `SOURCES` |
-| `engines/` | 23 个浏览器引擎（`BrowserEngine`：拼网址、识别页面、提取结果） |
+| `engines/` | 24 个浏览器引擎（`BrowserEngine`：拼网址、识别页面、提取结果） |
 | `fusion.ts`、`url.ts` | URL 归一化、去重、RRF、论文与转载合并、应用重排分数 |
 | `wikipedia.ts`、`han.ts` | 维基百科语言版本折叠（见第 4 节）；繁体转简体的字符表（OpenCC，Apache-2.0，`scripts/gen-han.mjs` 生成） |
 | `judge.ts` | 决策模型过滤与排序、域名规则（`applyDomainRules`）、正文提示注入检查 |
@@ -105,7 +105,7 @@
 所有来源统一成 `SearchSource`，登记在 `sources/index.ts` 的 `SOURCES` 里（类型是 `Record<SourceId, …>`，漏登记 TypeScript 会报错）。每个来源声明自己支持的模式、要不要 Key、要不要自己的服务地址、要不要浏览器。
 
 - **API 来源**（`sources/*.ts`）：`brave`、`exa`、`deepseek`、`openalex`、`crossref`、`arxiv`、`openverse`、`pubmed`、`europepmc`、`dblp`、`searxng`。通过 `env.fetch` 请求。Exa 把页面以 Markdown 返回，页面开头常是表格（维基百科是信息框），所以它的摘要不能直接截取：`markdownSnippet` 按页面顺序取第一块有内容的东西（正文段落、列表，或三列以上的数据表），跳过两列的信息框、标题、页眉页脚和各种 Markdown 记号；`content` 仍保留 Markdown，给概览和决策模型用。
-- **浏览器引擎**（`engines/*.ts`）：`google`、`bing`、`baidu`、`duckduckgo`、`bravesearch`、`scholar`、`baiduxueshu`、`cnki`、`wos`、`yandex`、`youtube`、`bilibili`、`douyin`、`zhihu`、`xiaohongshu`、`rednote`、`sogou`、`yuanbao`、`weixin`、`x`。每个是一个 `BrowserEngine`：
+- **浏览器引擎**（`engines/*.ts`）：`google`、`bing`、`baidu`、`duckduckgo`、`bravesearch`、`kagi`、`scholar`、`baiduxueshu`、`cnki`、`wos`、`yandex`、`youtube`、`bilibili`、`douyin`、`zhihu`、`xiaohongshu`、`rednote`、`sogou`、`yuanbao`、`weixin`、`x`。每个是一个 `BrowserEngine`：
   - `buildUrl(query, count, mode)` 拼出结果页网址；`matches` 说明内容脚本该在哪些网址上工作；
   - `readySelector` 表示结果开始渲染（可以覆盖多个模式）；`blockedSelector` / `isBlockedUrl` 识别验证码；`loginSelector` / `isLoginUrl` 识别登录墙；`refusedPattern` 识别网站明确拒绝（如知乎的风控 JSON）；
   - `extract(doc, pageUrl, mode)` 把页面读成 `SearchHit`；`resolve` 可选，用来拆开跳转链接；`minIntervalMs` 可选，比全局间隔更长的请求间隔（X 是 10 秒）。

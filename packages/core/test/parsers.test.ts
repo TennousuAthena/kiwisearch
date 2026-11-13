@@ -13,6 +13,7 @@ describe('browser engine extraction fixtures', () => {
     scholar: 'https://scholar.google.com/sorry/',
     youtube: 'https://consent.youtube.com/m?continue=https%3A%2F%2Fwww.youtube.com%2Fresults',
     zhihu: 'https://www.zhihu.com/signin?next=%2F',
+    kagi: 'https://kagi.com/turnstile?r=%2Fsearch%3Fq%3Dtypescript',
     x: 'https://x.com/i/jf/onboarding/web',
   };
   for (const [id, engine] of Object.entries(BROWSER_ENGINES)) {

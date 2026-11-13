@@ -1,0 +1,89 @@
+<!-- HAND-WRITTEN, not a capture: no signed-in Kagi page was available. Hosts and text are invented; the markup follows what Kagi documents in its custom-CSS guide (help.kagi.com/kagi/features/custom-css.html: .search-result, .sri-group, .__sri_title_link, .__srgi-title a, .sri-desc, .newsResultItem, .wikipediaResult) and what tools written against the live page handle (tcode, serp-axi, kagi-cli, Apollo-Reborn, macproxy_plus): an organic block is class="_0_SRI _ext_ub_r search-result", a grouped result is a sibling .sr-group .__srgi inside .sri-group, and .__sri-desc holds the text plus a span.__sri-time date and an a.summarize-link. It only proves the parser matches the markup it was written against; see docs/internals/sources.md. -->
+<!DOCTYPE html>
+<html lang="en" data-path="/search">
+<head><meta charset="UTF-8"><title>typescript - Kagi Search</title></head>
+<body>
+<div id="layout-v2">
+  <form id="search-form"><input id="search-input" name="q" value="typescript"></form>
+  <div class="results-box">
+    <div class="_0_main-search-results">
+
+      <div class="wikipediaResult"><a href="https://en.wikipedia.example/wiki/TypeScript">TypeScript - Wikipedia module</a><p>An infobox card, not an organic result.</p></div>
+
+      <div class="_0_SRI _ext_ub_r search-result ">
+        <div class="_0_TITLE __sri-title"><h3 class="__sri-title-box"><a class="__sri_title_link _0_sri_title_link _0_URL" href="https://docs.example.org/typescript/">TypeScript: JavaScript With Syntax For Types</a></h3></div>
+        <div class="__sri-url-box"><a class="__sri-url _0_URL" href="https://docs.example.org/typescript/"><span class="host">docs.example.org</span><span class="path"> › typescript</span></a></div>
+        <div class="__sri-body"><div class="_0_DESC __sri-desc"><div><span class="__sri-time">Oct 4, 2026</span> TypeScript is a strongly typed programming language that builds on <b>JavaScript</b>, giving you better tooling at any scale.<script>window.hidden = 1;</script> <a class="_0_summarize_page summarize-link" href="/summarizer?url=https%3A%2F%2Fdocs.example.org%2Ftypescript%2F">Summarize</a></div></div></div>
+      </div>
+
+      <div class="_0_SRI _ext_ub_r search-result ">
+        <div class="_0_TITLE __sri-title"><h3 class="__sri-title-box"><a class="__sri_title_link _0_sri_title_link _0_URL" href="https://developer.example.com/en-US/docs/Glossary/TypeScript">TypeScript - Glossary</a></h3><div class="sri_more_menu_box"><a href="/search?q=typescript+site%3Adeveloper.example.com">More results from developer.example.com</a><a href="/lens/remove?site=developer.example.com">Remove results from this site</a></div></div>
+        <div class="__sri-url-box"><a class="__sri-url" href="https://developer.example.com/en-US/docs/Glossary/TypeScript">developer.example.com</a></div>
+        <div class="__sri-body"><div class="_0_DESC __sri-desc"><div><span class="__sri-time"> Yesterday </span> TypeScript is a superset of JavaScript that adds static types and compiles to plain JavaScript.</div></div></div>
+      </div>
+
+      <div class="inline-content newsResultItem _0_SRI"><div class="newsResultHeader"><span class="newsResultTitle"><a class="_0_TITLE" href="https://news.example.net/typescript-release">TypeScript release news (News module)</a></span></div></div>
+
+      <div class="sri-group">
+        <div class="_0_SRI _ext_ub_r search-result ">
+          <div class="_0_TITLE __sri-title"><h3 class="__sri-title-box"><a class="__sri_title_link _0_sri_title_link _0_URL" href="https://forum.example.org/t/typescript-or-javascript/1001">TypeScript or JavaScript for a new project?</a></h3></div>
+          <div class="__sri-body"><div class="_0_DESC __sri-desc">A long thread comparing the two for a new project, with notes on build tooling, onboarding and refactoring.</div></div>
+        </div>
+        <div class="sr-group">
+          <div class="__srgi">
+            <div class="__srgi-title"><h4><a href="https://forum.example.org/t/typescript-strict-mode/1002">Is strict mode worth turning on?</a></h4></div>
+            <div class="__sri-desc"><div><span class="__sri-time"> Mar 3, 2024 </span> Strict mode catches more mistakes but makes migrating an old code base slower. <a class="_0_summarize_page summarize-link" href="/summarizer?url=x">Summarize</a></div></div>
+          </div>
+          <div class="__srgi">
+            <div class="__srgi-title"><h4><a href="https://forum.example.org/t/typescript-generics/1003">Generics explained with examples</a></h4></div>
+            <div class="__sri-desc">Generics let a function or type work over many types while keeping them checked.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="_0_SRI _ext_ub_r search-result ">
+        <div class="_0_TITLE __sri-title"><h3 class="__sri-title-box"><a class="__sri_title_link _0_sri_title_link _0_URL" href="https://blog.example.com/posts/typescript-tips?utm_source=feed">Ten TypeScript tips I wish I knew earlier</a></h3></div>
+        <div class="__sri-body"><div class="_0_DESC __sri-desc">Narrowing, discriminated unions, satisfies, const assertions and a handful of other habits that pay off quickly. This post goes through each of them with short examples and explains the mistakes they prevent, from forgetting to handle a case in a switch to widening a literal type by accident. It also covers a few compiler options that are worth knowing before a code base grows, how to read the longer error messages the compiler prints, and when it is better to leave a type loose than to write something clever that nobody else on the team can follow six months later.</div></div>
+      </div>
+
+      <div class="_0_SRI _ext_ub_r search-result ">
+        <div class="_0_TITLE __sri-title"><h3 class="__sri-title-box"><a class="__sri_title_link _0_sri_title_link _0_URL" href="https://github.example.com/example/typescript-starter">example/typescript-starter</a></h3></div>
+        <div class="__sri-body"><div class="_0_DESC __sri-desc">A minimal starter template.</div></div>
+      </div>
+
+      <div class="_0_SRI _ext_ub_r search-result ">
+        <div class="_0_TITLE __sri-title"><h3 class="__sri-title-box"><a class="__sri_title_link _0_sri_title_link _0_URL" href="https://docs.example.org/typescript/">TypeScript: JavaScript With Syntax For Types (duplicate)</a></h3></div>
+        <div class="__sri-body"><div class="_0_DESC __sri-desc">The same address a second time.</div></div>
+      </div>
+
+      <div class="_0_SRI _ext_ub_r search-result ">
+        <div class="_0_TITLE __sri-title"><h3 class="__sri-title-box"><a class="__sri_title_link _0_sri_title_link _0_URL" href="/search?q=typescript+handbook">Search again inside Kagi</a></h3></div>
+        <div class="__sri-body"><div class="_0_DESC __sri-desc">An internal link, not a result.</div></div>
+      </div>
+
+      <div class="_0_SRI _ext_ub_r search-result ">
+        <div class="_0_TITLE __sri-title"><h3 class="__sri-title-box"><a class="__sri_title_link _0_sri_title_link _0_URL" href="javascript:alert(1)">Unsafe link</a></h3></div>
+        <div class="__sri-body"><div class="_0_DESC __sri-desc">Not an http link.</div></div>
+      </div>
+
+      <div class="_0_SRI _ext_ub_r search-result ">
+        <div class="_0_TITLE __sri-title"><h3 class="__sri-title-box"><a class="__sri_title_link _0_sri_title_link _0_URL" href="https://tutorials.example.net/typescript-in-100-seconds"></a></h3></div>
+        <div class="__sri-body"><div class="_0_DESC __sri-desc">A result without a title text.</div></div>
+      </div>
+
+      <div class="_0_SRI _ext_ub_r search-result ">
+        <div class="_0_TITLE __sri-title"><h3 class="__sri-title-box"><a class="__sri_title_link _0_sri_title_link _0_URL" href="https://tutorials.example.net/typescript-course">TypeScript full course for beginners</a></h3></div>
+      </div>
+
+      <div class="_0_SRI _ext_ub_r search-result ">
+        <div class="_0_TITLE __sri-title"><h3 class="__sri-title-box"><a class="__sri_title_link _0_sri_title_link _0_URL" href="https://wiki.example.org/TypeScript_(language)">TypeScript (programming language)</a></h3></div>
+        <div class="__sri-body"><div class="_0_DESC __sri-desc">Developed and maintained by a large software company, released under an open-source licence.</div></div>
+      </div>
+
+    </div>
+    <div class="right-sidebar"><div class="related-searches"><a href="/search?q=typescript+vs+javascript"><span>typescript vs javascript</span></a><a href="/search?q=typescript+tutorial"><span>typescript tutorial</span></a></div></div>
+    <div class="footer-search-results"><button id="load_more_results" type="button">More Results</button></div>
+  </div>
+</div>
+</body>
+</html>

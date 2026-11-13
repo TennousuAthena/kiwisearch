@@ -169,5 +169,10 @@
     "file": "amazon.png",
     "from": "https://www.amazon.com/favicon.ico (48x48 frame, converted to PNG; checked 2026-11-13)",
     "license": "the brand's own icon, used only to name the engine"
+  },
+  "kagi": {
+    "file": "kagi.png",
+    "from": "https://kagi.com/apple-touch-icon.png (the apple-touch-icon on https://kagi.com/, 180x180 scaled to 64x64; checked 2026-11-13)",
+    "license": "the brand's own icon, used only to name the engine"
   }
 }

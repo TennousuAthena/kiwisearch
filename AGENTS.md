@@ -9,7 +9,7 @@ Kiwi Search is a Manifest V3 new-tab search extension for Chrome and Edge (a Fir
 **Core principle: all data comes from the user's own browser, logins and keys.** Kiwi provides no accounts, keys, proxies or servers, and results are shown only to the user.
 
 - Ten search modes: `web`, `images`, `video`, `news`, `shopping`, `academic`, `zhihu`, `xiaohongshu`, `wechat`, `x`. Each source declares which modes it supports.
-- 34 sources: 23 browser engines (rendered in a worker tab of the user's browser) and 11 API sources.
+- 35 sources: 24 browser engines (rendered in a worker tab of the user's browser) and 11 API sources.
 
 ## Commands
 

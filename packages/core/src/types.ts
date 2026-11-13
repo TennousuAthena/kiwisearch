@@ -9,6 +9,7 @@ export type SourceId =
   | 'scholar'
   | 'brave'
   | 'bravesearch'
+  | 'kagi'
   | 'exa'
   | 'deepseek'
   | 'openalex'
