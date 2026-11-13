@@ -178,7 +178,7 @@
 Claude Desktop / Cursor ──stdio──▶ MCP 进程（hub 或 relay）──WebSocket──▶ 浏览器里的扩展
 ```
 
-- **配对**：MCP 进程首次运行时，在 `~/.kiwi-search/token`（`KIWI_HOME` 可改目录）生成令牌，权限 `0600`；扩展连接时必须出示令牌，且来源是 `chrome-extension://`（设了 `KIWI_EXTENSION_ID` 还要匹配 ID）。只监听 `127.0.0.1`。
+- **配对**：MCP 进程首次运行时，在 `~/.kiwi-search/token`（`KIWI_HOME` 可改目录）生成令牌，权限 `0600`；扩展连接时必须出示令牌，且来源是 `chrome-extension://` 或 Firefox 的 `moz-extension://`（设了 `KIWI_EXTENSION_ID` 还要匹配 ID，Firefox 的 ID 是 `about:debugging` 里显示的本机 UUID）。扩展在没填令牌时不会去连。只监听 `127.0.0.1`。
 - **hub 与 relay**（`BridgeSession`）：第一个 MCP 进程绑定 `127.0.0.1:17345`（`KIWI_PORT`）成为 hub，它接受扩展（`/extension`）和后来的 MCP 进程（`/mcp`）；后来的进程拿到 `EADDRINUSE`，就当 relay，通过 hub 转发。所以一个浏览器连接能同时服务多个 MCP 客户端；hub 进程退出时，relay 随机延迟后抢占端口接管。hub 会重映射请求 ID。
 - **扩展一侧**（`lib/bridge.ts`）：用 WebSocket 连 hub（WebSocket 流量能让 Service Worker 保持存活，每 20 秒一个 ping），握手时带上来源的可用状态；每个请求都走同一个 `runSearch`，所以和页面共用队列、限速、缓存和工作标签页。
 - **工具**：`search`、`answer`、`list_sources`（参数见 [USAGE.md](USAGE.md)）。被过滤的结果不进列表，放在 `structuredContent.hidden`。`answer` 在摘要提供方是 `chrome-builtin` 时不可用，因为那个模型只能在搜索页里运行。

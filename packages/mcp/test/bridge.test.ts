@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { BridgeHub, NOT_CONNECTED_MESSAGE, PAIRING_MISMATCH_MESSAGE, RelayClient } from '../src/bridge';
+import { allowedExtensionOrigin, BridgeHub, NOT_CONNECTED_MESSAGE, PAIRING_MISMATCH_MESSAGE, RelayClient } from '../src/bridge';
 
 const hubs: BridgeHub[] = [];
 const sockets: WebSocket[] = [];
@@ -49,6 +49,15 @@ describe('MCP WebSocket bridge', () => {
       socket.once('open', () => resolve());
       socket.once('error', reject);
     })).rejects.toBeTruthy();
+  });
+
+  it('accepts Chromium and Firefox extension origins, and the configured ID only', () => {
+    expect(allowedExtensionOrigin('chrome-extension://abc')).toBe(true);
+    expect(allowedExtensionOrigin('moz-extension://5f1c-uuid')).toBe(true);
+    expect(allowedExtensionOrigin('moz-extension://5f1c-uuid', '5f1c-uuid')).toBe(true);
+    expect(allowedExtensionOrigin('moz-extension://other', '5f1c-uuid')).toBe(false);
+    expect(allowedExtensionOrigin('https://moz-extension.example')).toBe(false);
+    expect(allowedExtensionOrigin(undefined)).toBe(false);
   });
 
   it('rejects a wrong pairing token', async () => {

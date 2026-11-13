@@ -19,7 +19,7 @@ pnpm install
 | 只跑一个用例 | 在上面加 `-t "<用例名>"` |
 | 类型检查 | `pnpm typecheck`（各包 `tsc`；扩展先跑 `wxt prepare`） |
 | 构建 Chrome 扩展 | `pnpm --filter @kiwi-search/extension build`，输出 `apps/extension/.output/chrome-mv3`，加载为未打包扩展 |
-| 构建 Firefox 扩展 | `pnpm --filter @kiwi-search/extension build:firefox`（目前输出 MV2；Firefox 没有实际测过） |
+| 构建 Firefox 扩展 | `pnpm --filter @kiwi-search/extension build:firefox`（输出 MV2，在 `about:debugging` 里临时加载；2026-11-13 在 Firefox 160 实测过，见 [testing.md](internals/testing.md)） |
 | 开发服务器 | `pnpm dev` |
 | 构建 MCP 服务 | `pnpm --filter @kiwi-search/mcp build`，输出 `packages/mcp/dist/index.js` |
 
