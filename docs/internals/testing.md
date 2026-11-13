@@ -63,4 +63,20 @@ Checked on 2026-11-13:
 
 Known limit seen in that failing run: `pnpm -r typecheck` stops at the first failing package and sends SIGTERM to the rest, so a type error is reported for one package only. `pnpm -r --no-bail typecheck` would report all of them; the workflow does not use it and that variant was not run.
 
-Not checked: any runner other than `ubuntu-latest`, any Node version other than 24 on GitHub, whether the pnpm store cache (`cache: true` in `pnpm/action-setup`) is restored on a later run, the Firefox build (not in CI, and never checked live), and installing the uploaded artifact in a browser. CI does not replace the real-browser checks above.
+Not checked: any runner other than `ubuntu-latest`, any Node version other than 24 on GitHub, whether the pnpm store cache (`cache: true` in `pnpm/action-setup`) is restored on a later run, the Firefox build (not in CI; see "Firefox" below for the live check), and installing the uploaded artifact in a browser. CI does not replace the real-browser checks above.
+
+## Firefox
+
+`build:firefox` writes `apps/extension/.output/firefox-mv2`; load its `manifest.json` from `about:debugging` → "Load Temporary Add-on". Browser-specific code reads `import.meta.env.FIREFOX`: `wxt.config.ts` leaves out the `favicon` permission, `faviconService.ts` skips `_favicon`, and the onboarding (`StartSection.tsx`) shows a copyable `about:preferences#search` because Firefox won't let an extension open its settings pages. The MCP hub accepts `moz-extension://` origins. In Firefox the `KIWI_EXTENSION_ID` value is the per-install UUID shown in `about:debugging`.
+
+Checked on 2026-11-13 with Firefox 160 on macOS, using a fresh profile and no model keys:
+- The temporary add-on loads without the `favicon` warning. The remaining build warnings are a missing extension ID and `data_collection_permissions`.
+- New tab, web search (merged Google/Bing/DuckDuckGo/Brave), images, video, news, shopping (Amazon), academic and WeChat all returned results.
+- The full-tab settings persist across a reload. A Content Farm Terminator subscription downloaded 20,547 rules, and the 360-minute alarm exists.
+- `https://s.kiwi.moe/s?q=test` is intercepted.
+- Following the onboarding in Firefox works. The real labels are "Default Search Engine → Add" and a dialog with name, URL and optional keyword. Afterwards, an address-bar search opens Kiwi.
+- With an empty token there are no `_favicon` requests and no localhost WebSocket errors.
+- A real MCP stdio `search` returned results through Firefox with `KIWI_EXTENSION_ID` set to its UUID, and a wrong UUID got HTTP 403.
+- In a throwaway Chrome profile, the MV3 build still shows the Chrome settings button and keeps `favicon`.
+
+Not checked: AI overview and quick answer, successful results from login- or captcha-gated platforms (Zhihu, RedNote, X, Taobao, JD, Google Scholar), whether the Openverse 504, Bilibili refusal and X timeout also happen in Chrome, the user's own Chromium profile, and AMO signing.

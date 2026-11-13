@@ -62,6 +62,7 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
 
 /** The icon the browser itself holds for this site (visited or bookmarked), if any. Free, and sends nothing anywhere. */
 async function browserIcon(host: string): Promise<string | null> {
+  if (import.meta.env.FIREFOX) return null;
   try {
     placeholder ??= apiBytes('https://kiwi-placeholder.invalid/').catch(() => null);
     const [icon, none] = await Promise.all([apiBytes(`https://${host}/`), placeholder]);

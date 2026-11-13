@@ -22,7 +22,8 @@ const inflight = new Map<string, AbortController>();
 
 export async function ensureBridge(makeEnv: () => Env): Promise<void> {
   const settings = await loadBridge();
-  if (!settings.enabled) {
+  // Without a token the hub would reject the hello anyway, so an unpaired bridge stays quiet.
+  if (!settings.enabled || !settings.token) {
     ws?.close();
     return;
   }

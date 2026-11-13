@@ -4,7 +4,7 @@ Guidance for AI coding agents (Claude Code, Codex, Cursor, …) and for people w
 
 ## What this is
 
-Kiwi Search is a Manifest V3 new-tab search extension for Chrome and Edge (a Firefox build exists but has not been checked live). It queries many sources from the user's own browser, merges them by URL with RRF, filters content farms with a decision model, and streams an AI overview with `[n]` citations. A local stdio MCP server forwards an agent's tool calls to the same pipeline running in the browser.
+Kiwi Search is a Manifest V3 new-tab search extension for Chrome and Edge (a Firefox MV2 build exists and was checked live once, see [testing.md](docs/internals/testing.md)). It queries many sources from the user's own browser, merges them by URL with RRF, filters content farms with a decision model, and streams an AI overview with `[n]` citations. A local stdio MCP server forwards an agent's tool calls to the same pipeline running in the browser.
 
 **Core principle: all data comes from the user's own browser, logins and keys.** Kiwi provides no accounts, keys, proxies or servers, and results are shown only to the user.
 

@@ -15,7 +15,9 @@ const DEFAULT_SEARCH_FIELDS = [
   { id: 'url', labelKey: 'options.start.fieldUrl', value: 'https://s.kiwi.moe/s?q=%s' },
 ] as const;
 
-const SEARCH_ENGINES_URL = 'chrome://settings/searchEngines';
+// Firefox refuses to open its own settings pages from an extension, so there the address is shown to copy instead.
+const FIREFOX = import.meta.env.FIREFOX;
+const SEARCH_ENGINES_URL = FIREFOX ? 'about:preferences#search' : 'chrome://settings/searchEngines';
 
 interface Props {
   config: FusionConfig;
@@ -87,11 +89,33 @@ export function StartSection({ config, health, onDone }: Props) {
             </p>
           )}
           <p className="note">
-            {t('options.start.addSteps')}
+            {t(FIREFOX ? 'options.start.addStepsFirefox' : 'options.start.addSteps')}
           </p>
-          <button type="button" className="btn" onClick={() => void openSearchEngineSettings()}>
-            {t('options.start.openSettings')}
-          </button>
+          {FIREFOX ? (
+            <div className="copy-grid">
+              <div className="copy-item">
+                <span>{t('options.start.fieldSettings')}</span>
+                <code>{SEARCH_ENGINES_URL}</code>
+                <button type="button" className="btn small" aria-label={t('options.start.copyField', { field: t('options.start.fieldSettings') })} onClick={() => void copy('settings', SEARCH_ENGINES_URL)}>
+                  {copied === 'settings' ? (
+                    <>
+                      <CheckIcon />
+                      {t('options.start.copyDone')}
+                    </>
+                  ) : (
+                    <>
+                      <CopyIcon />
+                      {t('options.start.copy')}
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" className="btn" onClick={() => void openSearchEngineSettings()}>
+              {t('options.start.openSettings')}
+            </button>
+          )}
           {settingsFallback && (
             <p className="note">
               {tr('options.start.openFailed', { tags: { code: (text) => <code>{text}</code> }, params: { url: SEARCH_ENGINES_URL } })}

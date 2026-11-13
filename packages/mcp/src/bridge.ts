@@ -47,9 +47,13 @@ function constantTimeEqual(actual: string, expected: string): boolean {
   return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
+const EXTENSION_SCHEMES = ['chrome-extension://', 'moz-extension://'];
+
+/** Chromium and Firefox extension pages. A Firefox ID is the per-install UUID that its `moz-extension://` origin carries. */
 export function allowedExtensionOrigin(origin: string | undefined, extensionId?: string): boolean {
-  if (!origin?.startsWith('chrome-extension://')) return false;
-  return !extensionId || origin === `chrome-extension://${extensionId}`;
+  const scheme = EXTENSION_SCHEMES.find((prefix) => origin?.startsWith(prefix));
+  if (!scheme) return false;
+  return !extensionId || origin === `${scheme}${extensionId}`;
 }
 
 export class BridgeHub {
