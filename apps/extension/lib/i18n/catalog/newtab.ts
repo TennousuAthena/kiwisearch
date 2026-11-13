@@ -26,6 +26,7 @@ export const newtab = {
   'mark.scholar': 'Google 学术',
   'mark.brave': 'Brave',
   'mark.bravesearch': 'Brave',
+  'mark.kagi': 'Kagi',
   'mark.exa': 'Exa',
   'mark.deepseek': 'DeepSeek',
   'mark.openalex': 'OpenAlex',

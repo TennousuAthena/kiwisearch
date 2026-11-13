@@ -124,6 +124,7 @@ export const options = {
   'preset.academic.cs': '计算机',
   'preset.academic.chinese': '中文',
   'source.confirm.baidu': '百度的结果页里混有翻译、推荐等不属于搜索结果的卡片，开启后它们会出现在搜索结果里。默认关闭，之后可以随时关闭。',
+  'source.confirm.kagi': 'Kagi 是付费搜索。开启后，每次网页搜索都会计入你 Kagi 账号的搜索用量。默认关闭，之后可以随时关闭。',
 
   // lib/sourceMeta.ts: the names of the sources
   'source.label.google': 'Google',
@@ -134,6 +135,7 @@ export const options = {
   'source.label.scholar': 'Google Scholar',
   'source.label.brave': 'Brave（API）',
   'source.label.bravesearch': 'Brave（网页）',
+  'source.label.kagi': 'Kagi',
   'source.label.exa': 'Exa',
   'source.label.deepseek': 'DeepSeek',
   'source.label.openalex': 'OpenAlex',
@@ -166,6 +168,7 @@ export const options = {
   'source.blurb.bing': '网页和图片搜索',
   'source.blurb.duckduckgo': '不追踪的网页搜索',
   'source.blurb.bravesearch': 'Brave 自己的独立索引，在浏览器里搜索网页和新闻，不需要 Key；偶尔需要人机验证',
+  'source.blurb.kagi': 'kagi.com 的网页搜索，使用你浏览器里的 Kagi 登录；偶尔需要人机验证',
   'source.blurb.baidu': '中文网页',
   'source.blurb.sogou': '搜狗网页搜索，和百度的索引有重叠',
   'source.blurb.yuanbao': 'so.qq.com 的网页搜索',

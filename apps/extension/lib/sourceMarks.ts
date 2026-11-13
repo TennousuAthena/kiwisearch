@@ -17,6 +17,7 @@ export const SOURCE_MARKS: Record<SourceId, { mark: MarkKey }> = {
   brave: { mark: 'brave' },
   // The same index by another route, so the same mark: a result both returned is not "two engines agreeing".
   bravesearch: { mark: 'brave' },
+  kagi: { mark: 'kagi' },
   exa: { mark: 'exa' },
   deepseek: { mark: 'deepseek' },
   openalex: { mark: 'openalex' },

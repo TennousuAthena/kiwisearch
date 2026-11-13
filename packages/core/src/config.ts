@@ -18,6 +18,9 @@ export const DEFAULT_CONFIG: FusionConfig = {
     // Brave's own results page, read in the browser: no key. `brave` below is the API version of the same index and needs one; with
     // a key, turn one of the two off or Brave is counted twice in the fusion.
     bravesearch: { enabled: true },
+    // Kagi is paid and only answers in a browser signed in to the user's own account; every search spends one of that account's
+    // searches, so it is opt-in (the options page says so before it is turned on).
+    kagi: { enabled: false },
     scholar: { enabled: true },
     brave: { enabled: true },
     exa: { enabled: true },
