@@ -19,6 +19,7 @@ pnpm workspace; run from the repo root. README asks for Node 24 and pnpm 12.
 - Test: run each package on its own, `pnpm --filter @kiwi-search/core test` (or `@kiwi-search/extension`, `@kiwi-search/mcp`). The root `pnpm test` is `pnpm -r test` and also reaches `packages/experiments`, which is only a shell (empty `src/` and `test/`), so `vitest` exits 1 there with "No test files found"; that failure predates the block-list work.
 - Single test file: `pnpm --filter @kiwi-search/core exec vitest run test/fusion.test.ts` (swap the package filter for `@kiwi-search/mcp` or `@kiwi-search/extension`). Narrow to one case with `-t "<test name>"`.
 - Typecheck: `pnpm typecheck` (`tsc` per package; the extension runs `wxt prepare` first). There is no lint script or lint config, so typecheck is the only static check.
+- CI: `.github/workflows/ci.yml` runs a frozen-lockfile install, typecheck, the three test suites and both builds (Node 24, pnpm 12) on pushes to `master` and on pull requests. Run the same steps before pushing. → [testing.md](docs/internals/testing.md)
 - Build: `pnpm build` (only extension and mcp define `build`). Chrome extension: `pnpm --filter @kiwi-search/extension build`, output in `apps/extension/.output/chrome-mv3`, loaded unpacked. Firefox: `build:firefox`. Dev server: `pnpm dev`. MCP server bundle: `pnpm --filter @kiwi-search/mcp build` → `packages/mcp/dist/index.js`.
 
 ## Code map

@@ -25,7 +25,23 @@ pnpm install
 
 **没有 lint 脚本和 lint 配置，类型检查是唯一的静态检查。**
 
-**根目录的 `pnpm test` 目前会失败**：它会跑到 `packages/experiments`，那个包只有一个空壳，没有测试文件，`vitest` 以“No test files found”退出。三个有测试的包请用上面的 `--filter` 分别跑。截至 2026-11-12，core 408 条、extension 104 条、mcp 14 条，全部通过。
+**根目录的 `pnpm test` 目前会失败**：它会跑到 `packages/experiments`，那个包只有一个空壳，没有测试文件，`vitest` 以“No test files found”退出。三个有测试的包请用上面的 `--filter` 分别跑。截至 2026-11-13，core 545 条、extension 235 条、mcp 17 条，全部通过。
+
+## 持续集成（GitHub Actions）
+
+工作流在 `.github/workflows/ci.yml`，推送到 `master`、提交 PR 和在 Actions 页面手动运行时触发。同一个分支上有新的推送，会取消还在跑的旧运行。它用 Node 24 和 pnpm 12（和本文开头的要求一致），依次做：
+
+1. `pnpm install --frozen-lockfile`（锁文件和 `package.json` 对不上会直接失败）
+2. `pnpm typecheck`
+3. 分别跑 core、extension、mcp 的测试（不用根目录的 `pnpm test`，原因见上）
+4. 构建扩展和 MCP 服务
+5. 把未打包的 Chrome 扩展（`.output/chrome-mv3`）作为产物上传，保留 14 天，可以直接下载来装
+
+类型检查和三组测试互不依赖：其中一步失败，后面的测试仍然会跑，这样一次运行能看到所有失败的地方；构建只在前面全部通过后才跑。注意类型检查这一步内部是遇错即停的（`pnpm -r` 在一个包失败后会终止其余的包），所以一次类型错误只会报出先失败的那个包。
+
+想在本机复现 CI 的环境，用一份干净的克隆：`git clone` 之后 `pnpm install --frozen-lockfile`，再依次跑上面的命令。这样能发现只在你本机存在、被 `.gitignore` 忽略掉的文件造成的问题。
+
+CI 只覆盖纯逻辑测试、类型检查和构建。标签渲染、内容脚本、各站点的登录和验证码，仍然只能在真实浏览器里验证（见下面“自动化测不到的”）。
 
 ## 仓库结构
 

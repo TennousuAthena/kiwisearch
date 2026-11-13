@@ -50,3 +50,17 @@ The complete package suites passed (core 531, extension 168, MCP 17), as did wor
 See [shopping.md](shopping.md) for parser provenance, mock layout checks and the original-profile search. The shared content runner now has narrow unit tests for worker handshakes, streamed DOM startup, settling, ordinary engine completion, login walls and delayed products. The actual Chrome injection, worker-window behavior and site authentication still require live verification.
 
 The final shopping check passed 539 core tests, 173 extension tests and 17 MCP tests, plus workspace typecheck and production build. Real Taobao products and primary images are captured separately from the initial synthetic fixture; JD successful extraction remains unverified.
+
+## Continuous integration (2026-11-13)
+
+`.github/workflows/ci.yml` runs on pushes to `master`, on pull requests and on manual dispatch (`gh workflow run ci.yml`), with Node 24 and pnpm 12 as the README asks. One job, `verify`, runs: `pnpm install --frozen-lockfile`, `pnpm typecheck`, the core, extension and mcp suites as separate steps, the extension and mcp builds, then uploads the unpacked `.output/chrome-mv3` as the `kiwi-search-chrome-mv3` artifact (14 days). The root `pnpm test` is not used because `packages/experiments` has no tests and exits 1. Typecheck and the three test steps use `if: ${{ !cancelled() }}`, so one failing step does not hide the others; the builds and the upload run only when everything before them passed.
+
+Checked on 2026-11-13:
+
+- A fresh `git clone` of the repo, `pnpm install --frozen-lockfile` with pnpm 12.18.0 (local Node was 26.13.1), then typecheck, 545 core + 235 extension + 17 mcp tests, and both builds: all passed. The clone had none of the git-ignored local files, so nothing the build needs is missing from the repository.
+- On GitHub: the pull-request run (PR #2), the push to `master` (`e9bbd14`) and a manual dispatch all passed with every step executed, none skipped. The extension artifact was uploaded (449,300 bytes).
+- Failure path: a throwaway PR (#3, closed, branch deleted) added a type error in `packages/mcp/src` and a failing core test. The run went red on exactly those two (`TS2322`, `expected 1 to be 2`), the extension and mcp suites still ran and passed, and the builds and the upload were skipped.
+
+Known limit seen in that failing run: `pnpm -r typecheck` stops at the first failing package and sends SIGTERM to the rest, so a type error is reported for one package only. `pnpm -r --no-bail typecheck` would report all of them; the workflow does not use it and that variant was not run.
+
+Not checked: any runner other than `ubuntu-latest`, any Node version other than 24 on GitHub, whether the pnpm store cache (`cache: true` in `pnpm/action-setup`) is restored on a later run, the Firefox build (not in CI, and never checked live), and installing the uploaded artifact in a browser. CI does not replace the real-browser checks above.
