@@ -1,17 +1,18 @@
 import { DEFAULT_CONFIG, type FusionConfig, type SourceId } from '@kiwi-search/core';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckIcon, CircleAlertIcon } from '@/lib/icons';
 import { loadBlocklistMeta, watchBlocklistMeta } from '@/lib/blocklistService';
 import type { BlocklistMetaMap } from '@/lib/blocklistState';
 import { resetKeepingSecrets, tidyConfig } from '@/lib/configReset';
 import { t } from '@/lib/i18n';
+import { KiwiLogo } from '@/lib/KiwiLogo';
+import { UiPreferencesPanel } from '@/lib/UiPreferencesPanel';
 import {
   DEFAULT_BRIDGE,
   loadBridge,
   loadConfig,
   loadOnboardingDone,
-  saveBridge,
-  saveConfig,
+  saveSettings,
   saveOnboardingDone,
   type BridgeSettings,
 } from '@/lib/settings';
@@ -33,20 +34,35 @@ export default function OptionsApp() {
   const [health, setHealth] = useState<SourceHealthMap>({});
   const [blocklistMeta, setBlocklistMeta] = useState<BlocklistMetaMap>({});
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const baseline = useRef<{ config: FusionConfig; bridge: BridgeSettings } | null>(null);
+  const saveVersion = useRef(0);
+  const savedVersion = useRef(0);
   const [onboardingDone, setOnboardingDone] = useState(true);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(() => location.hash === '#advanced');
+  const [currentSection, setCurrentSection] = useState('sources');
   const [confirming, setConfirming] = useState<SourceId | null>(null);
   const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
-    void Promise.all([loadConfig(), loadBridge(), loadSourceStatus(), loadOnboardingDone()]).then(([nextConfig, nextBridge, nextHealth, done]) => {
-      setConfig(tidyConfig(nextConfig));
+    let active = true;
+    setLoadError(false);
+    void Promise.all([loadConfig(), loadBridge(), loadSourceStatus().catch(() => ({})), loadOnboardingDone()]).then(([nextConfig, nextBridge, nextHealth, done]) => {
+      if (!active) return;
+      const config = tidyConfig(nextConfig);
+      baseline.current = { config, bridge: nextBridge };
+      setConfig(config);
       setBridge(nextBridge);
       setHealth(nextHealth);
       setOnboardingDone(done);
       setLoaded(true);
-    });
-    void loadBlocklistMeta().then(setBlocklistMeta);
+    }).catch(() => { if (active) setLoadError(true); });
+    void loadBlocklistMeta().then((value) => { if (active) setBlocklistMeta(value); }).catch(() => {});
+    return () => { active = false; };
+  }, [loadAttempt]);
+
+  useEffect(() => {
     const stopHealth = watchSourceStatus(setHealth);
     const stopBlocklists = watchBlocklistMeta(setBlocklistMeta);
     return () => {
@@ -57,8 +73,11 @@ export default function OptionsApp() {
 
   // One value for the autosave to watch, so config and bridge are written together.
   const both = { config, bridge };
-  const { state: saveState, error: saveError } = useAutosave(both, loaded, async (value) => {
-    await Promise.all([saveConfig(value.config), saveBridge(value.bridge)]);
+  const { state: saveState, error: saveError, retry: retrySave } = useAutosave(both, loaded, async (value, superseded) => {
+    if (!baseline.current) return;
+    const version = ++saveVersion.current;
+    await saveSettings(value, baseline.current, superseded);
+    if (version > savedVersion.current) { baseline.current = value; savedVersion.current = version; }
   });
 
   const change = useCallback((update: (current: FusionConfig) => FusionConfig) => setConfig(update), []);
@@ -83,6 +102,7 @@ export default function OptionsApp() {
 
   const sections = [
     ...(onboardingDone ? [] : [{ id: 'start', label: t('options.nav.start') }]),
+    { id: 'preferences', label: t('options.ux.preferences') },
     { id: 'sources', label: t('options.nav.sources') },
     { id: 'ai', label: t('options.nav.ai') },
     { id: 'filters', label: t('options.nav.filters') },
@@ -90,11 +110,42 @@ export default function OptionsApp() {
   ];
   const confirmKey = confirming ? SOURCE_INFO[confirming].confirm : undefined;
 
+  useEffect(() => {
+    if (!loaded) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const ids = [...(onboardingDone ? [] : ['start']), 'preferences', 'sources', 'ai', 'filters', 'advanced'];
+      const positions = ids.map((id) => ({ id, top: document.getElementById(id)?.getBoundingClientRect().top ?? Infinity }));
+      const atBottom = window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+      setCurrentSection(atBottom ? ids.at(-1)! : positions.filter((item) => item.top <= 150).at(-1)?.id ?? ids[0]);
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    const onHash = () => {
+      if (location.hash === '#advanced') setAdvancedOpen(true);
+      const id = location.hash.slice(1);
+      if (id) requestAnimationFrame(() => { document.getElementById(id)?.scrollIntoView(); update(); });
+    };
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    window.addEventListener('hashchange', onHash);
+    onHash();
+    update();
+    return () => { cancelAnimationFrame(frame); window.removeEventListener('scroll', schedule); window.removeEventListener('resize', schedule); window.removeEventListener('hashchange', onHash); };
+  }, [loaded, onboardingDone]);
+
+  if (!loaded) return (
+    <div className="options-page"><main className="options-load" aria-busy={!loadError}>
+      <KiwiLogo fullName />
+      {loadError ? <div role="alert"><h1>{t('options.ux.loadFailed')}</h1><p>{t('options.ux.loadFailedHint')}</p><button type="button" className="btn btn-primary" onClick={() => setLoadAttempt((value) => value + 1)}>{t('options.ux.retry')}</button></div> : <p role="status">{t('options.ux.loading')}</p>}
+    </main></div>
+  );
+
   return (
     <div className="options-page">
       <div className="options-bar">
         <div className="options-bar-inner">
-          <span className="options-brand">Kiwi Search</span>
+          <span className="options-brand"><KiwiLogo fullName /></span>
           <div className="options-bar-side">
             <span className={`save-state ${saveState}`} role="status">
               {saveState === 'saving' && t('options.app.saving')}
@@ -110,6 +161,7 @@ export default function OptionsApp() {
               )}
               {saveState === 'idle' && t('options.app.idle')}
             </span>
+            {saveState === 'error' && <button type="button" className="btn small" onClick={retrySave}>{t('options.ux.retrySave')}</button>}
           </div>
         </div>
       </div>
@@ -117,7 +169,7 @@ export default function OptionsApp() {
       <div className="options-body">
         <nav className="options-nav" aria-label={t('options.app.navLabel')}>
           {sections.map((section) => (
-            <a key={section.id} href={`#${section.id}`} onClick={() => section.id === 'advanced' && setAdvancedOpen(true)}>
+            <a key={section.id} href={`#${section.id}`} aria-current={currentSection === section.id ? 'location' : undefined} onClick={() => { setCurrentSection(section.id); if (section.id === 'advanced') setAdvancedOpen(true); }}>
               {section.label}
             </a>
           ))}
@@ -128,6 +180,7 @@ export default function OptionsApp() {
             <h1>{t('options.app.title')}</h1>
             <p>{t('options.app.intro')}</p>
           </header>
+          {saveState === 'error' && <p className="notice save-draft-notice" role="alert">{t('options.ux.unsavedHint')}</p>}
 
           {!onboardingDone && (
             <section className="section" id="start" aria-labelledby="start-title">
@@ -135,6 +188,11 @@ export default function OptionsApp() {
               <StartSection config={config} health={health} onDone={finishOnboarding} />
             </section>
           )}
+
+          <section className="section" id="preferences" aria-labelledby="preferences-title">
+            <h2 id="preferences-title">{t('options.ux.preferences')}</h2>
+            <UiPreferencesPanel />
+          </section>
 
           <SourcesSection config={config} health={health} onUpdate={updateSource} onSetEnabled={setEnabled} onConfirmEnable={setConfirming} />
           <AiSection config={config} onChange={change} />

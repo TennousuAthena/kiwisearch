@@ -1,4 +1,4 @@
-import { createSourceCache, runSearch, type Env, type SourceId } from '@kiwi-search/core';
+import { createSourceCache, llmUsable, runSearch, summarizeSnapshot, usableSources, type Env, type SourceId } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
 import { ensureBridge } from '@/lib/bridge';
 import { handleBlocklistMessage, loadBlocklistRules, refreshDueBlocklists } from '@/lib/blocklistService';
@@ -6,6 +6,8 @@ import { subscriptionsChanged } from '@/lib/blocklistState';
 import { initLocale, t } from '@/lib/i18n';
 import { coreMessagesFor } from '@/lib/i18n/coreMessages';
 import type { PortMessage, SearchRequest } from '@/lib/messages';
+import { handleConfigUpdate, isConfigUpdateMessage } from '@/lib/backgroundConfig';
+import { isExtensionPageSender, parseSummaryRequest } from '@/lib/summaryRequest';
 import { browserLanguage } from '@/lib/language';
 import { loadConfig } from '@/lib/settings';
 import { handleFaviconMessage } from '@/lib/faviconService';
@@ -91,6 +93,11 @@ export default defineBackground(() => {
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (typeof (msg as { type?: string })?.type !== 'string' || !(msg as { type: string }).type.startsWith('kiwi:')) return false;
     const type = (msg as { type: string }).type;
+    if (isConfigUpdateMessage(msg)) {
+      if (!isExtensionPageSender(sender, browser.runtime.id, browser.runtime.getURL('/'))) return false;
+      void handleConfigUpdate(msg).then(sendResponse).catch((error) => sendResponse({ ok: false, error: String(error) }));
+      return true;
+    }
     const reply =
       type === 'kiwi:favicon'
         ? handleFaviconMessage(msg)
@@ -107,8 +114,10 @@ export default defineBackground(() => {
   browser.tabs.onRemoved.addListener(forgetWorkerTab);
 
   browser.runtime.onConnect.addListener((port) => {
-    if (port.name !== 'search') return;
+    if (port.name !== 'search' && port.name !== 'summary') return;
+    if (!isExtensionPageSender(port.sender, browser.runtime.id, browser.runtime.getURL('/'))) { port.disconnect(); return; }
     let ctrl: AbortController | null = null;
+    let summaryCtrl: AbortController | null = null;
     const post = (m: PortMessage) => {
       try {
         port.postMessage(m);
@@ -116,13 +125,44 @@ export default defineBackground(() => {
         ctrl?.abort();
       }
     };
-    port.onDisconnect.addListener(() => ctrl?.abort());
+    port.onDisconnect.addListener(() => { ctrl?.abort(); summaryCtrl?.abort(); });
     port.onMessage.addListener(async (raw) => {
+      if (!raw || typeof raw !== 'object') return;
       const req = raw as SearchRequest;
       if (req.type === 'keepalive') return;
+      if (req.type === 'stop-summary') { summaryCtrl?.abort(); return; }
+      if (port.name === 'summary') {
+        const request = parseSummaryRequest(raw);
+        if (!request) { post({ type: 'fatal', error: t('newtab.session.invalidRequest') }); return; }
+        ctrl?.abort();
+        const current = (ctrl = new AbortController());
+        try {
+          const config = await loadConfig();
+          if (current.signal.aborted) return;
+          if (config.summary.provider !== 'chrome-builtin' && !llmUsable(config.llm)) {
+            post({ type: 'fatal', error: t('newtab.session.summaryUnavailable') }); return;
+          }
+          if (!request.results.some((r) => !r.hidden && (r.snippet || r.content))) {
+            post({ type: 'fatal', error: t('newtab.session.summaryNoEvidence') }); return;
+          }
+          await summarizeSnapshot(request.query, request.results, config, makeEnv(), {
+            mode: request.mode, news: request.news, reuse: request.reuse, summaryAt: request.summaryAt, signal: current.signal,
+            onEvent: (event) => { if (!current.signal.aborted) post({ type: 'event', event }); },
+            onSnapshot: (results, summaryAt) => { if (!current.signal.aborted) post({ type: 'summary-snapshot', results, summaryAt }); },
+          });
+        } catch (error) {
+          if (!current.signal.aborted) post({ type: 'fatal', error: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
       if (req.type !== 'search') return;
+      if (typeof req.query !== 'string' || !req.query.trim() || req.query.length > 4096) {
+        post({ type: 'fatal', error: t('newtab.session.invalidRequest') }); return;
+      }
       ctrl?.abort();
+      summaryCtrl?.abort();
       const current = (ctrl = new AbortController());
+      const overview = (summaryCtrl = new AbortController());
       const deferredSources = new Set<SourceId>();
       let searchFinished = false;
       let resolveDeferred!: () => void;
@@ -134,10 +174,18 @@ export default defineBackground(() => {
       };
       try {
         const config = await loadConfig();
+        if (current.signal.aborted) return;
+        const sources = usableSources(config, true, req.mode ?? 'web').filter((source) => source.modes.includes(req.mode ?? 'web') && (!req.sources || req.sources.includes(source.id)));
+        post({ type: 'readiness', enabled: sources.filter((source) => source.reason !== 'disabled').length, ready: sources.filter((source) => !source.reason).length });
         await runSearch(req.query, config, makeEnv(), {
           mode: req.mode,
+          language: req.language,
+          news: req.news,
+          refresh: req.refresh,
           sources: req.sources,
           summarize: req.summarize,
+          summarySignal: overview.signal,
+          onSummarySnapshot: (results, summaryAt) => { if (!current.signal.aborted) post({ type: 'summary-snapshot', results, summaryAt }); },
           softDeadlineMs: UI_SOFT_DEADLINE_MS,
           signal: current.signal,
           onEvent: (event) => {

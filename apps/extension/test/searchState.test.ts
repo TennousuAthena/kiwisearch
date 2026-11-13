@@ -99,4 +99,55 @@ describe('search state reducer', () => {
     expect(lateSourcesAfterDone(event)).toEqual(['bing']);
     expect(lateSourcesAfterDone({ type: 'source_start', source: 'google' })).toEqual([]);
   });
+
+  it('preserves a late source raw count and duration after its deduplicated results merge', () => {
+    const state = run([
+      done([], [{ source: 'bing', count: 0, ms: 6000, status: 'late' }]),
+      { type: 'source_done', source: 'bing', count: 8, ms: 6421 },
+      { type: 'late_results', source: 'bing', results: [result('merged', { sources: [{ source: 'bing', rank: 1 }] })] },
+    ]);
+    expect(state.sourceStats).toEqual([{ source: 'bing', count: 8, ms: 6421 }]);
+  });
+
+  it('marks early on-demand news evidence stale and keeps its overview timestamp when search finishes', () => {
+    const a = result('a', { content: 'unchecked source content' });
+    let state = run([{ type: 'fused', results: [a], partial: true }, { type: 'summary_start', citations: [{ n: 1, url: a.url, title: a.title }] }], emptyState('q', 'news'));
+    expect(state.summaryResults[0].content).toBeUndefined();
+    state = run([{ type: 'judged', results: [a, result('b')] }], { ...state, summaryAt: '2026-11-13T01:00:05Z' });
+    expect(state.summaryStale).toBe(true);
+    state = run([{ type: 'done', result: { query: 'q', mode: 'news', results: state.results, citations: [], sourceStats: [], news: { range: 'day', sort: 'date', requestedAt: '2026-11-13T01:00:00Z' } } }], state);
+    expect(state.news?.summaryAt).toBe('2026-11-13T01:00:05Z');
+  });
+
+  it('marks a news overview stale when article evidence arrives after its citations were chosen', () => {
+    const citations = [{ n: 1, url: 'https://example.com/a', title: 'a' }];
+    let state = run([
+      { type: 'fused', results: [result('a')] },
+      { type: 'summary_start', citations },
+      { type: 'late_results', source: 'bing', results: [result('a'), result('late')] },
+      { type: 'summary_prompt', citations, messages: [] },
+      { type: 'summary_delta', text: 'The original overview [1].' },
+      { type: 'summary_done', text: 'The original overview [1].' },
+    ], emptyState('q', 'news'));
+    expect(state.summaryStale).toBe(true);
+    expect(state.summary).toBe('The original overview [1].');
+    expect(state.citations).toEqual(citations);
+    state = run([{ type: 'done', result: { query: 'q', mode: 'news', results: state.results, citations, sourceStats: [], news: { range: 'day', sort: 'date', requestedAt: '2026-11-13T01:00:00Z', summaryAt: '2026-11-13T01:00:05Z' } } }], state);
+    expect(state.summaryStale).toBe(true);
+    expect(state.news?.summaryAt).toBe('2026-11-13T01:00:05Z');
+    expect(emptyState('q', 'news').summaryStale).toBe(false);
+  });
+
+  it('does not mark an overview stale for earlier arrivals, hidden articles or engine-order changes', () => {
+    const a = result('a');
+    const b = result('b');
+    let state = run([{ type: 'late_results', source: 'bing', results: [a, b] }], emptyState('q', 'news'));
+    expect(state.summaryStale).toBe(false);
+    state = run([
+      { type: 'summary_start', citations: [{ n: 1, url: a.url, title: a.title }] },
+      { type: 'late_results', source: 'bravesearch', results: [b, { ...a, sources: [{ source: 'bravesearch', rank: 1 }] }, result('hidden', { hidden: { reason: 'time', detail: 'unknown' } })] },
+    ], state);
+    expect(state.summaryStale).toBe(false);
+    expect(run([{ type: 'late_results', source: 'google', results: [{ ...a, snippet: 'New reporting detail' }, b] }], state).summaryStale).toBe(true);
+  });
 });

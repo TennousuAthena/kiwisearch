@@ -1,63 +1,39 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createAutosaveQueue, type SaveState } from './autosaveQueue';
 
-export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+export type { SaveState } from './autosaveQueue';
 
-/**
- * Saves `value` a moment after it last changed. The value `loaded` as is never written back, so opening the page changes
- * nothing; a failed write is reported and retried with the next change. Closing or hiding the tab inside the delay writes at once.
- */
-export function useAutosave<T>(value: T, loaded: boolean, save: (value: T) => Promise<void>, delayMs = 500): { state: SaveState; error: string } {
+/** Opening the page does not save. Failed drafts survive, and pagehide flushes the latest queued value. */
+export function useAutosave<T>(value: T, loaded: boolean, save: (value: T, superseded?: readonly T[]) => Promise<void>, delayMs = 500): { state: SaveState; error: string; retry: () => void } {
   const [state, setState] = useState<SaveState>('idle');
   const [error, setError] = useState('');
-  const lastSaved = useRef<string | null>(null);
-  const pending = useRef<{ value: T; json: string } | null>(null);
   const saveRef = useRef(save);
   saveRef.current = save;
+  const mounted = useRef(true);
+  const queue = useRef<ReturnType<typeof createAutosaveQueue<T>> | null>(null);
+  queue.current ??= createAutosaveQueue<T>((next, superseded) => saveRef.current(next, superseded), (nextState, nextError) => {
+    if (mounted.current) { setState(nextState); setError(nextError); }
+  }, delayMs);
+  const json = JSON.stringify(value);
 
-  const write = useRef((next: { value: T; json: string }) => {
-    pending.current = null;
-    return saveRef
-      .current(next.value)
-      .then(() => {
-        lastSaved.current = next.json;
-        setState('saved');
-        setError('');
-      })
-      .catch((e: unknown) => {
-        setState('error');
-        setError(e instanceof Error ? e.message : String(e));
-      });
-  });
+  useLayoutEffect(() => {
+    if (loaded) queue.current!.observe(value);
+  }, [json, loaded]);
 
   useEffect(() => {
-    if (!loaded) return;
-    const json = JSON.stringify(value);
-    if (lastSaved.current === null) {
-      lastSaved.current = json;
-      return;
-    }
-    if (json === lastSaved.current) {
-      pending.current = null;
-      return;
-    }
-    setState('saving');
-    pending.current = { value, json };
-    const timer = setTimeout(() => void write.current({ value, json }), delayMs);
-    return () => clearTimeout(timer);
-  }, [value, loaded, delayMs]);
-
-  useEffect(() => {
-    const flush = () => {
-      if (pending.current) void write.current(pending.current);
-    };
-    const onHide = () => document.visibilityState === 'hidden' && flush();
+    mounted.current = true;
+    const flush = () => { void queue.current!.handoff(); };
+    const onHide = () => { if (document.visibilityState === 'hidden') flush(); };
     window.addEventListener('pagehide', flush);
     document.addEventListener('visibilitychange', onHide);
     return () => {
+      mounted.current = false;
       window.removeEventListener('pagehide', flush);
       document.removeEventListener('visibilitychange', onHide);
+      flush();
+      queue.current!.dispose();
     };
   }, []);
 
-  return { state, error };
+  return { state, error, retry: () => { void queue.current!.flush(); } };
 }

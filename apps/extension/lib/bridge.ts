@@ -1,4 +1,4 @@
-import { isSearchMode, runSearch, usableSources, type Env, type FusionConfig, type RunOptions, type SourceId } from '@kiwi-search/core';
+import { isAcademicLanguage, isSearchMode, normalizeNewsOptions, runSearch, usableSources, type Env, type FusionConfig, type NewsOptions, type RunOptions, type SourceId } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
 import { t } from './i18n';
 import { loadBridge, loadConfig } from './settings';
@@ -12,7 +12,7 @@ interface BridgeRequest {
   id: string;
   type: 'search' | 'answer' | 'list_sources';
   query?: string;
-  options?: { sources?: SourceId[]; summarize?: boolean; limit?: number; mode?: string };
+  options?: { sources?: SourceId[]; summarize?: boolean; limit?: number; mode?: string; language?: string; news?: Partial<NewsOptions>; refresh?: boolean };
 }
 
 let ws: WebSocket | null = null;
@@ -84,6 +84,9 @@ async function onMessage(sock: WebSocket, raw: string, makeEnv: () => Env) {
     }
     const opts: RunOptions = {
       mode: isSearchMode(msg.options?.mode) ? msg.options.mode : undefined,
+      language: isAcademicLanguage(msg.options?.language) ? msg.options.language : undefined,
+      news: msg.options?.mode === 'news' ? normalizeNewsOptions(msg.options.news) : undefined,
+      refresh: msg.options?.refresh === true,
       sources: msg.options?.sources,
       summarize: msg.options?.summarize ?? msg.type === 'answer',
       limit: msg.options?.limit,

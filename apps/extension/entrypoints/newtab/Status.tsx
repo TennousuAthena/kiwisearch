@@ -1,4 +1,6 @@
 import type { SearchMode, SourceId, SuggestMode } from '@kiwi-search/core';
+import { emptyReason } from '@/lib/searchFeedback';
+import { sourceName } from '@/lib/sourceMarks';
 import { t } from '@/lib/i18n';
 import { CircleAlertIcon, RotateIcon, TriangleAlertIcon } from '@/lib/icons';
 import { decisionModelNotes, formatDuration, modeLabel } from '@/lib/results';
@@ -10,19 +12,29 @@ interface StatusProps {
   visibleCount: number;
   /** Bring the blocked source's own page forward, to solve its captcha or sign in. */
   onOpenWorker: (source: SourceId) => void;
+  onStop?: () => void;
+  onRetry?: () => void;
 }
 
 /** One quiet line under the tabs: the count, plus the few things that need the user's attention. */
-export function StatusLine({ state, visibleCount, onOpenWorker }: StatusProps) {
+export function StatusLine({ state, visibleCount, onOpenWorker, onStop, onRetry }: StatusProps) {
   const login = firstBlocked(state, 'login');
   const captcha = firstBlocked(state, 'captcha');
   const done = state.stage === 'done' && !state.fatal;
+  const errors = Object.entries(state.sourceErrors ?? {}) as [SourceId, string][];
+  const active = (state.stage !== 'done' || state.running.length > 0) && !state.fatal;
   const loadingMore = state.stage === 'done' && state.running.length > 0;
   return (
-    <div className="status">
+    <div className="status status-with-actions">
+      {state.stage !== 'done' && !state.fatal && <span>{t('ux.status.searching')}</span>}
       {done && (
         <span>{t('newtab.status.resultCount', { count: visibleCount, duration: formatDuration((state.finishedAt ?? state.startedAt) - state.startedAt) })}</span>
       )}
+      {state.outcome === 'interrupted' && <span className="warn">{t('ux.status.interrupted')}</span>}
+      {state.outcome === 'stopped' && <span>{t('ux.status.stopped')}</span>}
+      {active && onStop && <button type="button" className="status-action" onClick={onStop}>{t('ux.status.stop')}</button>}
+      {(state.outcome === 'interrupted' || state.outcome === 'stopped') && onRetry && <button type="button" className="status-action" onClick={onRetry}><RotateIcon />{t('ux.status.retry')}</button>}
+      {errors.length > 0 && <details className="source-diagnostics"><summary>{t('ux.status.details', { count: errors.length })}</summary><ul>{errors.map(([source, error]) => <li key={source}><strong>{sourceName(source)}</strong><span>{error}</span></li>)}</ul></details>}
       {loadingMore && <span>{t('newtab.status.loadingMore')}</span>}
       {login && (
         <button type="button" className="status-action warn" onClick={() => onOpenWorker(login)}>
@@ -99,21 +111,38 @@ export function FatalError({ message, onRetry }: { message: string; onRetry: () 
   );
 }
 
-export function EmptyState({ mode, waitingForVerification, optionsUrl }: { mode: SearchMode; waitingForVerification: boolean; optionsUrl: string }) {
-  return (
-    <div className="empty">
-      <h3>{t('newtab.status.emptyTitle')}</h3>
-      <p>{waitingForVerification ? t('newtab.status.emptyWaiting') : t(`newtab.status.emptyHint.${mode}`)}</p>
-      {!waitingForVerification && (
-        <a href={optionsUrl} target="_blank" rel="noreferrer">
-          {t('newtab.status.openSettings')}
-        </a>
-      )}
+export function EmptyState({ mode, waitingForVerification, optionsUrl, state, hiddenCount = 0, filtered = false, onClearFilters, onRetry }: {
+  mode: SearchMode; waitingForVerification: boolean; optionsUrl: string; state?: SearchState;
+  hiddenCount?: number; filtered?: boolean; onClearFilters?: () => void; onRetry?: () => void;
+}) {
+  const reason = state ? emptyReason(state, filtered, hiddenCount) : waitingForVerification ? 'waiting' : 'noMatch';
+  const title = reason === 'waiting' || reason === 'noMatch' ? t('newtab.status.emptyTitle') : t(`ux.empty.${reason}`);
+  const hint = reason === 'waiting' ? t('newtab.status.emptyWaiting') : reason === 'noMatch' ? t(`newtab.status.emptyHint.${mode}`) : t(`ux.empty.${reason}Hint`);
+  return <div className="empty">
+    <h3>{title}</h3><p>{hint}</p>
+    <div className="empty-actions">
+      {reason === 'filtered' && onClearFilters && <button type="button" className="btn" onClick={onClearFilters}>{t('ux.empty.clearFilters')}</button>}
+      {(reason === 'failed' || reason === 'interrupted') && onRetry && <button type="button" className="btn" onClick={onRetry}>{t('ux.status.retry')}</button>}
+      {reason === 'noMatch' && <button type="button" className="btn" onClick={() => { const input = document.querySelector<HTMLInputElement>('.searchbox input'); input?.focus(); input?.select(); }}>{t('ux.empty.focus')}</button>}
+      {(reason === 'noSources' || reason === 'failed' || reason === 'noMatch') && <a href={`${optionsUrl}#sources`} target="_blank" rel="noreferrer">{t('newtab.status.openSettings')}</a>}
     </div>
-  );
+  </div>;
 }
 
 export function ListSkeleton({ mode }: { mode: SearchMode }) {
+  if (mode === 'shopping') {
+    return (
+      <div className="result-list shopping-grid" aria-hidden="true">
+        {[1, 2, 3, 4, 5, 6].map((key) => (
+          <div key={key} className="product-result">
+            <div className="sk product-thumbnail" />
+            <div className="sk sk-title" />
+            <div className="sk sk-line" style={{ width: '45%' }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
   if (mode === 'images') {
     return (
       <div className="image-skeleton" aria-hidden="true">

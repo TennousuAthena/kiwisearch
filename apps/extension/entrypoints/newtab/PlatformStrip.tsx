@@ -18,7 +18,7 @@ function Card({ result, highlighted }: { result: FusedResult; highlighted: boole
     .filter(Boolean)
     .join(' · ');
   return (
-    <article className={highlighted ? 'pcard hl' : 'pcard'}>
+    <article data-result-key={result.key} className={highlighted ? 'pcard hl' : 'pcard'}>
       <p className="pcard-head">
         <span className="kind">{platformName(platform)}</span>
         {byline}

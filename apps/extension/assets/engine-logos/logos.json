@@ -113,6 +113,11 @@
     "from": "simple-icons 16.37.0, icon \"bilibili\", brand colour #00A1D6",
     "license": "CC0-1.0 data (the glyph itself is the brand's trademark)"
   },
+  "douyin": {
+    "file": "douyin.png",
+    "from": "https://www.douyin.com/favicon.ico (32x32 frame, converted to PNG)",
+    "license": "the brand's own icon, used only to name the engine"
+  },
   "zhihu": {
     "file": "zhihu.svg",
     "from": "simple-icons 16.37.0, icon \"zhihu\", brand colour #0084FF",
@@ -127,6 +132,11 @@
     "file": "sogou.svg",
     "from": "simple-icons 16.37.0, icon \"sogou\", brand colour #FB6022",
     "license": "CC0-1.0 data (the glyph itself is the brand's trademark)"
+  },
+  "yuanbao": {
+    "file": "yuanbao.png",
+    "from": "https://img04.sogoucdn.com/app/a/200797/67ccebd6-a50c-45f8-8a4c-7a5276422e19 (the rel=icon on https://so.qq.com/, checked 2026-11-13)",
+    "license": "the brand's own icon, used only to name the engine"
   },
   "wechat": {
     "file": "wechat.svg",
@@ -144,5 +154,20 @@
     "file": "searxng.svg",
     "from": "simple-icons 16.37.0, icon \"searxng\", brand colour #3050FF",
     "license": "CC0-1.0 data (the glyph itself is the brand's trademark)"
+  },
+  "taobao": {
+    "file": "taobao.png",
+    "from": "https://www.taobao.com/favicon.ico (64x64 frame, converted to PNG; checked 2026-11-13)",
+    "license": "the brand's own icon, used only to name the engine"
+  },
+  "jd": {
+    "file": "jd.png",
+    "from": "https://www.jd.com/favicon.ico (48x48 frame, converted to PNG; checked 2026-11-13)",
+    "license": "the brand's own icon, used only to name the engine"
+  },
+  "amazon": {
+    "file": "amazon.png",
+    "from": "https://www.amazon.com/favicon.ico (48x48 frame, converted to PNG; checked 2026-11-13)",
+    "license": "the brand's own icon, used only to name the engine"
   }
 }

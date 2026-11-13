@@ -15,7 +15,7 @@ function NoteCard({ result }: { result: FusedResult }) {
   const ratio = note?.width && note.height ? Math.min(Math.max(note.height / note.width, MIN_RATIO), MAX_RATIO) : 4 / 3;
   const byline = [note?.author, note?.time].filter(Boolean).join(' · ');
   return (
-    <a className="note-card" href={result.url} target="_blank" rel="noreferrer">
+    <a data-result-key={result.key} className="note-card" href={result.url} target="_blank" rel="noreferrer">
       <div className="note-cover" style={{ aspectRatio: `1 / ${ratio}` }}>
         {note?.cover && !coverFailed && (
           <img src={note.cover} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setCoverFailed(true)} />

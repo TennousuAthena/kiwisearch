@@ -296,7 +296,7 @@ export function runBrowserEngine(engine: BrowserEngine, query: string, opts: Bro
       opts.signal.addEventListener('abort', onAbort, { once: true });
       browser.tabs.onUpdated.addListener(onTabUpdated);
       void browser.tabs
-        .update(tabId, { url: engine.buildUrl(query, opts.count, opts.mode), active: false, muted: true, autoDiscardable: false })
+        .update(tabId, { url: engine.buildUrl(query, opts.count, opts.mode, opts.language, opts.news), active: false, muted: true, autoDiscardable: false })
         .catch((error) => {
           cleanup();
           pending.cleanup();

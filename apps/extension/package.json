@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wxt",
+    "generate:brand": "node scripts/gen-brand-icons.mjs",
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
     "test": "vitest run",

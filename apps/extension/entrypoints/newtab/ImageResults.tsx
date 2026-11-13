@@ -1,9 +1,10 @@
 import type { FusedResult } from '@kiwi-search/core';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from 'react';
 import { ArrowLeftIcon, ArrowRightIcon, CloseIcon, ExternalLinkIcon } from '@/lib/icons';
 import { t } from '@/lib/i18n';
 import { justifiedRows } from '@/lib/justify';
 import { hostOf } from '@/lib/results';
+import './resultUx.css';
 
 const GAP = 8;
 const target = (width: number) => (width < 520 ? 120 : width < 900 ? 160 : 200);
@@ -12,17 +13,44 @@ const ratioOf = (result: FusedResult) => {
   return width && height ? width / height : NaN;
 };
 
-export function ImageResults({ results }: { results: FusedResult[] }) {
+const imageUrl = (result: FusedResult) => result.image?.src ?? result.url;
+
+export function ImageResults({ results, selectedUrl: controlledUrl, onSelectedChange }: {
+  results: FusedResult[];
+  selectedUrl?: string | null;
+  onSelectedChange?: (url: string | null) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const tilesRef = useRef(new Map<string, HTMLButtonElement>());
+  const moveFocus = useRef(false);
   const [width, setWidth] = useState(0);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [localUrl, setLocalUrl] = useState<string | null>(null);
+  const selectedUrl = controlledUrl === undefined ? localUrl : controlledUrl;
+  const setSelectedUrl = useCallback((url: string | null) => {
+    if (controlledUrl === undefined) setLocalUrl(url);
+    onSelectedChange?.(url);
+  }, [controlledUrl, onSelectedChange]);
   const [broken, setBroken] = useState<Set<string>>(() => new Set());
 
   // Thumbnails that fail to load drop out of the layout instead of leaving holes.
   const shown = useMemo(() => results.filter((r) => r.image && !broken.has(r.key)), [results, broken]);
   const rows = useMemo(() => justifiedRows(shown.map(ratioOf), width, target(width), GAP), [shown, width]);
-  const selectedIndex = shown.findIndex((r) => r.key === selectedKey);
+  const selectedIndex = shown.findIndex((r) => imageUrl(r) === selectedUrl || r.url === selectedUrl);
   const selected = selectedIndex >= 0 ? shown[selectedIndex] : null;
+  const hadSelection = useRef(false);
+  const close = useCallback(() => {
+    const returnTo = selected ? tilesRef.current.get(imageUrl(selected)) : undefined;
+    setSelectedUrl(null);
+    requestAnimationFrame(() => (returnTo ?? gridRef.current)?.focus({ preventScroll: true }));
+  }, [selected, setSelectedUrl]);
+
+  useLayoutEffect(() => {
+    if (selected && moveFocus.current) { closeRef.current?.focus({ preventScroll: true }); moveFocus.current = false; }
+    if (hadSelection.current && !selected && selectedUrl) close();
+    hadSelection.current = !!selected;
+  }, [selected, selectedUrl, close]);
 
   // The grid's width changes when the preview opens, so lay out from what the grid actually has.
   useLayoutEffect(() => {
@@ -37,19 +65,22 @@ export function ImageResults({ results }: { results: FusedResult[] }) {
   useEffect(() => {
     if (!selected) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSelectedKey(null);
-      else if (event.key === 'ArrowRight' && selectedIndex < shown.length - 1) setSelectedKey(shown[selectedIndex + 1].key);
-      else if (event.key === 'ArrowLeft' && selectedIndex > 0) setSelectedKey(shown[selectedIndex - 1].key);
+      const target = event.target as Element | null;
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
+        !containerRef.current?.contains(target) || target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="combobox"]')) return;
+      if (event.key === 'Escape') close();
+      else if (event.key === 'ArrowRight' && selectedIndex < shown.length - 1) setSelectedUrl(imageUrl(shown[selectedIndex + 1]));
+      else if (event.key === 'ArrowLeft' && selectedIndex > 0) setSelectedUrl(imageUrl(shown[selectedIndex - 1]));
       else return;
       event.preventDefault();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selected, selectedIndex, shown]);
+  }, [selected, selectedIndex, shown, close, setSelectedUrl]);
 
   return (
-    <div className={selected ? 'images with-preview' : 'images'}>
-      <div className="image-grid" ref={gridRef}>
+    <div className={selected ? 'images with-preview' : 'images'} ref={containerRef}>
+      <div className="image-grid" ref={gridRef} tabIndex={-1}>
         {rows.map((row) => (
           <div className="image-row" key={row.items[0].index} style={{ height: row.height }}>
             {row.items.map((item) => {
@@ -57,13 +88,15 @@ export function ImageResults({ results }: { results: FusedResult[] }) {
               return (
                 <button
                   key={result.key}
+                  ref={(node) => { if (node) tilesRef.current.set(imageUrl(result), node); else tilesRef.current.delete(imageUrl(result)); }}
                   type="button"
                   className="image-tile"
-                  aria-pressed={result.key === selectedKey}
+                  data-result-key={result.key}
+                  aria-pressed={result === selected}
                   aria-label={result.title}
                   title={result.title}
                   style={{ width: item.width, height: item.height }}
-                  onClick={() => setSelectedKey(result.key === selectedKey ? null : result.key)}
+                  onClick={() => { if (result === selected) close(); else { moveFocus.current = true; setSelectedUrl(imageUrl(result)); } }}
                 >
                   <img
                     src={result.image!.thumbnail}
@@ -80,11 +113,11 @@ export function ImageResults({ results }: { results: FusedResult[] }) {
       </div>
       {selected && (
         <ImagePreview
-          key={selected.key}
           result={selected}
-          onClose={() => setSelectedKey(null)}
-          onPrevious={selectedIndex > 0 ? () => setSelectedKey(shown[selectedIndex - 1].key) : undefined}
-          onNext={selectedIndex < shown.length - 1 ? () => setSelectedKey(shown[selectedIndex + 1].key) : undefined}
+          closeRef={closeRef}
+          onClose={close}
+          onPrevious={selectedIndex > 0 ? () => setSelectedUrl(imageUrl(shown[selectedIndex - 1])) : undefined}
+          onNext={selectedIndex < shown.length - 1 ? () => setSelectedUrl(imageUrl(shown[selectedIndex + 1])) : undefined}
         />
       )}
     </div>
@@ -93,11 +126,13 @@ export function ImageResults({ results }: { results: FusedResult[] }) {
 
 function ImagePreview({
   result,
+  closeRef,
   onClose,
   onPrevious,
   onNext,
 }: {
   result: FusedResult;
+  closeRef: Ref<HTMLButtonElement>;
   onClose: () => void;
   onPrevious?: () => void;
   onNext?: () => void;
@@ -105,6 +140,7 @@ function ImagePreview({
   const image = result.image!;
   // Many hosts block hot-linking; fall back to the thumbnail rather than a broken image.
   const [useThumbnail, setUseThumbnail] = useState(false);
+  useEffect(() => setUseThumbnail(false), [image.src]);
   const size = image.width && image.height ? `${image.width} × ${image.height}` : '';
   const facts = [size, image.license, image.creator].filter(Boolean).join(' · ');
   return (
@@ -116,7 +152,7 @@ function ImagePreview({
         <button type="button" className="icon-btn" onClick={onNext} disabled={!onNext} aria-label={t('newtab.images.next')}>
           <ArrowRightIcon />
         </button>
-        <button type="button" className="icon-btn preview-close" onClick={onClose} aria-label={t('newtab.images.close')}>
+        <button ref={closeRef} type="button" className="icon-btn preview-close" onClick={onClose} aria-label={t('newtab.images.close')}>
           <CloseIcon />
         </button>
       </div>
