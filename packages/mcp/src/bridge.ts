@@ -8,7 +8,7 @@ export const PAIRING_MISMATCH_MESSAGE = '配对令牌不匹配，请在 Kiwi Sea
 export interface BridgeRequest {
   type: 'search' | 'answer' | 'list_sources';
   query?: string;
-  options?: { sources?: string[]; limit?: number; summarize?: boolean; mode?: string };
+  options?: { sources?: string[]; limit?: number; summarize?: boolean; mode?: string; language?: string; news?: { range?: 'any' | 'day' | 'week' | 'month'; sort?: 'relevance' | 'date' }; refresh?: boolean };
 }
 
 export interface BridgeReply {
