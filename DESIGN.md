@@ -207,6 +207,10 @@ Kiwi 自己的辨识度来自圆润的 K 标志、叶绿（色相 150°）的字
 
 2026-11-13 已在原 Chromium 核对首页、真实网页结果和设置页的亮暗六种状态，以及标签 favicon 和扩展图标。检查包含宽屏和 DevTools 分栏后的约 710 CSS px，尚未覆盖 320px、200% 缩放、所有搜索模式或 Firefox。完整激活、数据保留和并发构建核对记录见 [newtab-page.md](docs/internals/newtab-page.md)。
 
+### 社交预览图
+
+2026-11-13 做了仓库的社交预览图（1280 × 640，源文件和说明在 [design/social/](design/social/)）。它沿用界面的令牌和形状：亮色主题色值、系统字体、叶绿 K 标志，右侧是一块按结果页比例画的示意窗口（搜索框、模式标签、带引用角标的 AI 概览、两三条结果）。不放第三方 logo，来源标记用中性色圆点，域名用保留的 `.example`；文案不写来源和模式的数量，也不写支持的浏览器，因为它们会陆续增加。海报是营销用图，不是界面的一部分；改了品牌色或令牌后要同步它。
+
 ## Typography
 
 **字体：** 全部用系统字体栈，不加载网络字体（栈见 frontmatter，末尾是中文回退 PingFang SC、Hiragino Sans GB、Microsoft YaHei、Noto Sans CJK SC、Source Han Sans SC）。等宽字体（`ui-monospace, SFMono-Regular, Menlo, Consolas`）只用于代码。

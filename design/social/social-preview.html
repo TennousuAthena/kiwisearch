@@ -1,0 +1,175 @@
+<!doctype html>
+<!-- Source of social-preview.png (1280 x 640). Colours are the light-theme tokens from
+     apps/extension/lib/base.css; system fonts only; the K is design/brand/kiwi-green/mark.svg.
+     No third-party logos: source marks are neutral circles and the domains use the reserved
+     .example TLD. Render with the command in design/social/README.md. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kiwi Search social preview</title>
+<style>
+  :root {
+    --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+      'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif;
+    --bg: oklch(0.972 0.004 150);
+    --surface: oklch(0.995 0.001 150);
+    --surface-2: oklch(0.948 0.006 150);
+    --border: oklch(0.905 0.008 150);
+    --border-ctl: oklch(0.82 0.008 150);
+    --fg: oklch(0.215 0.008 150);
+    --fg-2: oklch(0.35 0.008 150);
+    --fg-3: oklch(0.47 0.008 150);
+    --accent: oklch(0.5 0.13 150);
+    --link: oklch(0.44 0.18 275);
+    --accent-soft: color-mix(in oklab, var(--accent) 10%, var(--surface));
+    --shadow-1: 0 1px 2px oklch(0.25 0.008 150 / 0.06), 0 2px 10px oklch(0.25 0.008 150 / 0.06);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 640px; overflow: hidden; }
+  body {
+    font-family: var(--font-sans);
+    color: var(--fg);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    position: relative;
+  }
+
+  /* Right half: a quiet leaf-tinted stage the window sits on. */
+  .stage {
+    position: absolute; top: 0; right: 0; bottom: 0; width: 600px;
+    background: color-mix(in oklab, var(--accent) 11%, var(--bg));
+  }
+
+  /* Left half: brand, headline, facts. */
+  .copy {
+    position: absolute; left: 72px; top: 64px; bottom: 64px; width: 540px;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand img { width: 52px; height: 52px; display: block; }
+  .brand span { font-size: 28px; font-weight: 700; letter-spacing: -0.01em; color: var(--accent); }
+
+  h1 {
+    font-size: 76px; font-weight: 700; line-height: 1.04; letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+  h1 em { font-style: normal; color: var(--accent); }
+  .sub {
+    margin-top: 24px; max-width: 470px;
+    font-size: 22px; line-height: 1.45; color: var(--fg-2); text-wrap: pretty;
+  }
+
+  .facts { list-style: none; display: flex; gap: 10px; flex-wrap: wrap; }
+  .facts li {
+    font-size: 15px; font-weight: 500; line-height: 1; color: var(--fg-2);
+    padding: 10px 16px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border-ctl);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* The product window: same tokens and shapes as the new-tab results page. */
+  .window {
+    position: absolute; left: 736px; top: 64px; width: 488px; height: 640px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    box-shadow: var(--shadow-1);
+    padding: 22px 22px 0;
+  }
+  .searchbox {
+    height: 46px; border-radius: 999px; border: 1px solid var(--border-ctl); background: var(--surface);
+    display: flex; align-items: center; gap: 12px; padding: 0 18px;
+    font-size: 16px; color: var(--fg);
+  }
+  .searchbox svg { width: 18px; height: 18px; flex: none; stroke: var(--fg-3); fill: none; stroke-width: 2; stroke-linecap: round; }
+
+  .tabs { display: flex; gap: 20px; margin-top: 14px; border-bottom: 1px solid var(--border); font-size: 14px; font-weight: 500; }
+  .tabs span { padding: 8px 0 10px; color: var(--fg-3); position: relative; }
+  .tabs .on { color: var(--accent); }
+  .tabs .on::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px;
+    background: var(--accent); border-radius: 3px 3px 0 0;
+  }
+
+  .overview {
+    margin-top: 16px; padding: 14px 16px 15px; border-radius: 16px;
+    background: color-mix(in oklab, var(--accent) 5%, var(--surface));
+    border: 1px solid color-mix(in oklab, var(--accent) 16%, var(--surface));
+  }
+  .overview h2 { font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
+  .overview p { font-size: 15px; line-height: 1.7; color: var(--fg); text-wrap: pretty; }
+  .keep { white-space: nowrap; }
+  .cite {
+    display: inline-block; font-size: 11px; font-weight: 600; line-height: 1;
+    color: var(--accent); background: var(--accent-soft);
+    border-radius: 6px; padding: 3px 5px; margin-left: 3px; vertical-align: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .result { margin-top: 20px; }
+  .crumb { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fg-3); }
+  .marks { display: inline-flex; }
+  .marks i {
+    width: 16px; height: 16px; border-radius: 50%; display: block;
+    border: 1.5px solid var(--surface); background: var(--border-ctl); margin-left: -5px;
+  }
+  .marks i:first-child { margin-left: 0; background: var(--surface-2); outline: 1px solid var(--border-ctl); outline-offset: -1.5px; }
+  .marks i:nth-child(2) { background: var(--border); }
+  .result h3 { margin-top: 4px; font-size: 19px; font-weight: 400; line-height: 1.3; color: var(--link); }
+  .result p { margin-top: 4px; font-size: 14px; line-height: 1.58; color: var(--fg-2); text-wrap: pretty; }
+</style>
+</head>
+<body>
+  <div class="stage"></div>
+
+  <section class="copy">
+    <div class="brand">
+      <img src="../brand/kiwi-green/mark.svg" alt="">
+      <span>Kiwi Search</span>
+    </div>
+
+    <div>
+      <h1>One search,<br><em>many sources.</em></h1>
+      <p class="sub">Merged results and an AI overview with citations, all from your own browser.</p>
+    </div>
+
+    <ul class="facts">
+      <li>Your logins</li>
+      <li>Your keys</li>
+      <li>No accounts</li>
+      <li>MIT</li>
+    </ul>
+  </section>
+
+  <section class="window" aria-hidden="true">
+    <div class="searchbox">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      why is the sky blue
+    </div>
+    <div class="tabs">
+      <span class="on">All</span><span>Images</span><span>Video</span><span>News</span><span>Shopping</span><span>Academic</span>
+    </div>
+
+    <div class="overview">
+      <h2>AI overview</h2>
+      <p>Air molecules scatter blue sunlight far more than red, so the sky looks <span class="keep">blue.<span class="cite">1</span><span class="cite">2</span></span></p>
+    </div>
+
+    <article class="result">
+      <div class="crumb"><span class="marks"><i></i><i></i><i></i></span>physics.example › sky</div>
+      <h3>Why the sky is blue: Rayleigh scattering explained</h3>
+      <p>Shorter wavelengths of light scatter more strongly in the atmosphere, which is why we see blue overhead.</p>
+    </article>
+
+    <article class="result">
+      <div class="crumb"><span class="marks"><i></i><i></i></span>learn.example › atmosphere</div>
+      <h3>Why are sunsets red and orange?</h3>
+      <p>At sunset the light crosses more air, and most of the blue is scattered out of the beam before it reaches you.</p>
+    </article>
+
+    <article class="result">
+      <div class="crumb"><span class="marks"><i></i></span>notes.example › optics</div>
+      <h3>Scattering of light by small particles</h3>
+      <p>Small particles scatter short wavelengths the most.</p>
+    </article>
+  </section>
+</body>
+</html>
