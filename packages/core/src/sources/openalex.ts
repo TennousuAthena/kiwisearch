@@ -1,6 +1,6 @@
 import { fetchJson } from '../http';
 import { truncate } from '../text';
-import type { Env, SearchHit, SearchSource, SourceSettings } from '../types';
+import type { AcademicLanguage, Env, SearchHit, SearchSource, SourceSettings } from '../types';
 
 interface OpenAlexWork {
   id: string;
@@ -26,10 +26,12 @@ export interface OpenAlexQuery {
   signal?: AbortSignal;
   /** `cited_by_count:desc` turns a relevance search into "the most cited papers on this". */
   sort?: string;
+  /** `en` keeps works OpenAlex tags as English (`filter=language:en`). The tag is not always right; see `academicLanguage.ts`. */
+  language?: AcademicLanguage;
 }
 
 /** One OpenAlex works search, shared by the source and by the smart academic search (title checks, most-cited pass). */
-export async function searchOpenAlex(env: Env, settings: SourceSettings, query: string, { count, signal, sort }: OpenAlexQuery): Promise<SearchHit[]> {
+export async function searchOpenAlex(env: Env, settings: SourceSettings, query: string, { count, signal, sort, language }: OpenAlexQuery): Promise<SearchHit[]> {
   const params = new URLSearchParams({
     search: query,
     per_page: String(Math.min(count, 50)),
@@ -37,6 +39,7 @@ export async function searchOpenAlex(env: Env, settings: SourceSettings, query: 
       'id,doi,display_name,publication_year,publication_date,cited_by_count,authorships,primary_location,abstract_inverted_index',
   });
   if (sort) params.set('sort', sort);
+  if (language === 'en') params.set('filter', 'language:en');
   if (settings.apiKey) params.set('api_key', settings.apiKey);
   const data = await fetchJson<{ results: OpenAlexWork[] }>(env.fetch, `https://api.openalex.org/works?${params}`, { signal });
   return data.results.map((w, i) => {
@@ -71,5 +74,5 @@ export const openalex: SearchSource = {
   label: 'OpenAlex',
   modes: ['academic'],
   requiresKey: false,
-  search: (query, { env, settings, count, signal }) => searchOpenAlex(env, settings, query, { count, signal }),
+  search: (query, { env, settings, count, signal, language }) => searchOpenAlex(env, settings, query, { count, signal, language }),
 };

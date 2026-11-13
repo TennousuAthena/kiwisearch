@@ -118,6 +118,33 @@ describe('usableSources', () => {
   });
 });
 
+describe('opt-in Douyin and Yuanbao sources', () => {
+  it('keeps both disabled in fresh and existing configs, preserving saved choices', () => {
+    const saved = mergeConfig(DEFAULT_CONFIG, migrateConfig({ version: 5, sources: { google: { enabled: false } } }));
+    for (const id of ['douyin', 'yuanbao'] as const) {
+      expect(DEFAULT_CONFIG.sources[id]).toEqual({ enabled: false });
+      expect(saved.sources[id]).toEqual({ enabled: false });
+      expect(usableSources(saved, true).find((source) => source.id === id)?.reason).toBe('disabled');
+    }
+    expect(saved.sources.google?.enabled).toBe(false);
+    const optedIn = mergeConfig(DEFAULT_CONFIG, migrateConfig({ version: 5, sources: { douyin: { enabled: true }, yuanbao: { enabled: true } } }));
+    expect(optedIn.sources.douyin?.enabled).toBe(true);
+    expect(optedIn.sources.yuanbao?.enabled).toBe(true);
+  });
+
+  it('uses the browser without API keys and only runs each source in its own mode', () => {
+    const config = mergeConfig(DEFAULT_CONFIG, { sources: { douyin: { enabled: true }, yuanbao: { enabled: true } } });
+    const reason = (id: string, mode: Parameters<typeof usableSources>[2], hasBrowser = true) =>
+      usableSources(config, hasBrowser, mode).find((source) => source.id === id)?.reason;
+    expect(reason('douyin', 'video')).toBeUndefined();
+    expect(reason('yuanbao', 'web')).toBeUndefined();
+    expect(reason('douyin', 'web')).toBe('not available in web mode');
+    expect(reason('yuanbao', 'video')).toBe('not available in video mode');
+    expect(reason('douyin', 'video', false)).toBe('needs browser extension');
+    expect(reason('yuanbao', 'web', false)).toBe('needs browser extension');
+  });
+});
+
 describe('llmUsable', () => {
   const llm = (baseUrl: string, apiKey = '') => ({ baseUrl, apiKey, model: 'm' });
   it('requires a key for remote endpoints', () => {

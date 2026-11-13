@@ -36,12 +36,18 @@ export const DEFAULT_CONFIG: FusionConfig = {
     wos: { enabled: false },
     youtube: { enabled: true },
     bilibili: { enabled: true },
+    douyin: { enabled: false },
+    // Shopping sources run only in their own tab, using the user's browser session.
+    taobao: { enabled: true },
+    jd: { enabled: true },
+    amazon: { enabled: true },
     zhihu: { enabled: true },
     // Mainland site and international site (RedNote): the same notes behind separate domains and logins; enable the one you are signed in to.
     xiaohongshu: { enabled: false },
     rednote: { enabled: true },
     // Sogou's web index overlaps Baidu's and its anti-spider is strict, so only the WeChat search (its real advantage) is on by default.
     sogou: { enabled: false },
+    yuanbao: { enabled: false },
     weixin: { enabled: true },
     x: { enabled: true },
     // Off, and last among the browser engines: its result page mixes in widgets (translate cards, recommendation lists) that read as results. The options page asks before it is turned on.

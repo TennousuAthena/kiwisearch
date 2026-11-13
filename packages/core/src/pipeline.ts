@@ -1,16 +1,16 @@
 import { DEFAULT_CONFIG, resultCount, sourcesForRoutes, usableSources } from './config';
+import { applyAcademicLanguage } from './academicLanguage';
 import { landmarksOf, planAcademicQuery, planSourceIds, searchWithPlan, verifyPapers } from './academic';
 import { loadBlocklist, type Blocklist } from './blocklist';
-import { fetchContents } from './content';
 import { applyRerank, fuse, mergeLateHits } from './fusion';
 import { errorMessage, withTimeout } from './http';
 import { judgeIntent } from './intent';
-import { overviewLanguage } from './language';
-import { applyDomainRules, applyJudgments, flagInjectedContents, judgeEnabled, judgeResults } from './judge';
-import { chatStream, llmUsable } from './llm';
+import { applyNewsOptions, normalizeNewsOptions } from './news';
+import { applyDomainRules, applyJudgments, judgeEnabled, judgeResults } from './judge';
+import { llmUsable } from './llm';
 import { rerank } from './rerank';
 import { SOURCES } from './sources';
-import { buildCitations, buildSummaryMessages } from './summarize';
+import { summarizeSnapshot } from './summarySnapshot';
 import { modeHasText } from './types';
 import { foldWikipediaEditions, wikipediaFoldEnabled, wikipediaTarget } from './wikipedia';
 import type { AcademicPlan, BlockReason, Env, FusedResult, FusionConfig, PipelineEvent, PipelineResult, RunOptions, SearchHit, SourceId, VerifiedLandmark } from './types';
@@ -42,6 +42,12 @@ export async function runSearch(
 ): Promise<PipelineResult> {
   const signal = opts.signal;
   const mode = opts.mode ?? 'web';
+  const requestedAt = new Date();
+  const news = mode === 'news' ? normalizeNewsOptions(opts.news) : undefined;
+  // Different shops/variants remain separate offers even when their titles and descriptions match.
+  const fusionOptions = news || mode === 'shopping' ? { urlOnly: true } : undefined;
+  // Only an academic search can be limited to a language; a source routed in from a general search runs without the limit.
+  const paperLanguage = mode === 'academic' && opts.language === 'en' ? opts.language : undefined;
   const emit = (e: PipelineEvent) => {
     if (!signal?.aborted) opts.onEvent?.(e);
   };
@@ -77,7 +83,10 @@ export async function runSearch(
   const weights: Partial<Record<SourceId, number>> = {};
   // The deterministic pass every list of results goes through: Wikipedia copies in other languages folded away, then domain rules and block lists.
   const wikipedia = wikipediaFoldEnabled(config.judge.foldWikipediaEditions, env.browserLanguage) ? wikipediaTarget(env.browserLanguage) : undefined;
-  const tidy = (list: FusedResult[]): FusedResult[] => applyDomainRules(foldWikipediaEditions(list, wikipedia, weights), config.judge, lists);
+  const orderNews = (list: FusedResult[]): FusedResult[] => news ? applyNewsOptions(list, news, requestedAt) : list;
+  const tidy = (list: FusedResult[]): FusedResult[] => orderNews(
+    applyDomainRules(fusionOptions?.urlOnly ? list : foldWikipediaEditions(applyAcademicLanguage(list, paperLanguage), wikipedia, weights), config.judge, lists),
+  );
   let currentResults: FusedResult[] = [];
   let resolveDone!: () => void;
   const done = new Promise<void>((resolve) => {
@@ -107,8 +116,11 @@ export async function runSearch(
     // A source started for a routed intent runs in its own mode (Zhihu inside a general search, say): its own URL, count and cache.
     const sourceMode = source.modes.includes(mode) ? mode : source.modes[0];
     const count = resultCount(config, sourceMode);
-    const cacheKey = `${sourceMode}|${id}|${count}|${query.toLowerCase()}`;
-    const cached = env.cache?.get(cacheKey);
+    // A source in its academic mode is asked for the language limit, so what it returned under one limit is not reused under another.
+    const sourceLanguage = sourceMode === 'academic' ? paperLanguage : undefined;
+    const sourceNews = sourceMode === 'news' ? news : undefined;
+    const cacheKey = `${sourceMode}${sourceLanguage ? `:${sourceLanguage}` : ''}${sourceNews ? `:${sourceNews.range}:${sourceNews.sort}` : ''}|${id}|${count}|${query.toLowerCase()}`;
+    const cached = opts.refresh ? undefined : env.cache?.get(cacheKey);
     if (cached) {
       return {
         id,
@@ -126,14 +138,16 @@ export async function runSearch(
       clearTimeout(timer);
       timer = setTimeout(() => controller.abort(new Error(message)), ms);
     };
+    // A slow-rendering engine may need a baseline above the general source timeout.
+    const sourceTimeoutMs = Math.max(config.sourceTimeoutMs, source.minTimeoutMs ?? 0);
     // Browser sources queue per engine; their timeout runs from `onStart`, not from enqueueing.
     let working = !source.requiresBrowser;
-    if (working) arm(config.sourceTimeoutMs, `timeout after ${config.sourceTimeoutMs}ms`);
+    if (working) arm(sourceTimeoutMs, `timeout after ${sourceTimeoutMs}ms`);
     else arm(QUEUE_WAIT_MS, `still queued after ${QUEUE_WAIT_MS}ms`);
     const onStart = () => {
       if (working || blocked) return;
       working = true;
-      arm(config.sourceTimeoutMs, `timeout after ${config.sourceTimeoutMs}ms`);
+      arm(sourceTimeoutMs, `timeout after ${sourceTimeoutMs}ms`);
     };
 
     const parentAbort = () => controller.abort(signal?.reason);
@@ -161,13 +175,15 @@ export async function runSearch(
           env,
           settings: config.sources[id]!,
           mode: sourceMode,
+          news: sourceNews,
+          language: sourceLanguage,
           count,
           signal: controller.signal,
           onBlocked,
           onStart,
           renderer: config.renderer,
         });
-        if (hits.length) env.cache?.set(cacheKey, hits);
+        if (hits.length) env.cache?.set(cacheKey, hits, sourceNews ? 60_000 : undefined);
         return { kind: 'done', hits, ms: Date.now() - started };
       } catch (e) {
         const error = controller.signal.aborted && !signal?.aborted ? errorMessage(controller.signal.reason) : errorMessage(e);
@@ -189,8 +205,8 @@ export async function runSearch(
     emit({ type: 'source_done', source: run.id, count: outcome.hits.length, ms: outcome.ms });
     if (signal?.aborted) return;
     await listsReady;
-    let merged = tidy(mergeLateHits(currentResults, outcome.hits, weights));
-    if (judgeEnabled(config)) {
+    let merged = tidy(mergeLateHits(currentResults, outcome.hits, weights, undefined, fusionOptions));
+    if (modeHasText(mode) && judgeEnabled(config)) {
       const unjudged = merged.filter((r) => !r.judgment && !r.hidden).slice(0, config.judge.candidates);
       if (unjudged.length) {
         try {
@@ -202,7 +218,7 @@ export async function runSearch(
       }
     }
     if (signal?.aborted) return;
-    currentResults = merged;
+    currentResults = orderNews(merged);
     emit({ type: 'late_results', source: run.id, results: currentResults });
   };
 
@@ -265,13 +281,16 @@ export async function runSearch(
     if (!outcome.hits.length) return;
     hitsBySource.set(run.id, outcome.hits);
     resolveFirstHits();
-    if (outcome.hits.some((hit) => hit.snippet || hit.content)) {
+    const hasText = news
+      ? orderNews(fuse([outcome.hits], weights, undefined, fusionOptions)).some((hit) => !hit.hidden && (hit.snippet || hit.content))
+      : outcome.hits.some((hit) => hit.snippet || hit.content);
+    if (hasText) {
       textSeen = true;
       resolveFirstText();
     }
     if (pending > 0 || intentPending || planPending) {
       await listsReady;
-      emit({ type: 'fused', results: tidy(fuse(collected(), weights)), partial: true });
+      emit({ type: 'fused', results: tidy(fuse(collected(), weights, undefined, fusionOptions)), partial: true });
     }
   };
 
@@ -316,15 +335,15 @@ export async function runSearch(
     ? (async () => {
         const deadline = withTimeout(signal, config.academic.timeoutMs);
         try {
-          const { parsed, error } = await planAcademicQuery(query, config, env, deadline.signal);
+          const { parsed, error } = await planAcademicQuery(query, config, env, deadline.signal, paperLanguage);
           if (!parsed) {
             emit({ type: 'academic_plan', landmarks: [], error });
             return;
           }
           const ids = planSourceIds(config).filter((id) => active.includes(id));
           const [found, second] = await Promise.all([
-            verifyPapers(parsed.papers, config, env, deadline.signal),
-            searchWithPlan(query, parsed.plan, ids, config, env, resultCount(config, mode), deadline.signal),
+            verifyPapers(parsed.papers, config, env, deadline.signal, paperLanguage),
+            searchWithPlan(query, parsed.plan, ids, config, env, resultCount(config, mode), deadline.signal, paperLanguage),
           ]);
           academicPlan = { ...parsed.plan, queries: second.used };
           landmarks = landmarksOf(found);
@@ -374,7 +393,7 @@ export async function runSearch(
 
   await listsReady;
   signal?.throwIfAborted();
-  let results: FusedResult[] = tidy(fuse(collected(), weights));
+  let results: FusedResult[] = tidy(fuse(collected(), weights, undefined, fusionOptions));
   emit({ type: 'fused', results });
 
   const textual = modeHasText(mode);
@@ -390,7 +409,7 @@ export async function runSearch(
     const candidates = results.filter((r) => !r.hidden).slice(0, config.judge.candidates);
     try {
       const outcome = await judgeResults(query, candidates, config, env, signal);
-      if (outcome.judgments.size) results = applyJudgments(results, outcome.judgments, config.judge);
+      if (outcome.judgments.size) results = orderNews(applyJudgments(results, outcome.judgments, config.judge));
       emit({ type: 'judged', results, error: outcome.error });
     } catch (e) {
       if (signal?.aborted) throw e;
@@ -402,6 +421,7 @@ export async function runSearch(
       const scores = await rerank(query, candidates, config, env, signal);
       signal?.throwIfAborted();
       results = [...applyRerank(candidates, scores), ...results.slice(candidates.length).map((r) => ({ ...r, score: r.score * 0.25 }))];
+      results = orderNews(results);
       emit({ type: 'reranked', results, provider });
     } catch (e) {
       if (signal?.aborted) throw e;
@@ -411,46 +431,19 @@ export async function runSearch(
 
   const visible = results.filter((r) => !r.hidden);
   const limited = opts.limit ? [...visible.slice(0, opts.limit), ...results.filter((r) => r.hidden)] : results;
-  const result: PipelineResult = { query, mode, results: limited, citations: [], sourceStats, ...(academicPlan ? { plan: academicPlan, landmarks } : {}) };
-
-  /** Page text is untrusted: withhold pages that look like they instruct the summarizing model. */
-  const readPages = async (top: FusedResult[]) => {
-    const contents = await fetchContents(top, config, env, signal);
-    if (judgeEnabled(config) && contents.size) {
-      for (const key of await flagInjectedContents(query, contents, config, env, signal)) contents.delete(key);
-    }
-    signal?.throwIfAborted();
-    return contents;
-  };
+  const result: PipelineResult = { query, mode, results: limited, citations: [], sourceStats, ...(news ? { news: { ...news, requestedAt: requestedAt.toISOString() } } : {}), ...(academicPlan ? { plan: academicPlan, landmarks } : {}) };
 
   const wantSummary = textual && (opts.summarize ?? config.summary.enabled);
-  const language = overviewLanguage(config.summary, env.browserLanguage);
-  // A source with no text of its own (a Xiaohongshu note has only a title and photos) has nothing to cite.
-  const top = visible.filter((r) => r.snippet || r.content).slice(0, config.summary.maxSources);
-  if (wantSummary && top.length && config.summary.provider === 'chrome-builtin') {
-    const citations = buildCitations(top);
-    result.citations = citations;
-    const contents = await readPages(top);
-    const messages = buildSummaryMessages(query, top, contents, config.summary.instructions, new Date(), mode, language);
-    emit({ type: 'summary_prompt', citations, messages });
-  } else if (wantSummary && top.length && llmUsable(config.llm)) {
-    const citations = buildCitations(top);
-    result.citations = citations;
-    emit({ type: 'summary_start', citations });
-    try {
-      const contents = await readPages(top);
-      const messages = buildSummaryMessages(query, top, contents, config.summary.instructions, new Date(), mode, language);
-      let text = '';
-      for await (const delta of chatStream(env.fetch, config.llm, messages, { signal })) {
-        text += delta;
-        emit({ type: 'summary_delta', text: delta });
-      }
-      result.summary = text;
-      emit({ type: 'summary_done', text });
-    } catch (e) {
-      if (signal?.aborted) throw e;
-      emit({ type: 'summary_error', error: errorMessage(e) });
-    }
+  if (wantSummary) {
+    const summary = await summarizeSnapshot(query, visible, config, env, {
+      mode, news: result.news, signal, summarySignal: opts.summarySignal, onEvent: emit,
+      onSnapshot: (snapshot, summaryAt) => {
+        if (result.news) result.news.summaryAt = summaryAt;
+        opts.onSummarySnapshot?.(snapshot, summaryAt);
+      },
+    });
+    result.citations = summary.citations;
+    if (summary.summary !== undefined) result.summary = summary.summary;
   }
 
   signal?.throwIfAborted();

@@ -6,6 +6,11 @@ export const RRF_K = 60;
 
 export type Weights = Partial<Record<SourceId, number>>;
 
+/** News keeps independently published reports apart, even when their headlines match. */
+export interface FusionOptions {
+  urlOnly?: boolean;
+}
+
 function normalizedHost(value: string): string {
   try {
     const url = new URL(value.includes('://') ? value : `https://${value}`);
@@ -76,12 +81,15 @@ function samePaper(left: FusedResult, right: FusedResult): boolean {
 }
 
 /** Fold `source` into `target`: union of source ranks, summed RRF, richest text and metadata. */
-export function absorb(target: FusedResult, source: FusedResult, weights: Weights, k: number): void {
+export function absorb(target: FusedResult, source: FusedResult, weights: Weights, k: number, options: FusionOptions = {}): void {
   for (const entry of source.sources) {
     if (target.sources.some((existing) => existing.source === entry.source)) continue;
     target.sources.push({ ...entry });
     target.rrfScore += (weights[entry.source] ?? 1) / (k + entry.rank);
   }
+  // Keep one coherent article snapshot (headline, text, date and publisher), rather
+  // than borrowing an older, longer excerpt or a conflicting date from another index.
+  if (options.urlOnly) return;
   target.host ??= source.host;
   if (source.snippet.length > target.snippet.length) target.snippet = source.snippet;
   if (!target.title && source.title) target.title = source.title;
@@ -93,6 +101,8 @@ export function absorb(target: FusedResult, source: FusedResult, weights: Weight
   if (source.image) target.image = target.image ? { ...source.image, ...definedOnly(target.image) } : source.image;
   if (source.video) target.video = target.video ? { ...source.video, ...definedOnly(target.video) } : source.video;
   if (source.note) target.note = target.note ? { ...source.note, ...definedOnly(target.note) } : source.note;
+  if (source.news && !target.news) target.news = { ...source.news };
+  if (source.product && !target.product) target.product = { ...source.product };
   const citations = Math.max(target.meta.citations ?? 0, source.meta.citations ?? 0);
   if (citations) target.meta.citations = citations;
 }
@@ -124,7 +134,7 @@ function overlap(left: string, right: string): number {
 }
 
 function reprintable(result: FusedResult): boolean {
-  return !result.image && !result.video && !result.note && !isPaperLike(result);
+  return !result.image && !result.video && !result.note && !result.product && !isPaperLike(result);
 }
 
 function hostOfResult(result: FusedResult): string {
@@ -191,14 +201,14 @@ export function foldReprints(results: FusedResult[]): FusedResult[] {
  * Merge per-source ranked lists with Reciprocal Rank Fusion:
  * score(d) = sum_s w_s / (k + rank_s(d)).
  */
-export function fuse(lists: SearchHit[][], weights: Weights = {}, k = RRF_K): FusedResult[] {
+export function fuse(lists: SearchHit[][], weights: Weights = {}, k = RRF_K, options: FusionOptions = {}): FusedResult[] {
   const byKey = new Map<string, FusedResult>();
   for (const list of lists) {
     for (const hit of list) {
       if (!hit.url || !/^https?:/i.test(hit.url)) continue;
       if (hit.image && !/^https?:/i.test(hit.image.src)) continue;
       // The same picture shows up under different pages, so images are identified by their file.
-      const key = hit.image ? `img:${normalizeUrl(hit.image.src)}` : normalizeUrl(hit.url);
+      const key = options.urlOnly ? normalizeUrl(hit.url, false) : hit.image ? `img:${normalizeUrl(hit.image.src)}` : normalizeUrl(hit.url);
       const w = weights[hit.source] ?? 1;
       const contribution = w / (k + hit.rank);
       const existing = byKey.get(key);
@@ -218,12 +228,15 @@ export function fuse(lists: SearchHit[][], weights: Weights = {}, k = RRF_K): Fu
           ...(hit.image ? { image: hit.image } : {}),
           ...(hit.video ? { video: hit.video } : {}),
           ...(hit.note ? { note: hit.note } : {}),
+          ...(hit.news ? { news: { ...hit.news } } : {}),
+          ...(hit.product ? { product: { ...hit.product } } : {}),
         });
         continue;
       }
       if (existing.sources.some((s) => s.source === hit.source)) continue;
       existing.sources.push({ source: hit.source, rank: hit.rank });
       existing.rrfScore += contribution;
+      if (options.urlOnly) continue;
       existing.host ??= hit.host;
       if (hit.snippet.length > existing.snippet.length) existing.snippet = hit.snippet;
       if (!existing.title && hit.title) existing.title = hit.title;
@@ -235,11 +248,13 @@ export function fuse(lists: SearchHit[][], weights: Weights = {}, k = RRF_K): Fu
       if (hit.image) existing.image = existing.image ? { ...hit.image, ...definedOnly(existing.image) } : hit.image;
       if (hit.video) existing.video = existing.video ? { ...hit.video, ...definedOnly(existing.video) } : hit.video;
       if (hit.note) existing.note = existing.note ? { ...hit.note, ...definedOnly(existing.note) } : hit.note;
+      if (hit.news && !existing.news) existing.news = { ...hit.news };
+      if (hit.product && !existing.product) existing.product = { ...hit.product };
     }
   }
   const values = [...byKey.values()];
-  const wrappers = values.filter((result) => isGoogleGotoUrl(result.url));
-  const results = values.filter((result) => !isGoogleGotoUrl(result.url));
+  const wrappers = options.urlOnly ? [] : values.filter((result) => isGoogleGotoUrl(result.url));
+  const results = options.urlOnly ? values : values.filter((result) => !isGoogleGotoUrl(result.url));
   for (const wrapper of wrappers) {
     const match = results.find((result) => matchesWrapperPair(wrapper, result));
     if (match) absorb(match, wrapper, weights, k);
@@ -248,11 +263,11 @@ export function fuse(lists: SearchHit[][], weights: Weights = {}, k = RRF_K): Fu
   results.sort((a, b) => b.rrfScore - a.rrfScore);
   const deduped: FusedResult[] = [];
   for (const result of results) {
-    const twin = deduped.find((kept) => samePaper(kept, result));
+    const twin = options.urlOnly ? undefined : deduped.find((kept) => samePaper(kept, result));
     if (twin) absorb(twin, result, weights, k);
     else deduped.push(result);
   }
-  const folded = foldReprints(deduped);
+  const folded = options.urlOnly ? deduped : foldReprints(deduped);
   folded.sort((a, b) => b.rrfScore - a.rrfScore);
   const max = folded[0]?.rrfScore ?? 1;
   for (const r of folded) r.score = r.rrfScore / max;
@@ -264,21 +279,26 @@ export function mergeLateHits(
   hits: SearchHit[],
   weights: Weights = {},
   k = RRF_K,
+  options: FusionOptions = {},
 ): FusedResult[] {
   const merged = results.map((result) => ({
     ...result,
     sources: result.sources.map((source) => ({ ...source })),
     meta: { ...result.meta },
   }));
-  for (const late of fuse([hits], weights, k)) {
+  for (const late of fuse([hits], weights, k, options)) {
     const existing = merged.find(
-      (result) => result.key === late.key || matchesWrapperPair(result, late) || samePaper(result, late),
+      (result) => result.key === late.key || (!options.urlOnly && (matchesWrapperPair(result, late) || samePaper(result, late))),
     );
     if (!existing) {
       merged.push({ ...late, late: true, score: 0 });
       continue;
     }
-    absorb(existing, late, weights, k);
+    absorb(existing, late, weights, k, options);
+  }
+  if (options.urlOnly) {
+    const max = Math.max(...merged.map((r) => r.rrfScore), 1e-9);
+    return merged.map((r) => !r.judgment && r.rerankScore === undefined ? { ...r, score: r.rrfScore / max } : r);
   }
   return foldReprints(merged);
 }

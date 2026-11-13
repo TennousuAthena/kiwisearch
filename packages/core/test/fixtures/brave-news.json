@@ -1,0 +1,23 @@
+{
+  "_note": "Hand-written contract fixture, 2026-11-13, based on https://api-dashboard.search.brave.com/api-reference/news/news_search/get; no authenticated response captured. page_age may be published or last modified; page_fetched is retrieval time.",
+  "type": "news",
+  "results": [
+    {
+      "title": "A <strong>news</strong> headline",
+      "url": "https://publisher.example/story",
+      "description": "A <b>reported</b> event.",
+      "page_age": "2026-11-12T14:00:00Z",
+      "age": "10 hours ago",
+      "page_fetched": "2026-11-12T23:00:00Z",
+      "profile": { "name": "Example Daily" },
+      "thumbnail": { "src": "https://images.example/news.jpg" },
+      "extra_snippets": ["One <em>excerpt</em>", "Another excerpt"]
+    },
+    {
+      "title": "No reported date",
+      "url": "https://another.example/story",
+      "page_fetched": "2026-11-12T23:30:00Z",
+      "thumbnail": { "src": "javascript:alert(1)" }
+    }
+  ]
+}

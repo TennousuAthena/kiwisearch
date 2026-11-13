@@ -221,7 +221,7 @@ describe('Zhihu and Xiaohongshu modes', () => {
     usableSources(config, browser, mode).filter((source) => !source.reason).map((source) => source.id);
 
   it('adds the two modes, with text-style handling only for Zhihu', () => {
-    expect(SEARCH_MODES).toEqual(['web', 'images', 'video', 'academic', 'zhihu', 'xiaohongshu', 'wechat', 'x']);
+    expect(SEARCH_MODES).toEqual(['web', 'images', 'video', 'news', 'shopping', 'academic', 'zhihu', 'xiaohongshu', 'wechat', 'x']);
     expect(modeHasText('zhihu')).toBe(true);
     expect(modeHasText('xiaohongshu')).toBe(false);
     expect(resultCount(DEFAULT_CONFIG, 'xiaohongshu')).toBe(12);

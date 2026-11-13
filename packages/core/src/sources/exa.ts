@@ -1,9 +1,11 @@
 import { fetchJson } from '../http';
 import { markdownSnippet } from '../text';
+import { newsCutoff, normalizeNewsOptions, parseNewsTime } from '../news';
+import { absoluteHttpUrl } from '../engines/shared';
 import type { SearchSource } from '../types';
 
 interface ExaResponse {
-  results: { title?: string; url: string; publishedDate?: string; author?: string; text?: string; summary?: string; highlights?: string[] }[];
+  results: { title?: string; url: string; publishedDate?: string; author?: string; image?: string; text?: string; summary?: string; highlights?: string[] }[];
 }
 
 /**
@@ -17,9 +19,11 @@ interface ExaResponse {
 export const exa: SearchSource = {
   id: 'exa',
   label: 'Exa',
-  modes: ['web'],
+  modes: ['web', 'news'],
   requiresKey: true,
-  async search(query, { env, settings, count, signal }) {
+  async search(query, { env, settings, count, signal, mode, news }) {
+    const newsMode = mode === 'news';
+    const cutoff = newsCutoff(normalizeNewsOptions(news).range, new Date());
     const data = await fetchJson<ExaResponse>(env.fetch, 'https://api.exa.ai/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': settings.apiKey ?? '' },
@@ -27,17 +31,26 @@ export const exa: SearchSource = {
         query,
         type: 'auto',
         numResults: Math.min(count, 25),
+        ...(newsMode ? { category: 'news', ...(cutoff !== undefined ? { startPublishedDate: new Date(cutoff).toISOString() } : {}) } : {}),
         contents: { text: { maxCharacters: 4000 }, highlights: { maxCharacters: 1500 } },
       }),
       signal,
     });
+    const retrievedAt = new Date();
     return data.results.map((r, i) => ({
       url: r.url,
       title: r.title ?? r.url,
       snippet: markdownSnippet([r.highlights?.[0], r.text], { title: r.title, max: 300 }),
       content: r.text,
-      publishedAt: r.publishedDate,
-      meta: r.author ? { authors: [r.author] } : undefined,
+      ...(newsMode ? {
+        ...parseNewsTime(r.publishedDate, retrievedAt),
+        news: {
+          ...parseNewsTime(r.publishedDate, retrievedAt).news,
+          byline: r.author,
+          thumbnail: absoluteHttpUrl(r.image, r.url) ?? undefined,
+        },
+        meta: r.author ? { author: r.author } : undefined,
+      } : { publishedAt: r.publishedDate, meta: r.author ? { authors: [r.author] } : undefined }),
       source: 'exa' as const,
       rank: i + 1,
     }));

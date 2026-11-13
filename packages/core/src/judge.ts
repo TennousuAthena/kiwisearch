@@ -319,7 +319,7 @@ export function applyJudgments(
   const boosted = normalizedDomains(judge.boostedDomains);
   const alpha = judge.relevanceWeight;
   const scored = results.map((result): FusedResult => {
-    if (result.hidden?.reason === 'blocked') return result;
+    if (result.hidden?.reason === 'blocked' || result.hidden?.reason === 'time') return result;
     const judgment = fresh.get(result.key) ?? result.judgment;
     const prior = result.rrfScore / maxRrf;
     if (!judgment) return { ...result, score: prior * (1 - alpha) };

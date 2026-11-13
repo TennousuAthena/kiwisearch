@@ -4,19 +4,19 @@ const TRACKING_PARAMS = [
 ];
 
 /** Canonical form of a URL used to detect duplicates across engines. */
-export function normalizeUrl(raw: string): string {
+export function normalizeUrl(raw: string, contentIds = true): string {
   let u: URL;
   try {
     u = new URL(raw.trim());
   } catch {
     return raw.trim().toLowerCase();
   }
-  const doi = extractDoi(u);
+  const doi = contentIds ? extractDoi(u) : undefined;
   if (doi) return `doi:${doi}`;
   let host = u.hostname.toLowerCase().replace(/^(www\.|m\.|mobile\.)/, '');
-  const platform = videoKey(host, u) ?? noteKey(host, u);
+  const platform = contentIds ? videoKey(host, u) ?? noteKey(host, u) : undefined;
   if (platform) return platform;
-  if (host === 'arxiv.org') {
+  if (contentIds && host === 'arxiv.org') {
     const m = u.pathname.match(/^\/(?:abs|pdf|html)\/(.+?)(?:v\d+)?(?:\.pdf)?$/);
     if (m) return `arxiv:${m[1].toLowerCase()}`;
   }
