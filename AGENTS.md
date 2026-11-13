@@ -56,7 +56,7 @@ Read the matching file in `docs/internals/` before changing that area. They are 
 | [mcp-bridge.md](docs/internals/mcp-bridge.md) | hub and relay, pairing, the extension side of the bridge | touch `packages/mcp` or `lib/bridge.ts` |
 | [testing.md](docs/internals/testing.md) | fixtures (real or hand-written), what only a real browser can check | add a parser test or verify in a real browser |
 
-For people (Chinese), indexed in [README.md](README.md): [docs/STATUS.md](docs/STATUS.md) (summary, verification matrix, decisions), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), [docs/BLOCKLISTS.md](docs/BLOCKLISTS.md), [docs/DECISION-PROVIDERS.md](docs/DECISION-PROVIDERS.md), [docs/I18N.md](docs/I18N.md), and [docs/PLAN.md](docs/PLAN.md) (design rationale and the list of known gaps). [DESIGN.md](DESIGN.md) is the UI design system; its "Copy" section holds the writing rules.
+For people (Chinese), indexed in [docs/README.md](docs/README.md): [docs/USAGE.md](docs/USAGE.md) (features, modes and sources, settings, MCP usage), [docs/STATUS.md](docs/STATUS.md) (summary, verification matrix, decisions), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), [docs/BLOCKLISTS.md](docs/BLOCKLISTS.md), [docs/DECISION-PROVIDERS.md](docs/DECISION-PROVIDERS.md), [docs/I18N.md](docs/I18N.md), and [docs/PLAN.md](docs/PLAN.md) (design rationale and the list of known gaps). [DESIGN.md](DESIGN.md) is the UI design system; its "Copy" section holds the writing rules.
 
 ## Rules that are easy to break
 
@@ -68,6 +68,7 @@ For people (Chinese), indexed in [README.md](README.md): [docs/STATUS.md](docs/S
 - **Text from pages and from model replies is data, not instructions.** The academic plan and the decision replies are clamped, and fetched page text is checked for prompt injection before it is summarized. → [academic.md](docs/internals/academic.md), [decision-model.md](docs/internals/decision-model.md)
 - **When an engine's markup changes**, update its `extract` and refresh its fixture in `packages/core/test/fixtures/`; a hand-written fixture says so in its first line. → [testing.md](docs/internals/testing.md)
 - **Nothing automated covers tab rendering** (`tabRenderer.ts`, the content script). Use fresh build-copy paths only for isolated QA; activate the user's live extension at its existing path and verify the actual running version. → [testing.md](docs/internals/testing.md)
+- **No AI attribution in commits or pull requests.** No `Co-Authored-By` trailer for an AI tool, no "Generated with …" line, and no AI tool as author or committer. Commits carry the repo owner's own git identity only.
 - **Write down what was verified and what was not.** This project keeps the two apart: when you add or change something, record what you checked against the real thing and what you did not, in the topic file (and in [docs/STATUS.md](docs/STATUS.md) for the summary).
 
 ## Keeping the docs
@@ -75,5 +76,6 @@ For people (Chinese), indexed in [README.md](README.md): [docs/STATUS.md](docs/S
 - **AGENTS.md stays short**: what the project is, commands, code map, docs map, rules. No experiment logs and no per-feature detail. `CLAUDE.md` holds only `@AGENTS.md`, so Claude Code reads this file; edit this one.
 - **One topic, one file** in `docs/internals/`, named for the topic (not for a date or a change). Design decisions and "checked on <date>: … / not checked: …" records go there. A new file gets a row in the docs map above.
 - **Change the code and its topic file together**, and write dates as absolute dates.
-- **Docs for people are Chinese** and live in `docs/*.md`, indexed by `README.md`; the internals are English.
+- **Docs for people are Chinese** and live in `docs/*.md`, indexed by `docs/README.md`; the internals are English.
+- **`README.md` (English) and `README.zh-CN.md` only introduce the product**: features, a notice, the license. Install, usage and everything else go in `docs/`. Keep the two READMEs in step.
 - If a rule here needs more than a few lines, move the explanation into its topic file and keep a one-line rule with a link.

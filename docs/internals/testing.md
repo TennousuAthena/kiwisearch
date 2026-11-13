@@ -58,7 +58,7 @@ The final shopping check passed 539 core tests, 173 extension tests and 17 MCP t
 Checked on 2026-11-13:
 
 - A fresh `git clone` of the repo, `pnpm install --frozen-lockfile` with pnpm 12.18.0 (local Node was 26.13.1), then typecheck, 545 core + 235 extension + 17 mcp tests, and both builds: all passed. The clone had none of the git-ignored local files, so nothing the build needs is missing from the repository.
-- On GitHub: the pull-request run (PR #2), the push to `master` (`e9bbd14`) and a manual dispatch all passed with every step executed, none skipped. The extension artifact was uploaded (449,300 bytes).
+- On GitHub: the pull-request run (PR #2), the push to `master` and a manual dispatch all passed with every step executed, none skipped. The extension artifact was uploaded (449,300 bytes).
 - Failure path: a throwaway PR (#3, closed, branch deleted) added a type error in `packages/mcp/src` and a failing core test. The run went red on exactly those two (`TS2322`, `expected 1 to be 2`), the extension and mcp suites still ran and passed, and the builds and the upload were skipped.
 
 Known limit seen in that failing run: `pnpm -r typecheck` stops at the first failing package and sends SIGTERM to the rest, so a type error is reported for one package only. `pnpm -r --no-bail typecheck` would report all of them; the workflow does not use it and that variant was not run.
