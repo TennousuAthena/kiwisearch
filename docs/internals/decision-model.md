@@ -12,4 +12,6 @@ In the general (`web`) mode, when the decision model is on, `intent.ts` asks it 
 
 ## The judge
 
+News time-range exclusions (`hidden.reason: time`) are deterministic, like an explicit domain block: `applyJudgments` preserves them and the minimum-visible fallback never restores them. News ordering is applied again after model scoring, so a relevance score cannot override the user's date sort. Checked 2026-11-13 with unit tests and mocked model replies; no live model call was made for this news-specific change.
+
 `judge.ts` (through the decision model; TypeSafe: one request per result): relevance Score, junk Noul, one Noul per user rule. It orders results and flags some as `hidden`; when active it replaces `rerank.ts`. It also checks fetched page text for prompt injection before summarizing.

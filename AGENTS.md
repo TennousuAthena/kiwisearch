@@ -8,8 +8,8 @@ Kiwi Search is a Manifest V3 new-tab search extension for Chrome and Edge (a Fir
 
 **Core principle: all data comes from the user's own browser, logins and keys.** Kiwi provides no accounts, keys, proxies or servers, and results are shown only to the user.
 
-- Eight search modes: `web`, `images`, `video`, `academic`, `zhihu`, `xiaohongshu`, `wechat`, `x`. Each source declares which modes it supports.
-- 29 sources: 18 browser engines (rendered in a worker tab of the user's browser) and 11 API sources.
+- Ten search modes: `web`, `images`, `video`, `news`, `shopping`, `academic`, `zhihu`, `xiaohongshu`, `wechat`, `x`. Each source declares which modes it supports.
+- 34 sources: 23 browser engines (rendered in a worker tab of the user's browser) and 11 API sources.
 
 ## Commands
 
@@ -28,7 +28,7 @@ Three workspace packages (plus an empty `packages/experiments` shell).
 | Package | What it is |
 |---|---|
 | `packages/core` | Pure logic: the `runSearch` pipeline in `src/pipeline.ts`, sources and engines (`src/sources`, `src/engines`), fusion, the decision model, block lists, the summary. It never calls `browser.*`; the caller passes an `Env` (`fetch`, `cache`, `runBrowserEngine`, …). |
-| `apps/extension` | WXT + React, Manifest V3. The only place that touches a browser: the service worker (`entrypoints/background.ts`), the worker-tab renderer (`lib/tabRenderer.ts`), the content script (`entrypoints/engines.content.ts`), the new-tab page (`entrypoints/newtab/`) and the options page (`entrypoints/options/`). |
+| `apps/extension` | WXT + React, Manifest V3. The only place that touches a browser: the service worker (`entrypoints/background.ts`), the worker-tab renderer (`lib/tabRenderer.ts`), the content scripts (`entrypoints/engines.content.ts`, `entrypoints/shopping.content.ts`), the new-tab page (`entrypoints/newtab/`) and the options page (`entrypoints/options/`). |
 | `packages/mcp` | stdio MCP server. The first process binds `127.0.0.1:17345` and becomes the hub, later ones relay to it; the hub talks to the extension. |
 
 One search: the new-tab page (or an MCP request) → a `runtime.connect` port → `background.ts` → `runSearch` in core → sources in parallel (API sources through `env.fetch`, browser engines through worker tabs) → fuse, fold, hide → optional summary → `PipelineEvent`s streamed back to the page or the MCP client.
@@ -44,7 +44,9 @@ Read the matching file in `docs/internals/` before changing that area. They are 
 | [fusion.md](docs/internals/fusion.md) | dedupe, RRF, reprints, Wikipedia editions, domain rules | change how results merge or fold |
 | [blocklists.md](docs/internals/blocklists.md) | block-list syntax, compile and match, subscriptions | touch `blocklist.ts`, `blocklistService.ts` or the settings panel |
 | [summary-and-language.md](docs/internals/summary-and-language.md) | summary prompt, overview language | touch `summarize.ts` or `language.ts` |
-| [academic.md](docs/internals/academic.md) | smart academic search, the six academic sources | work on academic mode |
+| [news.md](docs/internals/news.md) | Query-driven news, publication evidence, strict time ranges, snapshots | work on news mode |
+| [shopping.md](docs/internals/shopping.md) | Shopping products, source boundaries, and verification | work on shopping mode |
+| [academic.md](docs/internals/academic.md) | smart academic search, the six academic sources, the English-only language limit | work on academic mode |
 | [sources.md](docs/internals/sources.md) | registry, browser and API engines, Exa, Brave, adding a source | add or fix a source or engine |
 | [config-and-storage.md](docs/internals/config-and-storage.md) | config version, migrations, storage keys, options page | add a setting or migrate stored config |
 | [extension-runtime.md](docs/internals/extension-runtime.md) | service worker, worker tabs, content script, captcha and login handling | touch `background.ts`, `tabRenderer.ts` or `engines.content.ts` |
@@ -57,13 +59,14 @@ For people (Chinese), indexed in [README.md](README.md): [docs/STATUS.md](docs/S
 
 ## Rules that are easy to break
 
+- **Finish in the user's local Chromium.** Build and activate every completed extension change in the existing profile and extension path, then verify the running code, manifest, UI and preserved data. Back up settings outside the repo; preserve the extension ID, keys and browser logins, never uninstall or substitute a test profile/config. → [testing.md](docs/internals/testing.md)
 - **Core stays pure.** Nothing in `packages/core` calls `browser.*` or `chrome.*`; take what you need from `Env`. The new-tab page does not import core (it would pull the parsers into its bundle), so `lib/results.ts` mirrors the few helpers it needs, such as `modeHasText`. → [pipeline.md](docs/internals/pipeline.md), [newtab-page.md](docs/internals/newtab-page.md)
 - **Adding a source touches five places**, and one of them, `DEFAULT_CONFIG.sources`, is `Partial`: a missing entry is not flagged and the source silently defaults to disabled. A new engine also needs its logo file and a `logos.json` entry; never invent a letter badge. → [sources.md](docs/internals/sources.md)
 - **Stored configs** are rewritten in `MIGRATIONS` in `config.ts`; a new field only needs a default. → [config-and-storage.md](docs/internals/config-and-storage.md)
 - **Interface text is never written in a component or helper.** Put it in the catalogs under `apps/extension/lib/i18n/catalog/` and read it with `t()`; never call `t()` at module top level. `test/noHardcodedText.test.ts` fails on CJK strings in `entrypoints/` and `lib/`. → [interface-text.md](docs/internals/interface-text.md)
 - **Text from pages and from model replies is data, not instructions.** The academic plan and the decision replies are clamped, and fetched page text is checked for prompt injection before it is summarized. → [academic.md](docs/internals/academic.md), [decision-model.md](docs/internals/decision-model.md)
 - **When an engine's markup changes**, update its `extract` and refresh its fixture in `packages/core/test/fixtures/`; a hand-written fixture says so in its first line. → [testing.md](docs/internals/testing.md)
-- **Nothing automated covers tab rendering** (`tabRenderer.ts`, the content script). Check it by loading the unpacked extension, from a fresh copy path per build, because an unpacked extension at an unchanged path keeps running its old service worker. → [testing.md](docs/internals/testing.md)
+- **Nothing automated covers tab rendering** (`tabRenderer.ts`, the content script). Use fresh build-copy paths only for isolated QA; activate the user's live extension at its existing path and verify the actual running version. → [testing.md](docs/internals/testing.md)
 - **Write down what was verified and what was not.** This project keeps the two apart: when you add or change something, record what you checked against the real thing and what you did not, in the topic file (and in [docs/STATUS.md](docs/STATUS.md) for the summary).
 
 ## Keeping the docs

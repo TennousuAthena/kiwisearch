@@ -46,7 +46,7 @@
 | `types.ts` | 所有类型：`SearchMode`、`SourceId`、`FusionConfig`、`PipelineEvent`、`Env`…… |
 | `config.ts` | 默认配置、`CONFIG_VERSION` 与迁移、`mergeConfig`、`usableSources`、每个模式取多少条 |
 | `sources/` | 11 个 API 来源和注册表 `SOURCES` |
-| `engines/` | 18 个浏览器引擎（`BrowserEngine`：拼网址、识别页面、提取结果） |
+| `engines/` | 23 个浏览器引擎（`BrowserEngine`：拼网址、识别页面、提取结果） |
 | `fusion.ts`、`url.ts` | URL 归一化、去重、RRF、论文与转载合并、应用重排分数 |
 | `wikipedia.ts`、`han.ts` | 维基百科语言版本折叠（见第 4 节）；繁体转简体的字符表（OpenCC，Apache-2.0，`scripts/gen-han.mjs` 生成） |
 | `judge.ts` | 决策模型过滤与排序、域名规则（`applyDomainRules`）、正文提示注入检查 |
@@ -105,7 +105,7 @@
 所有来源统一成 `SearchSource`，登记在 `sources/index.ts` 的 `SOURCES` 里（类型是 `Record<SourceId, …>`，漏登记 TypeScript 会报错）。每个来源声明自己支持的模式、要不要 Key、要不要自己的服务地址、要不要浏览器。
 
 - **API 来源**（`sources/*.ts`）：`brave`、`exa`、`deepseek`、`openalex`、`crossref`、`arxiv`、`openverse`、`pubmed`、`europepmc`、`dblp`、`searxng`。通过 `env.fetch` 请求。Exa 把页面以 Markdown 返回，页面开头常是表格（维基百科是信息框），所以它的摘要不能直接截取：`markdownSnippet` 按页面顺序取第一块有内容的东西（正文段落、列表，或三列以上的数据表），跳过两列的信息框、标题、页眉页脚和各种 Markdown 记号；`content` 仍保留 Markdown，给概览和决策模型用。
-- **浏览器引擎**（`engines/*.ts`）：`google`、`bing`、`baidu`、`duckduckgo`、`bravesearch`、`scholar`、`baiduxueshu`、`cnki`、`wos`、`yandex`、`youtube`、`bilibili`、`zhihu`、`xiaohongshu`、`rednote`、`sogou`、`weixin`、`x`。每个是一个 `BrowserEngine`：
+- **浏览器引擎**（`engines/*.ts`）：`google`、`bing`、`baidu`、`duckduckgo`、`bravesearch`、`scholar`、`baiduxueshu`、`cnki`、`wos`、`yandex`、`youtube`、`bilibili`、`douyin`、`zhihu`、`xiaohongshu`、`rednote`、`sogou`、`yuanbao`、`weixin`、`x`。每个是一个 `BrowserEngine`：
   - `buildUrl(query, count, mode)` 拼出结果页网址；`matches` 说明内容脚本该在哪些网址上工作；
   - `readySelector` 表示结果开始渲染（可以覆盖多个模式）；`blockedSelector` / `isBlockedUrl` 识别验证码；`loginSelector` / `isLoginUrl` 识别登录墙；`refusedPattern` 识别网站明确拒绝（如知乎的风控 JSON）；
   - `extract(doc, pageUrl, mode)` 把页面读成 `SearchHit`；`resolve` 可选，用来拆开跳转链接；`minIntervalMs` 可选，比全局间隔更长的请求间隔（X 是 10 秒）。
@@ -199,3 +199,11 @@ Claude Desktop / Cursor ──stdio──▶ MCP 进程（hub 或 relay）──
 | 配对令牌和搜索请求 | `127.0.0.1` 上的 MCP 进程 | 开了 MCP 桥 |
 
 Kiwi 不会把这些数据发给自己的服务器，也不提供账号、Key 或代理。
+
+## 新闻搜索
+
+`news` 与网页等模式共享来源开关、Key、工作标签队列和 MCP。请求携带 `news: {range, sort}` 及可选 `refresh`，不改用户配置；新闻缓存键包含范围且有效 60 秒。核心层保守解析发表时间，在融合、判定和迟到合并后重复施加时间规则。不同媒体的报道不按标题或转载启发式折叠。概览按选定结果快照生成，迟到结果只更新列表，页面提示可刷新概览。详见 [internals/news.md](internals/news.md)。
+
+## 购物搜索
+
+`shopping` 只使用淘宝、京东和亚马逊美国站的浏览器来源，复用登录、验证提示、队列与缓存。商品信息在 `product` 中传递（图片、原始价格、店铺、销量、评分），核心层和 MCP 保留页面原文。融合只按 URL 合并，不按同名商品或转载启发式合并不同商家的报价；不调用决策模型、重排或概览模型，域名规则与屏蔽列表仍然生效。商品解析与实测边界见 [internals/sources.md](internals/sources.md)。
