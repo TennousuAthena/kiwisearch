@@ -29,15 +29,20 @@ pnpm install
 
 ## 持续集成（GitHub Actions）
 
-工作流在 `.github/workflows/ci.yml`，推送到 `master`、提交 PR 和在 Actions 页面手动运行时触发。同一个分支上有新的推送，会取消还在跑的旧运行。它用 Node 24 和 pnpm 12（和本文开头的要求一致），依次做：
+工作流在 `.github/workflows/ci.yml`，推送到任意分支、提交 PR 和在 Actions 页面手动运行时触发。它用 Node 24 和 pnpm 12（和本文开头的要求一致），分两个任务。
+
+`verify` 依次做：
 
 1. `pnpm install --frozen-lockfile`（锁文件和 `package.json` 对不上会直接失败）
 2. `pnpm typecheck`
 3. 分别跑 core、extension、mcp 的测试（不用根目录的 `pnpm test`，原因见上）
-4. 构建扩展和 MCP 服务
-5. 把未打包的 Chrome 扩展（`.output/chrome-mv3`）作为产物上传，保留 14 天，可以直接下载来装
+4. 构建 MCP 服务
 
-类型检查和三组测试互不依赖：其中一步失败，后面的测试仍然会跑，这样一次运行能看到所有失败的地方；构建只在前面全部通过后才跑。注意类型检查这一步内部是遇错即停的（`pnpm -r` 在一个包失败后会终止其余的包），所以一次类型错误只会报出先失败的那个包。
+类型检查和三组测试互不依赖：其中一步失败，后面的测试仍然会跑，这样一次运行能看到所有失败的地方；MCP 的构建只在前面全部通过后才跑。注意类型检查这一步内部是遇错即停的（`pnpm -r` 在一个包失败后会终止其余的包），所以一次类型错误只会报出先失败的那个包。
+
+`build` 在每次推送时，为这次推送的提交分别构建 Chrome（`chrome-mv3`）、Edge（`edge-mv3`）和 Firefox（`firefox-mv2`）版扩展，把未打包的目录作为产物上传，名字形如 `kiwi-search-0.1.0-chrome-mv3-<提交前 7 位>`，保留 14 天。在 Actions 页面打开对应的运行即可下载；下载到的 zip 根目录就是 `manifest.json`，解压后 Chrome/Edge 用“加载已解压的扩展程序”，Firefox 在 `about:debugging` 里“临时载入附加组件”选其中的 `manifest.json`（没有签名，重启浏览器后失效）。`build` 不等 `verify`，测试没过的提交也有产物，方便二分查问题；PR 触发的运行不跑 `build`，因为同一个提交在推送时已经构建过。
+
+每个推送的提交有自己的运行，后面的推送不会取消前面的；一次推送带了多个提交时，只为最新的那个运行。PR 触发的运行，同一个 PR 有新推送会取消旧的。
 
 想在本机复现 CI 的环境，用一份干净的克隆：`git clone` 之后 `pnpm install --frozen-lockfile`，再依次跑上面的命令。这样能发现只在你本机存在、被 `.gitignore` 忽略掉的文件造成的问题。
 

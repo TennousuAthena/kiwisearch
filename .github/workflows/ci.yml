@@ -2,13 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
+# Pull requests cancel their older runs. Pushes are grouped by commit, so every
+# pushed commit keeps its own run and its browser builds.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -51,16 +53,54 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm --filter @kiwi-search/mcp test
 
-      - name: Build extension
-        run: pnpm --filter @kiwi-search/extension build
-
       - name: Build mcp server
         run: pnpm --filter @kiwi-search/mcp build
 
-      - name: Upload the unpacked Chrome extension
+  # One unpacked extension per browser for every pushed commit, independent of
+  # `verify` so a commit with a failing test still has builds to bisect with.
+  # Pull-request runs skip this: they build a merge commit, and the push run of
+  # the branch head already uploads its builds.
+  build:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chrome
+            output: chrome-mv3
+          - browser: edge
+            output: edge-mv3
+          - browser: firefox
+            output: firefox-mv2
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12
+          cache: true
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build for ${{ matrix.browser }}
+        run: pnpm --filter @kiwi-search/extension exec wxt build -b ${{ matrix.browser }}
+
+      - name: Name the artifact
+        id: meta
+        run: |
+          version=$(node -p "require('./apps/extension/package.json').version")
+          echo "name=kiwi-search-${version}-${{ matrix.output }}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the unpacked ${{ matrix.browser }} extension
         uses: actions/upload-artifact@v7
         with:
-          name: kiwi-search-chrome-mv3
-          path: apps/extension/.output/chrome-mv3
+          name: ${{ steps.meta.outputs.name }}
+          path: apps/extension/.output/${{ matrix.output }}
           if-no-files-found: error
           retention-days: 14

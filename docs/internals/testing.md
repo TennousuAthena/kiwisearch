@@ -53,7 +53,9 @@ The final shopping check passed 539 core tests, 173 extension tests and 17 MCP t
 
 ## Continuous integration (2026-11-13)
 
-`.github/workflows/ci.yml` runs on pushes to `master`, on pull requests and on manual dispatch (`gh workflow run ci.yml`), with Node 24 and pnpm 12 as the README asks. One job, `verify`, runs: `pnpm install --frozen-lockfile`, `pnpm typecheck`, the core, extension and mcp suites as separate steps, the extension and mcp builds, then uploads the unpacked `.output/chrome-mv3` as the `kiwi-search-chrome-mv3` artifact (14 days). The root `pnpm test` is not used because `packages/experiments` has no tests and exits 1. Typecheck and the three test steps use `if: ${{ !cancelled() }}`, so one failing step does not hide the others; the builds and the upload run only when everything before them passed.
+`.github/workflows/ci.yml` runs on every push to any branch, on pull requests and on manual dispatch (`gh workflow run ci.yml`), with Node 24 and pnpm 12 as the README asks. Job `verify` runs: `pnpm install --frozen-lockfile`, `pnpm typecheck`, the core, extension and mcp suites as separate steps, then the mcp build. The root `pnpm test` is not used because `packages/experiments` has no tests and exits 1. Typecheck and the three test steps use `if: ${{ !cancelled() }}`, so one failing step does not hide the others; the mcp build runs only when everything before it passed.
+
+Job `build` (2026-11-13) is a matrix over `chrome`, `edge` and `firefox`. Each entry runs `wxt build -b <browser>` and uploads the unpacked `.output/<browser>-mv3` (Firefox: `firefox-mv2`, WXT's default for Firefox) as `kiwi-search-<version>-<output>-<short sha>`, kept 14 days. GitHub serves an artifact as a zip with `manifest.json` at its root. `build` does not wait for `verify`, so a commit whose tests fail still has builds (useful for bisecting); it is skipped on `pull_request` runs, which build a merge commit, because the push run of the branch head already builds that commit. Concurrency: pushes are grouped by commit SHA, so no pushed commit's run is cancelled or replaced by a later push; pull-request runs are grouped by ref and cancel their older runs. A push that adds several commits at once still triggers one run, for the newest commit. The Edge manifest is currently identical to the Chrome one. The Firefox build has no `browser_specific_settings.gecko.id` and is unsigned, so it loads only as a temporary add-on (`about:debugging`), and its manifest still lists Chrome-only permissions (`tabGroups`, `favicon`, `declarativeNetRequestWithHostAccess`).
 
 Checked on 2026-11-13:
 
@@ -63,7 +65,7 @@ Checked on 2026-11-13:
 
 Known limit seen in that failing run: `pnpm -r typecheck` stops at the first failing package and sends SIGTERM to the rest, so a type error is reported for one package only. `pnpm -r --no-bail typecheck` would report all of them; the workflow does not use it and that variant was not run.
 
-Not checked: any runner other than `ubuntu-latest`, any Node version other than 24 on GitHub, whether the pnpm store cache (`cache: true` in `pnpm/action-setup`) is restored on a later run, the Firefox build (not in CI; see "Firefox" below for the live check), and installing the uploaded artifact in a browser. CI does not replace the real-browser checks above.
+Not checked: any runner other than `ubuntu-latest`, any Node version other than 24 on GitHub, whether the pnpm store cache (`cache: true` in `pnpm/action-setup`) is restored on a later run, and installing any uploaded artifact in a browser. CI does not replace the real-browser checks above; the Firefox build was checked live by hand (see "Firefox" below).
 
 ## Firefox
 
