@@ -61,6 +61,16 @@ Static files built by Vite (`pnpm --filter @kiwi-search/web build` → `apps/web
 - **Response headers** are in `public/_headers` (Cloudflare Pages format): the page gets `default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `img-src 'self' https: data: blob:`, `connect-src 'none'`, `frame-ancestors 'none'`, `form-action 'none'`, plus no referrer and HSTS. The service worker has its own policy (`connect-src 'self'`), because the page's `connect-src 'none'` would stop it from fetching the page's files. Cloudflare adds the headers of every rule that matches a path, so the page policy is set on `/` and `/index.html` only, not on `/*`.
 - **OpenSearch.** `public/opensearch.xml` describes `https://s.kiwi.moe/#q={searchTerms}`, and the page links it. Whether a browser accepts a fragment address from an OpenSearch file has not been checked.
 
+## The pages of kiwi.moe (`apps/site`)
+
+Plain HTML pages with one style sheet and no framework (`pnpm --filter @kiwi-search/site build` → `apps/site/dist`): introduction, install, getting started (opening Kiwi, the default search, choosing the interface, how to start a browser on Kiwi), and the privacy statement, each in Chinese (`/`) and English (`/en/`). They are written by hand; `/install` is the address the website's "install" button opens. Nothing on them is counted or listed that grows (modes, sources, browsers): they describe by category and point to the extension's settings, as the READMEs do. Until the extension is in a store the install page tells how to build and load it.
+
+The privacy statement has to stay true to the code. What it says rests on these facts, each checked in the repository on 2026-11-14: no code of ours contacts a kiwi.moe host (the only mention is the install link); the default decision-model endpoint is `https://api.typesafe.ai/v1/systemone` and is not used while the key is empty; the interface keeps no query or result in `localStorage` or `sessionStorage` (the website stores only a remembered engine and a one-shot reload flag); recent queries live in page memory; block-list subscriptions are off by default; site icons are requested by the browser from the site itself. **One line depends on how the host is set up and is not checked:** that the server's access log does not record the query string of the old `/s?q=` address. Do not publish the page before that is true.
+
+## Hosting
+
+Both sites are static and are meant for Cloudflare Pages (`public/_headers` in both is in its format); any static host that can set these headers works. `.github/workflows/deploy.yml` builds and publishes them with `wrangler pages deploy` on a push to master. **It has never run.** It needs, from the owner of the domain: the zone for `kiwi.moe` (or DNS elsewhere with a CNAME to Pages); two Pages projects, `kiwi-search-web` with the custom domain `s.kiwi.moe` and `kiwi-search-site` with `kiwi.moe`, whose production branch matches the `--branch` value in the workflow; the repository variable `CLOUDFLARE_PAGES=true`; and the secrets `CLOUDFLARE_API_TOKEN` (permission: Cloudflare Pages edit) and `CLOUDFLARE_ACCOUNT_ID`. Leave web analytics and any request logging off, or make them drop query strings.
+
 ## Phase 0: what was checked (2026-11-14)
 
 All runs used throwaway, headless browsers with fresh profiles and random debugging ports, on macOS: Chromium 156.0.8078.79 and Firefox 160.0. The dev browser and its profile were not touched. The probe extension and scripts are not in the repository; they were in `~/.kiwi-search/phase0/` (a small MV3 extension with DNR rules, a content script and a page, plus a CDP harness). Test hosts were mapped to local servers, and all other DNS was refused.
@@ -97,7 +107,7 @@ All runs used throwaway, headless browsers with fresh profiles and random debugg
 | 2. Protocol package and extension side | code done 2026-11-14 (record below); not yet activated in the user's Chromium |
 | 3. Website | code done 2026-11-14 (record below); nothing is hosted yet |
 | 4. Interface source, local mode, fallback | code done 2026-11-14 (record below); not yet activated in the user's Chromium |
-| 5. kiwi.moe pages, hosting, CI | not started |
+| 5. kiwi.moe pages, hosting, CI | pages and CI done 2026-11-14; hosting needs the domain owner (see Hosting); the deploy workflow has not run |
 | 6. Activate in the user's Chromium and verify | not started |
 
 ## Phase 1: what was checked (2026-11-14)
@@ -133,3 +143,9 @@ An end-to-end run in a throwaway headless Chromium 156 with the website's host m
 The settings page's new control was rendered in the same headless Chromium and looked at in a screenshot. That found a defect: the start section is on the page twice (the first-run guide and the copy under the advanced section), and both copies used one radio `name`, so the browser treated them as one group and the selected state was lost; each copy now has its own name.
 
 **Not checked:** clicking the radio or the checkbox (the choice is read back from `storage` after the click, and that was only exercised by writing `uiSource` directly); `permissions.request` for `webNavigation` and the automatic switch itself (a headless browser cannot answer the prompt; only the classification and parsing are tested, and Phase 0 showed the event reports the failed address with its fragment); the toolbar button's click (not drivable headlessly; it is one `tabs.create`); `k` in the address bar in either mode; the browser's own address bar with a search engine set to `https://s.kiwi.moe/#q=%s` (the redirect was triggered by navigating, as in phase 0); the Firefox build in any browser; that `webNavigation` error strings in Firefox match the patterns written for them; the narrowed `web_accessible_resources` with a navigation started from a Kiwi page.
+
+## Phase 5: what was checked (2026-11-14)
+
+**Checked:** typecheck and both builds pass. The eight pages build (`/install` and the others as `*.html`, which Cloudflare Pages serves without the extension). They were opened in a throwaway headless Chromium with the site's own `Content-Security-Policy` applied by a small static server: no console errors and no horizontal overflow at 1100 and 390 px wide; the home page was looked at in screenshots at both widths. CI builds the site.
+
+**Not checked:** the deploy workflow (never run); that Cloudflare Pages takes the `_headers` files as written; the pages in a browser other than Chromium, in the dark theme, and with the Chinese and English texts read through by a person (they were written from the READMEs and `docs/USAGE.md`); the menu names in the "start on Kiwi" instructions for Chrome, Edge, Firefox and Safari (written from general knowledge of those browsers, not checked in them); that the install page's steps work from a fresh checkout; the privacy statement against a lawyer's or a store's requirements, and its one hosting-dependent line (above).

@@ -71,6 +71,9 @@ jobs:
       - name: Build web
         run: pnpm --filter @kiwi-search/web build
 
+      - name: Build site
+        run: pnpm --filter @kiwi-search/site build
+
   # One unpacked extension per browser for every pushed commit, independent of
   # `verify` so a commit with a failing test still has builds to bisect with.
   # Pull-request runs skip this: they build a merge commit, and the push run of

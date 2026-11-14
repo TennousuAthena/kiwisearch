@@ -19,12 +19,12 @@ pnpm workspace; run from the repo root. README asks for Node 24 and pnpm 12.
 - Test: run each package on its own, `pnpm --filter @kiwi-search/core test` (or `@kiwi-search/app`, `@kiwi-search/protocol`, `@kiwi-search/web`, `@kiwi-search/extension`, `@kiwi-search/mcp`). The root `pnpm test` is `pnpm -r test` and also reaches `packages/experiments`, which is only a shell (empty `src/` and `test/`), so `vitest` exits 1 there with "No test files found"; that failure predates the block-list work.
 - Single test file: `pnpm --filter @kiwi-search/core exec vitest run test/fusion.test.ts` (swap the package filter for another package). Narrow to one case with `-t "<test name>"`.
 - Typecheck: `pnpm typecheck` (`tsc` per package; the extension runs `wxt prepare` first). There is no lint script or lint config, so typecheck is the only static check.
-- CI: `.github/workflows/ci.yml` runs a frozen-lockfile install, typecheck, the test suites of core, protocol, app, extension, web and mcp, and the mcp and web builds (Node 24, pnpm 12) on every push to any branch and on pull requests, and on every push uploads an unpacked Chrome, Edge and Firefox build of that commit. Run the same steps before pushing. → [testing.md](docs/internals/testing.md)
+- CI: `.github/workflows/ci.yml` runs a frozen-lockfile install, typecheck, the test suites of core, protocol, app, extension, web and mcp, and the mcp, web and site builds (Node 24, pnpm 12) on every push to any branch and on pull requests, and on every push uploads an unpacked Chrome, Edge and Firefox build of that commit. Run the same steps before pushing. → [testing.md](docs/internals/testing.md)
 - Build: `pnpm build` (only extension and mcp define `build`). Chrome extension: `pnpm --filter @kiwi-search/extension build`, output in `apps/extension/.output/chrome-mv3`, loaded unpacked. Firefox: `build:firefox`. Dev server: `pnpm dev`. MCP server bundle: `pnpm --filter @kiwi-search/mcp build` → `packages/mcp/dist/index.js`.
 
 ## Code map
 
-Six workspace packages (plus an empty `packages/experiments` shell).
+Seven workspace packages (plus an empty `packages/experiments` shell).
 
 | Package | What it is |
 |---|---|
@@ -32,6 +32,7 @@ Six workspace packages (plus an empty `packages/experiments` shell).
 | `apps/extension` | WXT + React, Manifest V3. The only place that touches a browser: the service worker (`entrypoints/background.ts`), the worker-tab renderer (`lib/tabRenderer.ts`), the content scripts (`entrypoints/engines.content.ts`, `entrypoints/shopping.content.ts`), the new-tab page (`entrypoints/newtab/`, a thin shell that mounts `packages/app` with the extension's `KiwiHost` from `lib/extensionHost.ts`), the content script that lets the Kiwi website use the extension (`entrypoints/web-bridge.content.ts`, answered in `lib/webBridge.ts`) and the options page (`entrypoints/options/`). |
 | `packages/app` | The search interface: components, page state, message catalogs, styles and engine logos (`src/app`, `src/lib`, `src/i18n`). It depends only on the `KiwiHost` interface (`src/host.ts`), never on `browser.*`, so the same code runs as an extension page and, later, on the website. `mountSearchApp()` starts it. → [web-app.md](docs/internals/web-app.md) |
 | `apps/web` | The website `s.kiwi.moe`: static files only (Vite). It carries the same interface as the extension's own page and talks to the installed extension over the bridge (`src/webHost.ts`, `src/connection.ts`); without a working extension it shows its own screens (`src/ConnectionPanel.tsx`). Response headers are in `public/_headers`. It has no back end and the query never reaches its server. → [web-app.md](docs/internals/web-app.md) |
+| `apps/site` | The pages of `kiwi.moe`: introduction, install, getting started and the privacy statement, in Chinese and English, plain HTML with one style sheet (`pnpm --filter @kiwi-search/site build`). The privacy statement has to match what the code does. → [web-app.md](docs/internals/web-app.md) |
 | `packages/protocol` | What the interface and the service worker both need to agree on: the port message types, the settings-update receipts and the domain helpers. Types and pure functions only. |
 | `packages/mcp` | stdio MCP server. The first process binds `127.0.0.1:17345` and becomes the hub, later ones relay to it; the hub talks to the extension. |
 

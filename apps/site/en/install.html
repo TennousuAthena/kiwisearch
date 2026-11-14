@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Install - Kiwi Search</title>
+    <meta name="description" content="How to install the Kiwi Search extension." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon/32.png" />
+    <link rel="alternate" hreflang="zh-CN" href="https://kiwi.moe/install" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="site-brand" href="/en/"><span class="site-mark" aria-hidden="true"></span><span>Kiwi Search</span></a>
+      <nav aria-label="Site">
+        <a href="/en/install" aria-current="page">Install</a>
+        <a href="/en/start">Get started</a>
+        <a href="/en/privacy">Privacy</a>
+        <a href="https://github.com/TennousuAthena/kiwisearch" rel="noreferrer">GitHub</a>
+        <a href="/install" hreflang="zh-CN">简体中文</a>
+      </nav>
+    </header>
+    <main class="doc">
+      <h1>Install</h1>
+      <p>Kiwi Search is not in a browser store yet. For now you build it from source and load it.</p>
+      <h2>Chrome and Edge</h2>
+      <ol>
+        <li>You need Node.js 24 and pnpm 12. Get the source from <a href="https://github.com/TennousuAthena/kiwisearch" rel="noreferrer">GitHub</a> and run <code>pnpm install</code> and <code>pnpm --filter @kiwi-search/extension build</code> in the repository root.</li>
+        <li>Open <code>chrome://extensions</code> in Chrome (<code>edge://extensions</code> in Edge) and turn on Developer mode.</li>
+        <li>Click “Load unpacked” and choose <code>apps/extension/.output/chrome-mv3</code>.</li>
+      </ol>
+      <h2>Firefox</h2>
+      <ol>
+        <li>Run <code>pnpm --filter @kiwi-search/extension build:firefox</code>.</li>
+        <li>Open <code>about:debugging#/runtime/this-firefox</code>, click “Load Temporary Add-on” and choose <code>apps/extension/.output/firefox-mv2/manifest.json</code>. A temporarily loaded extension has to be loaded again after the browser restarts.</li>
+      </ol>
+      <h2>After installing</h2>
+      <p>The settings page opens once, with a getting-started guide. How to open Kiwi and how to make it your default search is on <a href="/en/start">Get started</a>.</p>
+    </main>
+    <footer class="site-footer">
+      <p>Kiwi Search is open source under the MIT license.</p>
+    </footer>
+    <script type="module" src="/src/site.ts"></script>
+  </body>
+</html>

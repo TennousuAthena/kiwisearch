@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Privacy - Kiwi Search</title>
+    <meta name="description" content="How the Kiwi Search extension and websites handle your data." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon/32.png" />
+    <link rel="alternate" hreflang="zh-CN" href="https://kiwi.moe/privacy" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="site-brand" href="/en/"><span class="site-mark" aria-hidden="true"></span><span>Kiwi Search</span></a>
+      <nav aria-label="Site">
+        <a href="/en/install">Install</a>
+        <a href="/en/start">Get started</a>
+        <a href="/en/privacy" aria-current="page">Privacy</a>
+        <a href="https://github.com/TennousuAthena/kiwisearch" rel="noreferrer">GitHub</a>
+        <a href="/privacy" hreflang="zh-CN">简体中文</a>
+      </nav>
+    </header>
+    <main class="doc">
+      <h1>Privacy</h1>
+      <p class="note">This is the privacy statement for the Kiwi Search extension and the websites s.kiwi.moe and kiwi.moe.</p>
+      <h2>In one sentence</h2>
+      <p>Searching happens in your own browser. Kiwi runs no accounts, proxies or back-end servers, so no “Kiwi server” receives your searches.</p>
+      <h2>The extension</h2>
+      <ul>
+        <li><strong>Your search goes to the sources you have switched on.</strong> A source rendered by the browser (search engines, video sites, community platforms) is opened by your own browser, with your IP address and your logins in that browser; an API source uses the key you entered. The sources that are on by default, and a switch for each, are in the extension's settings; you can turn any of them off.</li>
+        <li><strong>AI features are used only once configured.</strong> When you enter an API key and turn on the summary or the decision model, your search, the titles, addresses and snippets of results, and the page text used for the summary are sent to the service you configured. The decision model's preset service is TypeSafe; nothing is sent while no key is entered. With the browser's built-in model the content is processed on your device.</li>
+        <li><strong>Site icons</strong> are requested by your browser directly from the site a result is on (its <code>/favicon.ico</code> and its home page), not through a third-party icon service. A site you have never visited therefore receives one icon request.</li>
+        <li><strong>Block-list subscriptions</strong> are off by default. When you turn one on, the extension downloads the list from the third-party host you chose.</li>
+        <li><strong>Kept on your device:</strong> your settings, the API keys you entered, source status and the icon cache, in the browser's extension storage. They are not uploaded. The extension does not write searches or results to storage; they stay in the open page and are gone when it is closed.</li>
+        <li>The <strong>MCP server</strong> listens only on <code>127.0.0.1</code> on your machine, and the extension connects to it only after you have paired a token.</li>
+        <li>The extension has no analytics, advertising or telemetry, and sends nothing to any server of Kiwi's.</li>
+      </ul>
+      <h2>The websites s.kiwi.moe and kiwi.moe</h2>
+      <ul>
+        <li>Both are static pages: no back end, no cookies, no analytics, no third-party scripts. The page of s.kiwi.moe carries a content security policy that forbids any network connection.</li>
+        <li>Your search is written after the <code>#</code> in the address. A browser does not send what follows the <code>#</code> when it requests a page, so the search does not reach the website's server.</li>
+        <li>The hosting provider sees, as for any website, the visitor's IP address, the time, the browser identifier and the requested path.</li>
+        <li>One exception: the old search address <code>https://s.kiwi.moe/s?q=…</code>. With the extension installed the browser rewrites it on your machine to the new address and no request is made; without the extension, or with it disabled, that address sends the search to the server once. The server's access log does not record the query string of an address.</li>
+        <li>Without the extension, s.kiwi.moe does not search for you. It shows links to other search engines, and your search goes to an engine only when you click its link. You can have the page remember one choice on your device (in the browser's localStorage, not uploaded).</li>
+        <li>With “the extension's own page” chosen in the extension's settings, your browser does not contact s.kiwi.moe at all, and the website cannot use the extension.</li>
+      </ul>
+      <h2>Your choices</h2>
+      <p>You can turn off any source, leave every AI service unconfigured and choose the extension's own page. Uninstalling the extension removes everything it stored in your browser.</p>
+      <h2>Contact and changes</h2>
+      <p>Questions and feedback go to <a href="https://github.com/TennousuAthena/kiwisearch/issues" rel="noreferrer">GitHub</a>. This page is updated when the statement changes.</p>
+    </main>
+    <footer class="site-footer">
+      <p>Kiwi Search is open source under the MIT license.</p>
+    </footer>
+    <script type="module" src="/src/site.ts"></script>
+  </body>
+</html>

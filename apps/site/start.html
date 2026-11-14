@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>开始使用 - Kiwi Search</title>
+    <meta name="description" content="打开 Kiwi、设为默认搜索、让浏览器启动时打开 Kiwi。" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon/32.png" />
+    <link rel="alternate" hreflang="en" href="https://kiwi.moe/en/start" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="site-brand" href="/"><span class="site-mark" aria-hidden="true"></span><span>Kiwi Search</span></a>
+      <nav aria-label="站点导航">
+        <a href="/install">安装</a>
+        <a href="/start" aria-current="page">开始使用</a>
+        <a href="/privacy">隐私</a>
+        <a href="https://github.com/TennousuAthena/kiwisearch" rel="noreferrer">GitHub</a>
+        <a href="/en/start" hreflang="en">English</a>
+      </nav>
+    </header>
+    <main class="doc">
+      <h1>开始使用</h1>
+      <h2>打开 Kiwi</h2>
+      <ul>
+        <li>点浏览器工具栏上的 Kiwi 图标，打开扩展自带的搜索页。</li>
+        <li>在地址栏输入 <code>k</code> 加空格，再输入搜索词。</li>
+        <li>打开 <a href="https://s.kiwi.moe/">s.kiwi.moe</a>。</li>
+      </ul>
+      <h2>设为默认搜索</h2>
+      <p>浏览器不允许扩展直接改默认搜索引擎，需要自己添加一次：</p>
+      <ol>
+        <li>Chrome 打开 <code>chrome://settings/searchEngines</code>，在“网站搜索”旁点“添加”。</li>
+        <li>名称填 <code>Kiwi Search</code>，快捷字词填 <code>kiwi</code>，网址填 <code>https://s.kiwi.moe/#q=%s</code>。</li>
+        <li>在该条目的 ⋮ 菜单里选“设为默认”。</li>
+      </ol>
+      <p>Firefox 在“搜索”设置里点“默认搜索引擎”旁的“添加”，填入同样的名称、网址和关键字。Safari 不能把自定义网址设成默认搜索，直接打开 s.kiwi.moe 或把它设为主页。</p>
+      <h2>选择搜索界面</h2>
+      <p>搜索界面可以来自网站 s.kiwi.moe，也可以来自扩展自带的页面，在设置页“开始使用”里选。选网站时，搜索词写在网址的 <code>#</code> 后面，浏览器不会把它发给网站。选扩展自带界面时，浏览器不会访问网站，网站也无法使用这个扩展。网站打不开时，点工具栏上的 Kiwi 图标。</p>
+      <h2>让浏览器启动时打开 Kiwi</h2>
+      <p>扩展不占用新标签页。想一开始就看到 Kiwi，可以把 <code>https://s.kiwi.moe/</code> 填进浏览器自己的设置；菜单名称以你的浏览器版本为准。</p>
+      <ul>
+        <li><strong>Chrome、Edge：</strong>“启动时”选“打开特定网页”，或在“外观”里打开主页按钮并填入网址。不借助扩展，没有办法把新标签页本身设成某个网址。</li>
+        <li><strong>Firefox：</strong>“主页和新窗口”里选“自定义网址”。新标签页只能是 Firefox 主页或空白页。</li>
+        <li><strong>Safari：</strong>在“通用”里把主页设为这个网址，再选“新标签页打开：主页”。</li>
+      </ul>
+    </main>
+    <footer class="site-footer">
+      <p>Kiwi Search 以 MIT 许可证开源。</p>
+    </footer>
+    <script type="module" src="/src/site.ts"></script>
+  </body>
+</html>

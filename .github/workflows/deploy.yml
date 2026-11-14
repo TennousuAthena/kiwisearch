@@ -1,0 +1,58 @@
+name: Deploy sites
+
+# Publishes the two static sites to Cloudflare Pages: s.kiwi.moe (apps/web) and kiwi.moe (apps/site). Nothing here runs until the
+# repository has the variable CLOUDFLARE_PAGES set to "true" and the secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, and the two
+# Pages projects exist (docs/internals/web-app.md, "Hosting"). Not yet run: it was written without access to the account.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'apps/web/**'
+      - 'apps/site/**'
+      - 'packages/app/**'
+      - 'packages/protocol/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-sites
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: ${{ vars.CLOUDFLARE_PAGES == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12
+          cache: true
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: |
+          pnpm --filter @kiwi-search/web build
+          pnpm --filter @kiwi-search/site build
+
+      # `wrangler` is not a dependency of the repository: it is only needed here.
+      - name: Deploy s.kiwi.moe
+        run: npx --yes wrangler@4 pages deploy apps/web/dist --project-name=kiwi-search-web --branch=main
+
+      - name: Deploy kiwi.moe
+        run: npx --yes wrangler@4 pages deploy apps/site/dist --project-name=kiwi-search-site --branch=main
