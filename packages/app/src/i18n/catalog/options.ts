@@ -46,6 +46,16 @@ export const options = {
   'options.test.timeout': '{seconds} 秒内没有回应。',
 
   // StartSection.tsx
+  'options.start.uiTitle': '搜索界面',
+  'options.start.uiNote': '搜索界面可以来自网站，也可以来自扩展自带的页面。两种都由你的浏览器完成搜索，结果只显示给你。',
+  'options.start.uiSite': '网站 s.kiwi.moe',
+  'options.start.uiSiteHint': '地址栏搜索和关键字 k 会打开 s.kiwi.moe。搜索词写在网址的 # 后面，浏览器不会把它发给网站。',
+  'options.start.uiLocal': '扩展自带界面',
+  'options.start.uiLocalHint': '不打开网站：地址栏搜索和关键字 k 直接用扩展里的页面，网站无法使用这个扩展。',
+  'options.start.uiFallback': '网站打不开时，自动改用扩展自带界面',
+  'options.start.uiFallbackNote': '会请求一项浏览器权限，用来发现网站打不开。',
+  'options.start.uiFallbackDenied': '没有获得权限，这一项没有开启。',
+  'options.start.uiToolbar': '浏览器工具栏上的 Kiwi 图标始终打开扩展自带界面。',
   'options.start.fieldName': '名称',
   'options.start.fieldKeyword': '快捷字词',
   'options.start.fieldUrl': '网址',

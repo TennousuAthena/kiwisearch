@@ -5,6 +5,7 @@ import { t } from '@kiwi-search/app/i18n';
 import { tr } from '@kiwi-search/app/i18n/rich';
 import { CheckIcon, CopyIcon } from '@kiwi-search/app/icons';
 import { SOURCE_INFO } from '@/lib/sourceCatalog';
+import { InterfaceSource } from './InterfaceSource';
 import type { SourceHealthMap } from '@/lib/sourceHealth';
 import { sourceLabel } from '@/lib/sourceMeta';
 import { describeSource } from '@/lib/sourceView';
@@ -12,7 +13,7 @@ import { describeSource } from '@/lib/sourceView';
 const DEFAULT_SEARCH_FIELDS = [
   { id: 'name', labelKey: 'options.start.fieldName', value: 'Kiwi Search' },
   { id: 'keyword', labelKey: 'options.start.fieldKeyword', value: 'kiwi' },
-  { id: 'url', labelKey: 'options.start.fieldUrl', value: 'https://s.kiwi.moe/s?q=%s' },
+  { id: 'url', labelKey: 'options.start.fieldUrl', value: 'https://s.kiwi.moe/#q=%s' },
 ] as const;
 
 // Firefox refuses to open its own settings pages from an extension, so there the address is shown to copy instead.
@@ -59,6 +60,10 @@ export function StartSection({ config, health, onDone }: Props) {
   return (
     <div className="start">
       <ol className="start-steps">
+        <li>
+          <h3>{t('options.start.uiTitle')}</h3>
+          <InterfaceSource />
+        </li>
         <li>
           <h3>{t('options.start.defaultTitle')}</h3>
           <p className="note">{tr('options.start.defaultNote', { tags: { code: (text) => <code>{text}</code> } })}</p>

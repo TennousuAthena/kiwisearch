@@ -4,7 +4,7 @@ Guidance for AI coding agents (Claude Code, Codex, Cursor, …) and for people w
 
 ## What this is
 
-Kiwi Search is a Manifest V3 new-tab search extension for Chrome and Edge (a Firefox MV2 build exists and was checked live once, see [testing.md](docs/internals/testing.md)). It queries many sources from the user's own browser, merges them by URL with RRF, filters content farms with a decision model, and streams an AI overview with `[n]` citations. A local stdio MCP server forwards an agent's tool calls to the same pipeline running in the browser.
+Kiwi Search is a Manifest V3 search extension for Chrome and Edge, with a search interface on the website `s.kiwi.moe` and a copy of it inside the extension (it does not take over the new-tab page) (a Firefox MV2 build exists and was checked live once, see [testing.md](docs/internals/testing.md)). It queries many sources from the user's own browser, merges them by URL with RRF, filters content farms with a decision model, and streams an AI overview with `[n]` citations. A local stdio MCP server forwards an agent's tool calls to the same pipeline running in the browser.
 
 **Core principle: all data comes from the user's own browser, logins and keys.** Kiwi provides no accounts, keys, proxies or servers, and results are shown only to the user.
 
@@ -35,7 +35,7 @@ Six workspace packages (plus an empty `packages/experiments` shell).
 | `packages/protocol` | What the interface and the service worker both need to agree on: the port message types, the settings-update receipts and the domain helpers. Types and pure functions only. |
 | `packages/mcp` | stdio MCP server. The first process binds `127.0.0.1:17345` and becomes the hub, later ones relay to it; the hub talks to the extension. |
 
-One search: the new-tab page (or an MCP request) → a `runtime.connect` port → `background.ts` → `runSearch` in core → sources in parallel (API sources through `env.fetch`, browser engines through worker tabs) → fuse, fold, hide → optional summary → `PipelineEvent`s streamed back to the page or the MCP client.
+One search: the search interface (the website, the extension's own page, or an MCP request) → a `runtime.connect` port → `background.ts` → `runSearch` in core → sources in parallel (API sources through `env.fetch`, browser engines through worker tabs) → fuse, fold, hide → optional summary → `PipelineEvent`s streamed back to the page or the MCP client.
 
 ## Docs map
 

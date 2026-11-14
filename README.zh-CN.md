@@ -12,7 +12,7 @@
   <a href="README.md">English</a> · <b>简体中文</b> · <a href="docs/USAGE.md#安装">开始使用</a> · <a href="LICENSE">MIT 许可证</a>
 </p>
 
-Kiwi Search 是一个浏览器扩展，把新标签页变成搜索页。支持的浏览器见[安装说明](docs/USAGE.md#安装)。
+Kiwi Search 是一个浏览器扩展，在你自己的浏览器里搜索，结果显示在它自己的搜索页上。支持的浏览器见[安装说明](docs/USAGE.md#安装)。
 
 **你的浏览器，你的数据。** 所有结果都来自你自己的浏览器、你自己的登录状态和你自己填的 Key。Kiwi 不提供账号、代理或服务器，搜索结果只给你本人看。
 

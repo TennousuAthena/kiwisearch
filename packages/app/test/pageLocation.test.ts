@@ -32,6 +32,14 @@ describe('reading an address', () => {
     expect(read('?q=old&m=images', '#q=new')).toEqual({ q: 'new', m: 'images' });
   });
 
+  it('reads the old address after the extension rewrote it: the rest is a query string, and only our own marker says so', () => {
+    expect(read('', '#legacy=1&q=hello+world')).toEqual({ q: 'hello world' });
+    expect(read('', '#legacy=1&q=a%26b+c&m=news')).toEqual({ q: 'a&b c', m: 'news' });
+    // The user's own text never switches this on, however it is spelled.
+    expect(read('', '#q=legacy=1&q=x+y')).toEqual({ q: 'legacy=1&q=x+y' });
+    expect(read('', '#m=news&legacy=2&q=a+b')).toEqual({ m: 'news', legacy: '2', q: 'a+b' });
+  });
+
   it('reads an empty query and a fragment without q', () => {
     expect(read('', '#m=news')).toEqual({ m: 'news' });
     expect(read('', '#')).toEqual({});

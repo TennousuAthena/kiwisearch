@@ -12,3 +12,4 @@
 .preference-check input { width: 1.1rem; height: 1.1rem; accent-color: var(--accent-solid); flex: none; }
 .ui-preferences .preference-hint { margin-top: -1rem; }
 .preference-error p { color: var(--bad); overflow-wrap: anywhere; }
+.preference-segments.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }

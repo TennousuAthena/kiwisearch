@@ -7,7 +7,8 @@
  * In the fragment form `q` is the last parameter and its value is the whole rest of the fragment. A browser's search box that
  * fills `%s` into `#q=%s` escapes spaces and `#`, but leaves `&` (checked in Chromium 156), so `#q=a&b=c` is a search for `a&b=c`,
  * not a search for `a` with a parameter `b`. Addresses written here put every other parameter before `q` and escape the query fully.
- * A `+` in the fragment is a plus, not a space. Both forms are always read, whichever one the page writes.
+ * A `+` in the fragment is a plus, not a space. Both forms are always read, whichever one the page writes. The one exception is the marker
+ * `legacy=1` before `q`, which the extension puts there when it rewrites the old address `/s?q=…`: the rest is then a query string.
  */
 export type LocationStyle = 'search' | 'hash';
 
@@ -33,7 +34,16 @@ export function readPageParams(location: LocationParts): URLSearchParams {
     const at = fragment.indexOf('&q=');
     if (at >= 0) { before = fragment.slice(0, at); rawQuery = fragment.slice(at + 3); }
   }
-  for (const [key, value] of new URLSearchParams(before)) params.set(key, value);
+  const own = new URLSearchParams(before);
+  // The old address `/s?q=…` is rewritten in the browser to `#legacy=1&q=…`: what follows `q=` is then a whole query string (spaces as `+`, other
+  // parameters after an `&`), not a bare query. Only our own parameters before `q` can set this, never the text the user typed.
+  if (own.get('legacy') === '1' && rawQuery !== null) {
+    own.delete('legacy');
+    for (const [key, value] of own) params.set(key, value);
+    for (const [key, value] of new URLSearchParams(`q=${rawQuery}`)) params.set(key, value);
+    return params;
+  }
+  for (const [key, value] of own) params.set(key, value);
   if (rawQuery !== null) params.set('q', lenientDecode(rawQuery));
   return params;
 }

@@ -105,13 +105,13 @@ chromium --headless=new --remote-debugging-port=9334 --user-data-dir=<临时目�
   --load-extension=<副本> --disable-extensions-except=<副本> --no-first-run about:blank
 ```
 
-然后用 CDP 驱动：打开 `chrome-extension://<id>/options.html`，在页面里用 `chrome.storage.local.set({ config })` 写入配置；再打开 `newtab.html?q=…`，读页面上的结果。扩展 ID 可以从 `/json/list` 里 Service Worker 的网址取得。几条经验：
+然后用 CDP 驱动：打开 `chrome-extension://<id>/options.html`，在页面里用 `chrome.storage.local.set({ config })` 写入配置；再打开 `app.html#q=…`，读页面上的结果。扩展 ID 可以从 `/json/list` 里 Service Worker 的网址取得。几条经验：
 
 - **只开一个 API 来源**（比如 Exa）做端到端最省事：不需要浏览器引擎、工作窗口、登录，结果是真的、也快；页面上可见的结果是 `.result-list:not(.muted) article`，折叠区的按钮是 `.hidden-results .disclosure`（默认收起，点开后卡片才渲染）。
 - 要测“下载别人的文件”的逻辑（屏蔽列表订阅），在本机起一个能控制响应的小服务：支持 `ETag`、可以故意返回 500、可以返回 HTML。localhost 的 `http://` 地址订阅是允许的。
 - 往存储里写测试配置时要带 `version: <当前的 CONFIG_VERSION>`。不带的配置会被当成版本 1，依次跑所有迁移，其中有的会改你写的值（比如把百度关掉、把“需要人机验证时自动弹出验证窗口”关掉）。
 
-### 不开扩展看新标签页
+### 不开扩展看搜索页
 
 页面本身可以脱离扩展检查：把 `.output/chrome-mv3` 用静态服务器起来，注入一个模拟的 `window.chrome.runtime`，它的 `connect()` 返回的端口重放一串 `PipelineEvent`，再用无头 Chromium 通过 CDP 截图。
 

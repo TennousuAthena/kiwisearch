@@ -37,8 +37,9 @@ export function createExtensionHost(): KiwiHost {
       load: async () => parseAcademicLanguage((await browser.storage.local.get(ACADEMIC_LANGUAGE_KEY))[ACADEMIC_LANGUAGE_KEY]),
       save: (language) => browser.storage.local.set({ [ACADEMIC_LANGUAGE_KEY]: language }),
     },
-    homeUrl: browser.runtime.getURL('/newtab.html'),
+    homeUrl: browser.runtime.getURL('/app.html'),
     optionsUrl: browser.runtime.getURL('/options.html'),
-    urlStyle: 'search',
+    // The same address form as the website, so a search is the same address on either.
+    urlStyle: 'hash',
   };
 }

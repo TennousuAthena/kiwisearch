@@ -1,7 +1,7 @@
 import { SEARCH_MODES as CORE_MODES } from '@kiwi-search/core';
 import { SEARCH_MODES, WEB_METHODS } from '@kiwi-search/protocol';
 import { describe, expect, it, vi } from 'vitest';
-import { localSearchUrl } from '../lib/localUrl';
+import { localSearchUrl, siteSearchUrl } from '../lib/localUrl';
 import { answer, createWebBridgeHandlers, isWebBridgeSender, WebRequestError, type WebBridgeDeps } from '../lib/webBridge';
 
 const ID = 'ext-id';
@@ -35,7 +35,7 @@ describe('who counts as the website', () => {
     expect(isWebBridgeSender({ ...site, frameId: undefined }, ID, ORIGINS)).toBe(true);
     for (const bad of [undefined, { ...site, id: 'other' }, { ...site, url: 'https://evil.example/' }, { ...site, url: 'https://s.kiwi.moe.evil.example/' },
       { ...site, url: 'http://s.kiwi.moe/' }, { ...site, url: 'not a url' }, { ...site, url: undefined }, { ...site, tab: undefined }, { ...site, frameId: 3 },
-      { id: ID, url: `chrome-extension://${ID}/newtab.html`, tab: { id: 1 } }]) {
+      { id: ID, url: `chrome-extension://${ID}/app.html`, tab: { id: 1 } }]) {
       expect(isWebBridgeSender(bad, ID, ORIGINS), JSON.stringify(bad)).toBe(false);
     }
   });
@@ -153,8 +153,9 @@ describe('the lists shared with core and the address of the local page', () => {
     }
   });
 
-  it('writes the address the interface already reads', () => {
-    expect(localSearchUrl('chrome-extension://x/newtab.html', 'hello world', 'web')).toBe('chrome-extension://x/newtab.html?q=hello+world');
-    expect(localSearchUrl('chrome-extension://x/newtab.html', 'a&b', 'images')).toBe('chrome-extension://x/newtab.html?q=a%26b&m=images');
+  it('writes the address form the website uses, for the extension page and for the website', () => {
+    expect(localSearchUrl('chrome-extension://x/app.html', 'hello world', 'web')).toBe('chrome-extension://x/app.html#q=hello%20world');
+    expect(localSearchUrl('chrome-extension://x/app.html', 'a&b', 'images')).toBe('chrome-extension://x/app.html#m=images&q=a%26b');
+    expect(siteSearchUrl('a&b c', 'news')).toBe('https://s.kiwi.moe/#m=news&q=a%26b%20c');
   });
 });

@@ -12,7 +12,7 @@
   <b>English</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="docs/USAGE.md#安装">Get started (中文)</a> · <a href="LICENSE">MIT License</a>
 </p>
 
-Kiwi Search is a browser extension that turns the new tab into a search page. Supported browsers are listed in the [install guide](docs/USAGE.md#安装).
+Kiwi Search is a browser extension that searches from your own browser and shows the results on a page of its own. Supported browsers are listed in the [install guide](docs/USAGE.md#安装).
 
 **Your browser, your data.** Every result comes from your own browser, your own logins and your own API keys. Kiwi runs no accounts, proxies or servers, and results are shown only to you.
 
