@@ -3,11 +3,14 @@ import { mountSearchApp } from '@kiwi-search/app';
 import { initLocale } from '@kiwi-search/app/i18n';
 import { createRoot } from 'react-dom/client';
 import './web.css';
+import { dropQueryString } from './address';
 import { ConnectionPanel, type PanelState } from './ConnectionPanel';
 import { establish } from './connection';
 import { engineUrl, modeFromLocation, queryFromLocation, rememberedEngine } from './fallback';
 import { createWebHost } from './webHost';
 
+// Before anything reads the address: a search on this site is only ever the part after the `#`.
+dropQueryString(window);
 const container = document.getElementById('root')!;
 document.documentElement.lang = initLocale();
 

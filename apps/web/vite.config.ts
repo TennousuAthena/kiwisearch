@@ -83,6 +83,8 @@ export default defineConfig({
     rollupOptions: {
       input: Object.fromEntries([
         ['index', here('./index.html')],
+        // A top-level 404 page also keeps Cloudflare Pages out of single-page-app mode, where every unknown path would be answered with the search page.
+        ['404', here('./404.html')],
         ...docs.map((name) => [name, here(`./${name}.html`)]),
         ...docs.map((name) => [`en-${name}`, here(`./en/${name}.html`)]),
       ]),

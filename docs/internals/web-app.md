@@ -69,7 +69,24 @@ The privacy statement has to stay true to the code. What it says rests on these 
 
 ## Hosting
 
-The site is static and is meant for Cloudflare Pages (`public/_headers` and `public/_redirects` are in its format); any static host that can set these headers works. `.github/workflows/deploy.yml` builds, checks and publishes it with `wrangler pages deploy` on a push to master. **It has never run.** It needs, from the owner of the domain: the zone for `kiwi.moe` (or DNS elsewhere with a CNAME to Pages); one Pages project, `kiwi-search`, with the custom domain `kiwi.moe`, whose production branch matches the `--branch` value in the workflow; the repository variable `CLOUDFLARE_PAGES=true`; and the secrets `CLOUDFLARE_API_TOKEN` (permission: Cloudflare Pages edit) and `CLOUDFLARE_ACCOUNT_ID`. Leave web analytics and any request logging off, or make them drop query strings. The headers are listed path by path and not as `/*` because Cloudflare adds the headers of every rule that matches a path, and the service worker needs a different policy from the pages (the one thing in `_headers` not checked against Cloudflare itself).
+The site is static and is hosted on Cloudflare Pages through its Git integration: Cloudflare clones `TennousuAthena/kiwisearch` and builds it. There is no deploy workflow in the repository (a Pages project is either Git-integrated or Direct Upload, never both). The project is `kiwisearch` (`kiwisearch.pages.dev`), the production branch is `master`, every other branch gets a preview deployment (Cloudflare marks them `noindex`; the extension trusts only `kiwi.moe`, so a preview shows the no-extension screen).
+
+Build settings of the project:
+
+| Setting | Value |
+|---|---|
+| Framework preset | None |
+| Build command | `pnpm install --frozen-lockfile && pnpm --filter @kiwi-search/web build && pnpm --filter @kiwi-search/web check:dist` |
+| Build output directory | `apps/web/dist` |
+| Root directory | `/` (blank) |
+| `PNPM_VERSION` | `12.18.0`. Needed: the v3 build image defaults to pnpm 10.11.1 and does not read the version from `pnpm-lock.yaml` or `engines`. |
+| `NODE_VERSION` | `24`, as in CI. The image's default, Node 22.16, also satisfies Vite 8, so remove the variable if the build cannot find 24. |
+
+Afterwards, in the project's custom domains, add `kiwi.moe`; with the zone on Cloudflare that is one step, otherwise the DNS provider has to take a CNAME (or ALIAS) at the apex. Leave web analytics and any request logging off, or make them drop query strings.
+
+Three things in the output directory are there because of how Pages serves: `404.html` (without a top-level 404 page Pages treats the project as a single-page app and answers **every** unknown path with the search page, so `/anything?q=x` would load it; with it, unknown paths are a 404), `_redirects` (`/en` to `/en/about`) and `_headers`, which lists the paths one by one and not as `/*` because Pages adds the headers of every rule that matches and the service worker needs a different policy from the pages. As a second line of defence the search page drops a `?…` from its own address before anything reads it (`src/address.ts`), so a search is only ever taken from the part after `#`.
+
+**Checked:** a fresh clone of the branch, `pnpm@12.18.0 install --frozen-lockfile`, then the build command above, passes (Node 26 locally, not 22 or 24). **Not checked:** the build on Cloudflare itself (Node 24 there; `NODE_VERSION=24` resolving), that Pages applies `_headers` and `_redirects` as written and answers the 404 page for unknown paths, and the custom domain. The first production build fails until `master` contains `apps/web`.
 
 ## Phase 0: what was checked (2026-11-14)
 
@@ -109,7 +126,7 @@ All runs used throwaway, headless browsers with fresh profiles and random debugg
 | 2. Protocol package and extension side | code done 2026-11-14 (record below); not yet activated in the user's Chromium |
 | 3. Website | code done 2026-11-14 (record below); nothing is hosted yet |
 | 4. Interface source, local mode, fallback | code done 2026-11-14 (record below); not yet activated in the user's Chromium |
-| 5. kiwi.moe pages, hosting, CI | pages and CI done 2026-11-14; hosting needs the domain owner (see Hosting); the deploy workflow has not run |
+| 5. kiwi.moe pages, hosting, CI | pages and CI done 2026-11-14; hosting is Cloudflare Pages with Git integration (see Hosting), set up by the owner, not yet built there |
 | 6. One host (change of 2026-11-14) | done: `s.kiwi.moe` is dropped, everything is on `kiwi.moe` (record at the end) |
 | 6. Activate in the user's Chromium and verify | not started |
 
@@ -151,7 +168,7 @@ The settings page's new control was rendered in the same headless Chromium and l
 
 **Checked:** typecheck and both builds pass. The eight pages build (`/install` and the others as `*.html`, which Cloudflare Pages serves without the extension). They were opened in a throwaway headless Chromium with the site's own `Content-Security-Policy` applied by a small static server: no console errors and no horizontal overflow at 1100 and 390 px wide; the home page was looked at in screenshots at both widths. CI builds the site.
 
-**Not checked:** the deploy workflow (never run); that Cloudflare Pages takes the `_headers` files as written; the pages in a browser other than Chromium, in the dark theme, and with the Chinese and English texts read through by a person (they were written from the READMEs and `docs/USAGE.md`); the menu names in the "start on Kiwi" instructions for Chrome, Edge, Firefox and Safari (written from general knowledge of those browsers, not checked in them); that the install page's steps work from a fresh checkout; the privacy statement against a lawyer's or a store's requirements, and its one hosting-dependent line (above).
+**Not checked:** that Cloudflare Pages takes the `_headers` files as written; the pages in a browser other than Chromium, in the dark theme, and with the Chinese and English texts read through by a person (they were written from the READMEs and `docs/USAGE.md`); the menu names in the "start on Kiwi" instructions for Chrome, Edge, Firefox and Safari (written from general knowledge of those browsers, not checked in them); that the install page's steps work from a fresh checkout; the privacy statement against a lawyer's or a store's requirements, and its one hosting-dependent line (above).
 
 ## One host: `kiwi.moe` for everything (2026-11-14)
 

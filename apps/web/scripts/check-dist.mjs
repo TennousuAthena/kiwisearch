@@ -12,8 +12,9 @@ const sw = readFileSync(join(dist, 'sw.js'), 'utf8');
 const files = JSON.parse(/const FILES = (\[.*\]);/.exec(sw)?.[1] ?? 'null');
 if (!files?.length) problems.push('sw.js has no file list');
 for (const file of files ?? []) need(file === '/' ? 'index.html' : file.slice(1), 'in the service worker file list');
-for (const page of ['index', 'about', 'install', 'start', 'privacy', 'en/about', 'en/install', 'en/start', 'en/privacy']) need(`${page}.html`, 'a page of the site');
+const pages = ['index', '404', 'about', 'install', 'start', 'privacy', 'en/about', 'en/install', 'en/start', 'en/privacy'];
+for (const page of pages) need(`${page}.html`, page === '404' ? 'without it Cloudflare Pages answers every unknown path with the search page' : 'a page of the site');
 for (const file of ['_headers', '_redirects', 'opensearch.xml', 'robots.txt', 'favicon.svg', 'mark.svg']) need(file, 'a static file of the site');
 
 if (problems.length) { console.error(problems.join('\n')); process.exit(1); }
-console.log(`dist is complete: ${files.length} files in the service worker list, 9 pages`);
+console.log(`dist is complete: ${files.length} files in the service worker list, ${pages.length} pages`);

@@ -6,6 +6,8 @@
 /index.html
   Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https: data: blob:; connect-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; manifest-src 'self'; worker-src 'self'
   Cache-Control: no-cache
+/404.html
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'
 /about
   Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'
 /install
