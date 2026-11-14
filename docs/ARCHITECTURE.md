@@ -108,7 +108,7 @@
 - **浏览器引擎**（`engines/*.ts`）：`google`、`bing`、`baidu`、`duckduckgo`、`bravesearch`、`kagi`、`scholar`、`baiduxueshu`、`cnki`、`wos`、`yandex`、`youtube`、`bilibili`、`douyin`、`zhihu`、`xiaohongshu`、`rednote`、`sogou`、`yuanbao`、`weixin`、`x`。每个是一个 `BrowserEngine`：
   - `buildUrl(query, count, mode)` 拼出结果页网址；`matches` 说明内容脚本该在哪些网址上工作；
   - `readySelector` 表示结果开始渲染（可以覆盖多个模式）；`blockedSelector` / `isBlockedUrl` 识别验证码；`loginSelector` / `isLoginUrl` 识别登录墙；`refusedPattern` 识别网站明确拒绝（如知乎的风控 JSON）；
-  - `extract(doc, pageUrl, mode)` 把页面读成 `SearchHit`；`resolve` 可选，用来拆开跳转链接；`minIntervalMs` 可选，比全局间隔更长的请求间隔（X 是 10 秒）。
+  - `extract(doc, pageUrl, mode)` 把页面读成 `SearchHit`；`resolve` 可选，用来拆开跳转链接（Google 的 `/goto` 靠扩展传进来的 `Env.redirectTarget`，它用 `webRequest.onBeforeRedirect` 读到跳转目标就中止请求，不等目标页面）；`minIntervalMs` 可选，比全局间隔更长的请求间隔（X 是 10 秒）。
   - `makeBrowserSource`（`engines/shared.ts`）把引擎包装成来源。Bing 的网页和图片共用一个工作标签页和一条队列，因为搜索引擎的风控按站点算。
   - Brave 有两个来源搜同一个索引：`bravesearch`（读 `search.brave.com` 的结果页，不要 Key）和 `brave`（官方 API，要 Key），分成两个来源的原因和小红书、RedNote 一样：一个要浏览器、一个要 Key，设置页里各有一行。两个都开时同一个结果会在融合里算两次，所以有 Key 时关掉一个；结果上的引擎小图标把它们当同一个引擎，两个都返回不算“多个引擎收录”。Brave 的验证码出现在和结果页**相同的地址**，只能靠页面标记（`.captcha-wrapper`）识别，不能靠网址。
 - 各来源的细节（YouTube 读页面内联的 `ytInitialData`、搜狗的跳转链接、PubMed 两步请求……）和它们的验证情况见 [internals/sources.md](internals/sources.md)、[internals/academic.md](internals/academic.md) 与 [PLAN.md](PLAN.md) 第 8 节。

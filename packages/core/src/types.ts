@@ -424,6 +424,14 @@ export interface FusionConfig {
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
+/**
+ * Where the server sends a request for `url`, found without waiting for the page it sends it to: the address of the first redirect that
+ * leaves `url`'s host, or undefined when there is none. A plain `fetch` follows the redirect and only answers once the destination
+ * does, and the destination may be slow, or answer a request with no cookies with a 401 or 403. Only a caller that can watch requests (the
+ * extension) can offer this; without it a source falls back to `fetch` and the address it ended at.
+ */
+export type RedirectTarget = (url: string, signal: AbortSignal) => Promise<string | undefined>;
+
 /** Short-lived per-source result cache so reloads and mode switches don't re-hit rate-limited engines. */
 export interface SourceCache {
   get(key: string): SearchHit[] | undefined;
@@ -449,6 +457,8 @@ export interface BrowserRunOptions {
 
 export interface Env {
   fetch: FetchLike;
+  /** See `RedirectTarget`. Used to unwrap Google's `/goto` result links. */
+  redirectTarget?: RedirectTarget;
   runBrowserEngine?: (engine: BrowserEngine, query: string, opts: BrowserRunOptions) => Promise<SearchHit[]>;
   cache?: SourceCache;
   /** The browser's first language as a BCP 47 tag (`zh-CN`, `en-GB`), for the overview's `browser` setting. Core has no browser to ask. */
@@ -507,7 +517,7 @@ export interface BrowserEngine {
   /** Baseline for a slow-rendering engine, propagated to its source. The user can raise it; explicit cancellation still aborts immediately. */
   minTimeoutMs?: number;
   extract(doc: ParentNode, pageUrl: string, mode: SearchMode, now?: Date): Omit<SearchHit, 'source'>[];
-  resolve?(hits: SearchHit[], ctx: { fetch: FetchLike; signal: AbortSignal }): Promise<SearchHit[]>;
+  resolve?(hits: SearchHit[], ctx: { fetch: FetchLike; signal: AbortSignal; redirectTarget?: RedirectTarget }): Promise<SearchHit[]>;
 }
 
 export type PipelineEvent =

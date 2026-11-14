@@ -1,4 +1,4 @@
-import type { BrowserEngine, FetchLike, SearchHit } from '../types';
+import type { BrowserEngine, FetchLike, RedirectTarget, SearchHit } from '../types';
 import { normalizeUrl } from '../url';
 import { absoluteHttpUrl, cleanText } from './shared';
 import { normalizeNewsOptions, parseNewsTime } from '../news';
@@ -54,11 +54,13 @@ function resultUrl(href: string | null, pageUrl: string): string | null {
   return url;
 }
 
-async function resolveRedirect(
-  hit: SearchHit,
-  fetch: FetchLike,
-  signal: AbortSignal,
-): Promise<SearchHit> {
+interface ResolveContext {
+  fetch: FetchLike;
+  signal: AbortSignal;
+  redirectTarget?: RedirectTarget;
+}
+
+async function resolveRedirect(hit: SearchHit, { fetch, signal, redirectTarget }: ResolveContext): Promise<SearchHit> {
   if (!isGoogleGotoUrl(hit.url)) return hit;
   const wrapper = new URL(hit.url);
 
@@ -69,10 +71,18 @@ async function resolveRedirect(
   const timeout = setTimeout(() => controller.abort(), REDIRECT_TIMEOUT_MS);
 
   try {
+    if (redirectTarget) {
+      // Where Google sends the link is all that is wanted. Following it to the page would make the answer depend on that site (a slow one
+      // used to run into the timeout) and on what it says to a request with no cookies (see below).
+      const target = absoluteHttpUrl(await redirectTarget(wrapper.href, controller.signal), wrapper.href);
+      return target && !isGoogleHost(new URL(target).hostname) ? { ...hit, url: target } : hit;
+    }
     const response = await fetch(wrapper.href, { signal: controller.signal });
-    if (!response.ok) return hit;
+    // The address the redirect ended at is Google's answer, whatever the page there says to a request with no cookies: news and paywalled
+    // sites often answer one with a 401, 403 or 5xx, and those results used to keep their wrapper.
     const finalUrl = absoluteHttpUrl(response.url, wrapper.href);
     if (finalUrl && !isGoogleHost(new URL(finalUrl).hostname)) return { ...hit, url: finalUrl };
+    if (!response.ok) return hit;
 
     const body = await response.text();
     if (hasMetaUrl(body)) return hit;
@@ -121,14 +131,15 @@ export const google: BrowserEngine = {
     }
     return hits;
   },
-  async resolve(hits, { fetch, signal }) {
+  async resolve(hits, context) {
+    const { signal } = context;
     const resolved = hits.slice();
     let nextIndex = 0;
     const workers = Array.from({ length: Math.min(MAX_REDIRECT_CONCURRENCY, hits.length) }, async () => {
       while (!signal.aborted) {
         const index = nextIndex++;
         if (index >= hits.length) return;
-        resolved[index] = await resolveRedirect(hits[index], fetch, signal);
+        resolved[index] = await resolveRedirect(hits[index], context);
       }
     });
     await Promise.all(workers);

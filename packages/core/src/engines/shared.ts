@@ -39,7 +39,7 @@ export function makeBrowserSource(engine: BrowserEngine): SearchSource {
     async search(query, { env, mode, language, news, count, signal, onBlocked, onStart, renderer }) {
       if (!env.runBrowserEngine) throw new Error(`${engine.label} needs the browser extension`);
       const hits = await env.runBrowserEngine(engine, query, { mode, language, news, count, signal, onBlocked, onStart, renderer });
-      const resolved = engine.resolve ? await engine.resolve(hits, { fetch: env.fetch, signal }) : hits;
+      const resolved = engine.resolve ? await engine.resolve(hits, { fetch: env.fetch, signal, redirectTarget: env.redirectTarget }) : hits;
       return resolved.slice(0, count).map((hit, index): SearchHit => ({ ...hit, source: engine.id, rank: index + 1 }));
     },
   };

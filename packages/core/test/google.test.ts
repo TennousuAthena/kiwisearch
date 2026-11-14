@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Window } from 'happy-dom';
 import { google } from '../src/engines/google';
 import { cleanText, makeBrowserSource } from '../src/engines/shared';
-import type { Env, FetchLike, SearchHit } from '../src/types';
+import type { Env, FetchLike, RedirectTarget, SearchHit } from '../src/types';
 import { sourceContext } from './helpers';
 
 const hit = (url: string, rank = 1): SearchHit => ({
@@ -13,8 +13,8 @@ const hit = (url: string, rank = 1): SearchHit => ({
   rank,
 });
 
-function responseAt(url: string, body = ''): Response {
-  const response = new Response(body);
+function responseAt(url: string, body = '', status = 200): Response {
+  const response = new Response(body, { status });
   Object.defineProperty(response, 'url', { value: url });
   return response;
 }
@@ -111,6 +111,98 @@ describe('Google result links', () => {
     };
     const hits = await google.resolve!([hit(wrapper, 5)], { fetch, signal: new AbortController().signal });
     expect(hits).toEqual([hit(wrapper)]);
+  });
+
+  it('uses the address Google redirected to even when that page answers with an error status (real: news and paywalled sites say 401 or 403)', async () => {
+    for (const status of [401, 403, 404, 429, 503]) {
+      const fetch: FetchLike = async () => {
+        const response = new Response('denied', { status });
+        Object.defineProperty(response, 'url', { value: 'https://www.wsj.com/articles/example-story' });
+        return response;
+      };
+      const hits = await google.resolve!([hit('https://www.google.com/goto?url=fixture-redirect-1')], { fetch, signal: new AbortController().signal });
+      expect(hits[0].url).toBe('https://www.wsj.com/articles/example-story');
+    }
+  });
+
+  it('still keeps the wrapper when Google itself answers with an error', async () => {
+    const wrapper = 'https://www.google.com/goto?url=fixture-redirect-1';
+    for (const status of [429, 503]) {
+      const fetch: FetchLike = async () => responseAt(wrapper, '<a href="https://example.com/article">here</a>', status);
+      const hits = await google.resolve!([hit(wrapper)], { fetch, signal: new AbortController().signal });
+      expect(hits[0].url).toBe(wrapper);
+    }
+  });
+
+  describe('with a redirect target (the extension can read where a link leads without waiting for the page)', () => {
+    const wrapper = 'https://www.google.com/goto?url=fixture-redirect-1';
+    const never: FetchLike = async () => { throw new Error('the page must not be fetched'); };
+    const run = (redirectTarget: RedirectTarget, hits = [hit(wrapper)], signal = new AbortController().signal) =>
+      google.resolve!(hits, { fetch: never, signal, redirectTarget });
+
+    it('uses it instead of fetching the page', async () => {
+      const asked: string[] = [];
+      const hits = await run(async (url) => { asked.push(url); return 'https://www.reuters.com/world/story/'; });
+      expect(hits[0].url).toBe('https://www.reuters.com/world/story/');
+      expect(asked).toEqual([wrapper]);
+    });
+
+    it('keeps the wrapper when it finds no redirect, and does not fetch the page instead', async () => {
+      const hits = await run(async () => undefined);
+      expect(hits[0].url).toBe(wrapper);
+    });
+
+    it('keeps the wrapper when it fails', async () => {
+      const hits = await run(async () => { throw new Error('webRequest is gone'); });
+      expect(hits[0].url).toBe(wrapper);
+    });
+
+    it('does not take an address on Google, or one that is not a web address, for the destination', async () => {
+      for (const target of ['https://www.google.com/sorry/index?continue=x', 'https://consent.google.com/ml?continue=x', 'javascript:alert(1)', 'chrome-extension://abc/page.html']) {
+        const hits = await run(async () => target);
+        expect(hits[0].url).toBe(wrapper);
+      }
+    });
+
+    it('is given a signal that stops it after the redirect timeout and when the search is aborted', async () => {
+      const signals: AbortSignal[] = [];
+      const parent = new AbortController();
+      await run(async (_url, signal) => { signals.push(signal); return undefined; }, [hit(wrapper)], parent.signal);
+      expect(signals[0].aborted).toBe(false);
+      let seen: AbortSignal | undefined;
+      const pending = run((_url, signal) => { seen = signal; return new Promise((resolve) => signal.addEventListener('abort', () => resolve(undefined), { once: true })); }, [hit(wrapper)], parent.signal);
+      parent.abort();
+      expect((await pending)[0].url).toBe(wrapper);
+      expect(seen?.aborted).toBe(true);
+    });
+
+    it('resolves each wrapper, leaves direct links alone and de-duplicates what several wrappers lead to', async () => {
+      const targets: Record<string, string> = {
+        'https://www.google.com/goto?url=a': 'https://example.com/story?utm_source=google',
+        'https://www.google.com/goto?url=b': 'https://example.com/story',
+        'https://www.google.com/goto?url=c': 'https://other.example.org/page',
+      };
+      const asked: string[] = [];
+      const hits = await run(async (url) => { asked.push(url); return targets[url]; }, [
+        hit('https://www.google.com/goto?url=a', 1),
+        hit('https://www.google.com/goto?url=b', 2),
+        hit('https://direct.example.net/page', 3),
+        hit('https://www.google.com/goto?url=c', 4),
+      ]);
+      expect(hits.map((item) => item.url)).toEqual(['https://example.com/story?utm_source=google', 'https://direct.example.net/page', 'https://other.example.org/page']);
+      expect(hits.map((item) => item.rank)).toEqual([1, 2, 3]);
+      expect(asked).not.toContain('https://direct.example.net/page');
+    });
+
+    it('is passed on from the environment by the browser source', async () => {
+      const env: Env = {
+        fetch: never,
+        redirectTarget: async () => 'https://example.com/resolved',
+        runBrowserEngine: async () => [hit(wrapper)],
+      };
+      const hits = await makeBrowserSource(google).search('query', sourceContext(env, { enabled: true }, { count: 10 }));
+      expect(hits[0].url).toBe('https://example.com/resolved');
+    });
   });
 
   it('deduplicates resolved URLs and renumbers ranks', async () => {

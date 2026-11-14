@@ -12,6 +12,7 @@ import { browserLanguage } from '@/lib/language';
 import { loadConfig } from '@/lib/settings';
 import { handleFaviconMessage } from '@/lib/faviconService';
 import { handleDecisionTest, handleLlmTest } from '@/lib/llmTest';
+import { createRedirectTarget, type RedirectEvents } from '@/lib/redirectTarget';
 import { recordSourceStatus } from '@/lib/sourceStatus';
 import { collectIdleWorkers, forgetWorkerTab, handleWorkerMessage, runBrowserEngine } from '@/lib/tabRenderer';
 
@@ -50,8 +51,13 @@ export default defineBackground(() => {
 
   // Shared by the new-tab page and the MCP bridge, so repeat queries skip the rate-limited engines.
   const cache = createSourceCache();
+  // Google's result links are wrapped (`/goto?url=…`); this reads where one leads without waiting for the page. Absent where the browser has no webRequest.
+  const redirectTarget = browser.webRequest?.onBeforeRedirect
+    ? createRedirectTarget({ onBeforeRedirect: browser.webRequest.onBeforeRedirect as unknown as RedirectEvents, fetch: (input, init) => fetch(input, init) })
+    : undefined;
   const makeEnv = (): Env => ({
     fetch: (input, init) => fetch(input, init),
+    redirectTarget,
     runBrowserEngine,
     cache,
     loadBlocklists: loadBlocklistRules,
