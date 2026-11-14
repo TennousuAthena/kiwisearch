@@ -57,12 +57,19 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm --filter @kiwi-search/extension test
 
+      - name: Test web
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @kiwi-search/web test
+
       - name: Test mcp
         if: ${{ !cancelled() }}
         run: pnpm --filter @kiwi-search/mcp test
 
       - name: Build mcp server
         run: pnpm --filter @kiwi-search/mcp build
+
+      - name: Build web
+        run: pnpm --filter @kiwi-search/web build
 
   # One unpacked extension per browser for every pushed commit, independent of
   # `verify` so a commit with a failing test still has builds to bisect with.

@@ -109,6 +109,13 @@ describe('requests', () => {
     done();
   });
 
+  it('lets a page ask to open the local interface without a handshake, and nothing else', async () => {
+    const { client, done } = setup();
+    await expect(client.request('openLocal', { query: 'x' })).resolves.toEqual({ method: 'openLocal', params: { query: 'x' } });
+    await expect(client.request('prefs.load')).rejects.toMatchObject({ code: 'not_ready' });
+    done();
+  });
+
   it('answers busy beyond the number of requests allowed at once', async () => {
     const release: Array<() => void> = [];
     const { client, done } = setup({ limits: { maxInFlight: 2 }, request: () => new Promise((resolve) => { release.push(() => resolve('ok')); }) });

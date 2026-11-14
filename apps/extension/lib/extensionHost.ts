@@ -39,5 +39,6 @@ export function createExtensionHost(): KiwiHost {
     },
     homeUrl: browser.runtime.getURL('/newtab.html'),
     optionsUrl: browser.runtime.getURL('/options.html'),
+    urlStyle: 'search',
   };
 }

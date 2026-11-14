@@ -5,8 +5,8 @@ import { findCjkText } from './helpers/cjk';
 
 const root = join(__dirname, '..');
 const repo = resolve(root, '..', '..');
-// The interface lives in packages/app and the wire helpers in packages/protocol; the extension keeps its own entrypoints and lib.
-const DIRS = [join(root, 'entrypoints'), join(root, 'lib'), join(repo, 'packages', 'app', 'src'), join(repo, 'packages', 'protocol', 'src')];
+// The interface lives in packages/app, the wire helpers in packages/protocol and the website's screens in apps/web; the extension keeps its own entrypoints and lib.
+const DIRS = [join(root, 'entrypoints'), join(root, 'lib'), join(repo, 'packages', 'app', 'src'), join(repo, 'packages', 'protocol', 'src'), join(repo, 'apps', 'web', 'src')];
 const CATALOG_DIR = join(repo, 'packages', 'app', 'src', 'i18n', 'catalog');
 
 function sourceFiles(dir: string): string[] {

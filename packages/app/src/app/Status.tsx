@@ -1,4 +1,5 @@
 import type { SearchMode, SourceId, SuggestMode } from '@kiwi-search/core';
+import { OptionsLink } from './OptionsLink';
 import { emptyReason } from '../lib/searchFeedback';
 import { sourceName } from '../lib/sourceMarks';
 import { t } from '../i18n';
@@ -111,8 +112,8 @@ export function FatalError({ message, onRetry }: { message: string; onRetry: () 
   );
 }
 
-export function EmptyState({ mode, waitingForVerification, optionsUrl, state, hiddenCount = 0, filtered = false, onClearFilters, onRetry }: {
-  mode: SearchMode; waitingForVerification: boolean; optionsUrl: string; state?: SearchState;
+export function EmptyState({ mode, waitingForVerification, state, hiddenCount = 0, filtered = false, onClearFilters, onRetry }: {
+  mode: SearchMode; waitingForVerification: boolean; state?: SearchState;
   hiddenCount?: number; filtered?: boolean; onClearFilters?: () => void; onRetry?: () => void;
 }) {
   const reason = state ? emptyReason(state, filtered, hiddenCount) : waitingForVerification ? 'waiting' : 'noMatch';
@@ -124,7 +125,7 @@ export function EmptyState({ mode, waitingForVerification, optionsUrl, state, hi
       {reason === 'filtered' && onClearFilters && <button type="button" className="btn" onClick={onClearFilters}>{t('ux.empty.clearFilters')}</button>}
       {(reason === 'failed' || reason === 'interrupted') && onRetry && <button type="button" className="btn" onClick={onRetry}>{t('ux.status.retry')}</button>}
       {reason === 'noMatch' && <button type="button" className="btn" onClick={() => { const input = document.querySelector<HTMLInputElement>('.searchbox input'); input?.focus(); input?.select(); }}>{t('ux.empty.focus')}</button>}
-      {(reason === 'noSources' || reason === 'failed' || reason === 'noMatch') && <a href={`${optionsUrl}#sources`} target="_blank" rel="noreferrer">{t('newtab.status.openSettings')}</a>}
+      {(reason === 'noSources' || reason === 'failed' || reason === 'noMatch') && <OptionsLink section="sources">{t('newtab.status.openSettings')}</OptionsLink>}
     </div>
   </div>;
 }

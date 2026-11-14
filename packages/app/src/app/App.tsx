@@ -2,6 +2,7 @@ import type { NewsOptions, SearchMode } from '@kiwi-search/core';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useKiwiHost } from '../lib/hostContext';
 import { type AcademicLanguage } from '../lib/academicLanguage';
+import { readPageParams, writePageLocation, type LocationStyle } from '../lib/pageLocation';
 import { t } from '../i18n';
 import { CloseIcon } from '../lib/icons';
 import type { DomainPreferenceUndo } from '@kiwi-search/protocol';
@@ -11,7 +12,7 @@ import { summaryBusy, type SearchState } from '../lib/searchState';
 import { KiwiLogo } from '../lib/KiwiLogo';
 import { formatNewsDate, parseNewsOptions } from '../lib/news';
 import { extractQuickAnswer } from '../lib/quickAnswer';
-import { filterSince, hasCjk, modeHasOverview, modeLabel, parseMode, pickLandmarks, searchUrl, sinceYears, sortPapers, splitPlatforms, splitResults, type PaperSort } from '../lib/results';
+import { filterSince, hasCjk, modeHasOverview, modeLabel, parseMode, pickLandmarks, sinceYears, sortPapers, splitPlatforms, splitResults, type PaperSort } from '../lib/results';
 import { decideSuggestion, type SuggestionAction } from '../lib/suggestion';
 import { useSearchSession } from '../lib/useSearchSession';
 import { Landmarks, PlanLine } from './AcademicPlan';
@@ -36,20 +37,21 @@ interface ViewSnapshot {
   overviewExpanded: boolean; expandedSnippetKeys: string[]; hiddenExpanded: boolean; selectedImage: string | null; siteFilter: SiteFilter; position: ReadingPosition;
 }
 function initialFromUrl() {
-  const params = new URLSearchParams(location.search);
+  const params = readPageParams(location);
   const year = Number(params.get('since'));
   return { query: params.get('q') ?? '', mode: parseMode(params.get('m')), news: parseNewsOptions(params),
     since: Number.isInteger(year) && year >= 1900 && year <= new Date().getFullYear() ? year : undefined,
     paperSort: params.get('paperSort') === 'citations' ? 'citations' as const : 'relevance' as const };
 }
-function entryUrl(query: string, mode: SearchMode, news: NewsOptions, since?: number, sort: PaperSort = 'relevance') {
-  const url = new URL(searchUrl(location.href, query, mode, news));
-  url.searchParams.delete('since'); url.searchParams.delete('paperSort');
+function entryUrl(style: LocationStyle, query: string, mode: SearchMode, news: NewsOptions, since?: number, sort: PaperSort = 'relevance') {
+  const extra: Record<string, string> = {};
+  if (mode === 'news' && news.range && news.range !== 'any') extra.range = news.range;
+  if (mode === 'news' && news.sort === 'date') extra.sort = news.sort;
   if (mode === 'academic') {
-    if (since) url.searchParams.set('since', String(since));
-    if (sort === 'citations') url.searchParams.set('paperSort', sort);
+    if (since) extra.since = String(since);
+    if (sort === 'citations') extra.paperSort = sort;
   }
-  return url.href;
+  return writePageLocation(location.href, style, { query, mode, extra });
 }
 const domainMatches = (host: string, domain: string) => host === domain || host.endsWith(`.${domain}`);
 const resultHost = (url: string) => { try { return new URL(url).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; } };
@@ -97,7 +99,6 @@ export default function App() {
       window.history.pushState({ kiwiEntry: entryId.current }, '', url);
     } else window.history.replaceState({ ...window.history.state, kiwiEntry: entryId.current }, '', url);
   }, []);
-  const optionsUrl = host.optionsUrl;
   // A moved search: the page switched tabs by itself, and the line says so and offers the way back.
   const [moved, setMoved] = useState<{ query: string; mode: SearchMode } | null>(null);
   // Only a search the user typed (or the page was opened with) may move by itself, never a Back or a reload.
@@ -120,7 +121,7 @@ export default function App() {
       setOverviewExpanded(false); setExpandedSnippetKeys([]); setHiddenExpanded(false); setSelectedImage(null); setSiteFilter(null); setHistoryExpired(false);
       pendingPosition.current = { y: 0 }; reading.current = { y: 0 };
       document.title = `${q} - Kiwi Search`;
-      writeEntry(entryUrl(q, nextMode, nextNews, opts.since, opts.sort), history);
+      writeEntry(entryUrl(host.urlStyle, q, nextMode, nextNews, opts.since, opts.sort), history);
       if (opts.typed && getUiPreferences().recentQueries) setRecentQueries((items) => rememberQuery(items, q));
       search(q, nextMode, nextMode === 'academic' ? languageRef.current : undefined, nextMode === 'news' ? nextNews : undefined, opts.refresh,
         { summarize: opts.summarize ?? getUiPreferences().summaryMode === 'auto' });
@@ -157,6 +158,8 @@ export default function App() {
     const onPopState = () => {
       navigationRevision.current++;
       saveSnapshot();
+      // An entry this page wrote carries `kiwiEntry`. One without it was made by the browser: the user typed a new address into the page's tab (a fragment navigation).
+      const fresh = window.history.state?.kiwiEntry === undefined;
       entryId.current = window.history.state?.kiwiEntry ?? crypto.randomUUID();
       autoAllowed.current = false; setMoved(null); setHoverCite(null);
       const saved = snapshots.current.get(entryId.current);
@@ -172,8 +175,10 @@ export default function App() {
         const next = initialFromUrl();
         reset(); setInput(next.query); setMode(next.mode); setNewsOptions(next.news); newsRef.current = next.news;
         setSince(next.since); setSort(next.paperSort); setSiteFilter(null); setSelectedImage(null); setOverviewExpanded(false); setExpandedSnippetKeys([]); setHiddenExpanded(false);
-        setHistoryExpired(!!next.query); pendingPosition.current = { y: 0 };
+        setHistoryExpired(!!next.query && !fresh); pendingPosition.current = { y: 0 };
         document.title = next.query ? `${next.query} - Kiwi Search` : 'Kiwi Search';
+        // A new address is a new search; only going back or forward to an entry whose results are gone shows the "expired" notice.
+        if (fresh && next.query) go(next.query, next.mode, 'replace', { news: next.news, since: next.since, sort: next.paperSort });
       }
       setRestoreTick((value) => value + 1);
     };
@@ -181,7 +186,7 @@ export default function App() {
     const onScroll = () => { reading.current = captureReadingPosition(); };
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => { window.removeEventListener('popstate', onPopState); window.removeEventListener('scroll', onScroll); };
-  }, [saveSnapshot, restore, reset]);
+  }, [saveSnapshot, restore, reset, go]);
 
   useLayoutEffect(() => {
     const position = pendingPosition.current ?? reading.current;
@@ -195,13 +200,13 @@ export default function App() {
   const goHome = () => {
     navigationRevision.current++;
     saveSnapshot(); reset(); setInput(''); setHistoryExpired(false); setSiteFilter(null); setSelectedImage(null);
-    writeEntry(entryUrl('', mode, newsRef.current), 'push'); document.title = 'Kiwi Search';
+    writeEntry(entryUrl(host.urlStyle, '', mode, newsRef.current), 'push'); document.title = 'Kiwi Search';
     pendingPosition.current = { y: 0 }; setRestoreTick((value) => value + 1);
   };
   const changeAcademicFilters = (nextSince: number | undefined, nextSort: PaperSort) => {
     navigationRevision.current++;
     saveSnapshot(); setSince(nextSince); setSort(nextSort);
-    writeEntry(entryUrl(state?.query ?? '', mode, newsRef.current, nextSince, nextSort), 'push');
+    writeEntry(entryUrl(host.urlStyle, state?.query ?? '', mode, newsRef.current, nextSince, nextSort), 'push');
   };
   const onSiteAction = async (action: 'only' | 'exclude' | 'block' | 'boost', domain: string) => {
     if (action === 'only' || action === 'exclude') { setSiteFilter({ kind: action, domain }); return; }
@@ -225,7 +230,7 @@ export default function App() {
     if (state) go(state.query, next, 'push');
     else {
       navigationRevision.current++; saveSnapshot(); setMode(next);
-      writeEntry(entryUrl('', next, newsRef.current), 'push');
+      writeEntry(entryUrl(host.urlStyle, '', next, newsRef.current), 'push');
     }
   };
 
@@ -235,7 +240,7 @@ export default function App() {
     newsRef.current = next;
     setNewsOptions(next);
     if (state) go(state.query, 'news', 'push', { news: next });
-    else { saveSnapshot(); writeEntry(entryUrl('', 'news', next), 'push'); }
+    else { saveSnapshot(); writeEntry(entryUrl(host.urlStyle, '', 'news', next), 'push'); }
   };
   const refreshNews = () => {
     if (state) go(state.query, 'news', 'replace', { news: newsRef.current, refresh: true });
@@ -324,7 +329,7 @@ export default function App() {
           <a href={host.homeUrl} aria-label={t('brand.home')} onClick={(event) => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); goHome(); } }}><KiwiLogo /></a>
         </h1>
         <SearchBox resetToken={`${entryId.current}:${restoreTick}`} value={input} onChange={(value) => { navigationRevision.current++; setInput(value); }} onSubmit={(query) => go(query ?? input, mode, 'push', { typed: true })} recentQueries={preferences.recentQueries ? recentQueries : []} onClearRecent={() => setRecentQueries([])} />
-        <QuickSettings optionsUrl={optionsUrl} />
+        <QuickSettings />
       </header>
       <ModeTabs mode={mode} onChange={changeMode} />
       {idle && mode === 'news' && <div className="news-idle-toolbar"><NewsToolbar value={newsOptions} onChange={changeNews} /></div>}
@@ -349,7 +354,7 @@ export default function App() {
           <div className={showOverview ? 'body with-rail' : 'body'}>
             {showOverview && (
               <div className="rail">
-                <Overview key={`${state.query}|${state.mode}|${state.startedAt}`} state={state} text={quickAnswer?.remainder} optionsUrl={optionsUrl} onHoverCite={setHoverCite} expanded={overviewExpanded} onExpandedChange={setOverviewExpanded} summaryMode={preferences.summaryMode} onGenerate={() => summarize()} onRetry={() => summarize()} onStop={stopSummary} />
+                <Overview key={`${state.query}|${state.mode}|${state.startedAt}`} state={state} text={quickAnswer?.remainder} onHoverCite={setHoverCite} expanded={overviewExpanded} onExpandedChange={setOverviewExpanded} summaryMode={preferences.summaryMode} onGenerate={() => summarize()} onRetry={() => summarize()} onStop={stopSummary} />
                 {state.mode === 'news' && state.summary && state.news?.summaryAt && (
                   <p className="overview-note">{t('newtab.news.summaryAt', { time: formatNewsDate(state.news.summaryAt) ?? state.news.summaryAt })}</p>
                 )}
@@ -365,7 +370,7 @@ export default function App() {
               {siteFilter && <div className="active-filter"><span>{t(siteFilter.kind === 'only' ? 'ux.site.only' : 'ux.site.exclude', { domain: siteFilter.domain })}</span><button type="button" onClick={() => setSiteFilter(null)}>{t('ux.site.clear')}</button></div>}
               {quickAnswer && preferences.summaryMode !== 'off' && <>
                 <QuickAnswer answer={quickAnswer} citations={state.citations} onHoverCite={setHoverCite} />
-                {!quickAnswer.remainder && <Overview state={state} controlsOnly optionsUrl={optionsUrl} onHoverCite={setHoverCite} summaryMode={preferences.summaryMode} onRetry={() => summarize()} onStop={stopSummary} />}
+                {!quickAnswer.remainder && <Overview state={state} controlsOnly onHoverCite={setHoverCite} summaryMode={preferences.summaryMode} onRetry={() => summarize()} onStop={stopSummary} />}
               </>}
               {state.mode === 'news' && <NewsToolbar value={newsOptions} onChange={changeNews} onRefresh={refreshNews} busy={searching} />}
               {state.mode === 'academic' && state.plan && <PlanLine plan={state.plan} />}
@@ -405,7 +410,7 @@ export default function App() {
 
               {shown.length === 0 && state.stage === 'searching' && !state.fatal && <ListSkeleton mode={state.mode} />}
               {shown.length === 0 && landmarkResults.length === 0 && state.stage !== 'searching' && !state.fatal && (
-                <EmptyState mode={state.mode} waitingForVerification={state.blocked.length > 0} optionsUrl={optionsUrl} state={state} hiddenCount={hidden.length} filtered={!!siteFilter || since !== undefined} onClearFilters={() => { setSiteFilter(null); changeAcademicFilters(undefined, 'relevance'); }} onRetry={() => go(state.query, state.mode, 'replace', { news: newsOptions, since, sort })} />
+                <EmptyState mode={state.mode} waitingForVerification={state.blocked.length > 0} state={state} hiddenCount={hidden.length} filtered={!!siteFilter || since !== undefined} onClearFilters={() => { setSiteFilter(null); changeAcademicFilters(undefined, 'relevance'); }} onRetry={() => go(state.query, state.mode, 'replace', { news: newsOptions, since, sort })} />
               )}
               {shown.length > 0 &&
                 (state.mode === 'images' ? (

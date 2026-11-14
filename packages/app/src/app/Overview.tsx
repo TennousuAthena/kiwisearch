@@ -1,4 +1,5 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { OptionsLink } from './OptionsLink';
 import { t } from '../i18n';
 import { tr } from '../i18n/rich';
 import { ChevronDownIcon, CircleAlertIcon, CopyIcon, SparkleIcon } from '../lib/icons';
@@ -16,7 +17,6 @@ interface Props {
   hide?: boolean;
   /** Action row for a promoted quick answer, without rendering its text a second time. */
   controlsOnly?: boolean;
-  optionsUrl: string;
   onHoverCite: (n: number | null) => void;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
@@ -27,7 +27,7 @@ interface Props {
 }
 
 /** The same bounded viewport is present from loading onward, including partial and stopped answers. */
-export function Overview({ state, text, summaryMarkdown, hide, controlsOnly = false, optionsUrl, onHoverCite, expanded: controlledExpanded,
+export function Overview({ state, text, summaryMarkdown, hide, controlsOnly = false, onHoverCite, expanded: controlledExpanded,
   onExpandedChange, summaryMode = 'auto', onGenerate, onStop, onRetry }: Props) {
   const id = useId();
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -63,7 +63,7 @@ export function Overview({ state, text, summaryMarkdown, hide, controlsOnly = fa
       <p className="overview-note">{t('resultUx.overview.onDemand')}</p>
       <button type="button" className="result-ux-button" onClick={onGenerate}><SparkleIcon />{t('resultUx.overview.generate')}</button>
     </section>;
-    return <p className="overview-hint">{tr('newtab.overview.configureHint', { tags: { link: (label) => <a href={optionsUrl} target="_blank" rel="noreferrer">{label}</a> } })}</p>;
+    return <p className="overview-hint">{tr('newtab.overview.configureHint', { tags: { link: (label) => <OptionsLink>{label}</OptionsLink> } })}</p>;
   }
 
   const highlight = (target: EventTarget) => {
@@ -91,7 +91,7 @@ export function Overview({ state, text, summaryMarkdown, hide, controlsOnly = fa
       </div>}
       {status === 'stopped' && <p className="overview-status" role="status">{t(html ? 'resultUx.overview.stopped' : 'resultUx.overview.stoppedEmpty')}</p>}
       {status === 'error' && <div className="alert overview-error" role="alert"><CircleAlertIcon /><div className="alert-body">
-        <p>{state.summaryError}</p><a href={optionsUrl} target="_blank" rel="noreferrer">{t('newtab.overview.openSettings')}</a>
+        <p>{state.summaryError}</p><OptionsLink>{t('newtab.overview.openSettings')}</OptionsLink>
       </div></div>}
       <div className="overview-controls">
         {!controlsOnly && (busy || tall || expanded) && <button type="button" className="result-ux-button overview-toggle" aria-controls={`${id}-body`} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>

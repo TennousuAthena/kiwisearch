@@ -14,7 +14,9 @@
     "./UiPreferencesPanel": "./src/lib/UiPreferencesPanel.tsx",
     "./uiPreferences": "./src/lib/uiPreferences.ts",
     "./base.css": "./src/lib/base.css",
-    "./academicLanguage": "./src/lib/academicLanguage.ts"
+    "./academicLanguage": "./src/lib/academicLanguage.ts",
+    "./pageLocation": "./src/lib/pageLocation.ts",
+    "./testing": "./src/testing/hostContract.ts"
   },
   "scripts": {
     "test": "vitest run",

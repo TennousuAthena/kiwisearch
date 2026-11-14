@@ -1,0 +1,20 @@
+# The page may not send anything anywhere: no connections, no third-party scripts, no frames around it.
+/
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https: data: blob:; connect-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; manifest-src 'self'; worker-src 'self'
+  Referrer-Policy: no-referrer
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  Cache-Control: no-cache
+/index.html
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https: data: blob:; connect-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; manifest-src 'self'; worker-src 'self'
+  Referrer-Policy: no-referrer
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  Cache-Control: no-cache
+# The service worker fetches the page's own files, which `connect-src 'none'` would stop; it gets its own policy.
+/sw.js
+  Content-Security-Policy: default-src 'none'; connect-src 'self'
+  Cache-Control: no-cache
+  X-Content-Type-Options: nosniff
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

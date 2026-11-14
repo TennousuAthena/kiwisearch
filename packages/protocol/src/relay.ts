@@ -99,7 +99,9 @@ export function createBridgeRelay(port: PortLike, deps: RelayDeps): Relay {
         return;
       }
       case 'req': {
-        if (!ready) { send({ t: 'res', id: m.id, ok: false, error: { code: 'not_ready', message: 'No handshake yet' } }); return violation(); }
+        // `openLocal` works without a handshake: it is how a page sends the user to the extension's own interface when the two sides
+        // cannot agree on a protocol number. The service worker still decides whether to do it.
+        if (!ready && m.method !== 'openLocal') { send({ t: 'res', id: m.id, ok: false, error: { code: 'not_ready', message: 'No handshake yet' } }); return violation(); }
         if (inFlight >= limits.maxInFlight) { send({ t: 'res', id: m.id, ok: false, error: { code: 'busy', message: 'Too many requests at once' } }); return; }
         inFlight++;
         let outcome: Promise<unknown>;

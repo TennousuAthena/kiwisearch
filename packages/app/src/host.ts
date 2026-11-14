@@ -1,5 +1,6 @@
 import type { AcademicLanguage } from '@kiwi-search/core';
 import type { DomainPreferenceAction, DomainPreferenceUndo, PreferenceValues } from '@kiwi-search/protocol';
+import type { LocationStyle } from './lib/pageLocation';
 import type { SessionPort } from './lib/searchSessionController';
 
 export type { PreferenceValues };
@@ -32,4 +33,11 @@ export interface KiwiHost {
   homeUrl: string;
   /** The settings page, for the links that lead there. */
   optionsUrl: string;
+  /**
+   * Opens the settings page, optionally at a section. A host that has it makes the settings links call it instead of following `optionsUrl`
+   * (a website cannot link to a page of the extension).
+   */
+  openOptions?(section?: string): void;
+  /** Which form of address the interface writes: `search` (`?q=…`) for the extension's own page, `hash` (`#q=…`) for the website. Both are always read. */
+  urlStyle: LocationStyle;
 }
