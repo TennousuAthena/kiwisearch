@@ -53,6 +53,7 @@ Read the matching file in `docs/internals/` before changing that area. They are 
 | [extension-runtime.md](docs/internals/extension-runtime.md) | service worker, worker tabs, content script, captcha and login handling | touch `background.ts`, `tabRenderer.ts` or `engines.content.ts` |
 | [newtab-page.md](docs/internals/newtab-page.md) | page session and reducer, source marks, site icons | touch `entrypoints/newtab/` |
 | [interface-text.md](docs/internals/interface-text.md) | message catalogs, `t()`, the guard tests | add or change any text the user sees |
+| [web-app.md](docs/internals/web-app.md) | the website, the extension's own interface, the page-to-extension bridge, the search URL, interface source | touch `packages/app`, `apps/web`, `packages/protocol` or the search address |
 | [mcp-bridge.md](docs/internals/mcp-bridge.md) | hub and relay, pairing, the extension side of the bridge | touch `packages/mcp` or `lib/bridge.ts` |
 | [testing.md](docs/internals/testing.md) | fixtures (real or hand-written), what only a real browser can check | add a parser test or verify in a real browser |
 
