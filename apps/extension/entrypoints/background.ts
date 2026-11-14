@@ -15,6 +15,8 @@ import { REDIRECT_RULE_IDS, searchRedirectRules } from '@/lib/searchRedirect';
 import { searchFromFailedNavigation, type FailedNavigation } from '@/lib/siteFallback';
 import { loadUiFallback, loadUiSource, parseUiSource, UI_SOURCE_KEY } from '@/lib/uiSource';
 import { answer, createWebBridgeHandlers } from '@/lib/webBridge';
+import { createEvidenceStore } from '@/lib/webEvidence';
+import { sessionEvidenceStorage } from '@/lib/webEvidenceStorage';
 import { WEB_SITES } from '@/lib/webOrigins';
 import { browserLanguage } from '@/lib/language';
 import { loadConfig } from '@/lib/settings';
@@ -100,6 +102,10 @@ export default defineBackground(() => {
   };
   watchSiteNavigation();
   browser.permissions?.onAdded?.addListener(watchSiteNavigation);
+
+  // What was sent to each website tab. A summary a website asks for is built from this, never from what the page sends back (lib/webEvidence.ts).
+  const evidence = createEvidenceStore(sessionEvidenceStorage());
+  browser.tabs.onRemoved.addListener((tabId) => evidence.forget(tabId));
 
   // Open streams and push ports of website pages: capped, so one page cannot hold the service worker with an unbounded number of them,
   // and tracked, so they can all be closed when the extension is set to use its own interface.
@@ -201,7 +207,9 @@ export default defineBackground(() => {
     const admitted = fromWeb ? webBridge.allowed(port.sender).then((ok) => { if (!ok) port.disconnect(); return ok; }) : Promise.resolve(true);
     let ctrl: AbortController | null = null;
     let summaryCtrl: AbortController | null = null;
+    const webTab = fromWeb ? port.sender?.tab?.id : undefined;
     const post = (m: PortMessage) => {
+      if (webTab !== undefined) evidence.record(webTab, m);
       try {
         port.postMessage(m);
       } catch {
@@ -222,7 +230,9 @@ export default defineBackground(() => {
       if (req.type === 'keepalive') return;
       if (req.type === 'stop-summary') { summaryCtrl?.abort(); return; }
       if (port.name === 'summary') {
-        const request = parseSummaryRequest(raw);
+        const asked = parseSummaryRequest(raw);
+        // A website names results by key; what is summarized is the extension's own copy of them.
+        const request = asked && webTab !== undefined ? await evidence.resolve(webTab, asked) : asked;
         if (!request) { post({ type: 'fatal', error: t('newtab.session.invalidRequest') }); return; }
         ctrl?.abort();
         const current = (ctrl = new AbortController());

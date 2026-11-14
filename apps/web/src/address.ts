@@ -8,3 +8,10 @@ export function dropQueryString(win: { location: Pick<Location, 'search' | 'path
   win.history.replaceState(null, '', win.location.pathname + win.location.hash);
   return true;
 }
+
+/** Calls `listener` whenever the address changes without a new page (a new search typed into the tab, Back or Forward). Returns the way to stop. */
+export function watchAddress(win: Pick<Window, 'addEventListener' | 'removeEventListener'>, listener: () => void): () => void {
+  win.addEventListener('hashchange', listener);
+  win.addEventListener('popstate', listener);
+  return () => { win.removeEventListener('hashchange', listener); win.removeEventListener('popstate', listener); };
+}

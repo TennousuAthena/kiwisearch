@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { engineUrl, ENGINES, isEngine, modeFromLocation, queryFromLocation, rememberedEngine, rememberEngine } from '../src/fallback';
+import { describe, expect, it, vi } from 'vitest';
+import { engineUrl, ENGINES, isEngine, modeFromLocation, queryFromLocation, redirectToRememberedEngine, rememberedEngine, rememberEngine, safeStorage } from '../src/fallback';
 
 const memory = () => { const data = new Map<string, string>(); return { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => { data.set(k, v); }, removeItem: (k: string) => { data.delete(k); }, data }; };
 
@@ -35,5 +35,41 @@ describe('other engines', () => {
     expect(queryFromLocation({ search: '', hash: '' })).toBe('');
     expect(modeFromLocation({ search: '', hash: '#m=images&q=x' })).toBe('images');
     expect(modeFromLocation({ search: '', hash: '#q=x' })).toBe('web');
+  });
+});
+
+describe('storage the browser blocks', () => {
+  const blocked = () => { const win = {} as { localStorage?: Storage }; Object.defineProperty(win, 'localStorage', { get() { throw new DOMException('The operation is insecure.', 'SecurityError'); } }); return win; };
+
+  it('does not break the page: naming `localStorage` is what throws, and an inert store stands in', () => {
+    const store = safeStorage(blocked());
+    expect(rememberedEngine(store)).toBeNull();
+    expect(() => rememberEngine(store, 'google')).not.toThrow();
+    expect(rememberedEngine(store)).toBeNull();
+  });
+
+  it('is the real storage when it works', () => {
+    const real = memory();
+    expect(safeStorage({ localStorage: real as unknown as Storage })).toBe(real);
+  });
+});
+
+describe('sending the user to the engine they chose', () => {
+  it('does so for a missing or silent extension, with the query escaped, and for nothing else', () => {
+    const store = memory(); rememberEngine(store, 'bing');
+    for (const [state, expected] of [['missing', true], ['unavailable', true], ['incompatible', false], ['disabled', false], ['stale', false]] as const) {
+      const go = vi.fn();
+      expect(redirectToRememberedEngine(state, 'a&b c', store, go), state).toBe(expected);
+      if (expected) expect(go).toHaveBeenCalledWith('https://www.bing.com/search?q=a%26b%20c');
+      else expect(go).not.toHaveBeenCalled();
+    }
+  });
+
+  it('does nothing without a remembered engine or without a query', () => {
+    const go = vi.fn();
+    expect(redirectToRememberedEngine('missing', 'x', memory(), go)).toBe(false);
+    const store = memory(); rememberEngine(store, 'google');
+    expect(redirectToRememberedEngine('missing', '   ', store, go)).toBe(false);
+    expect(go).not.toHaveBeenCalled();
   });
 });

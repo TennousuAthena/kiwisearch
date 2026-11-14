@@ -47,3 +47,16 @@ describe('what the page shows without a working extension', () => {
     expect(html).toContain('DuckDuckGo');
   });
 });
+
+describe('when the browser blocks website storage', () => {
+  it('still shows the install screen and the engines (naming `localStorage` throws there)', () => {
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('SecurityError'); } });
+    try {
+      const html = renderToStaticMarkup(<ConnectionPanel state="missing" query="q" />);
+      expect(html).toContain(`href="${INSTALL_URL}"`);
+      expect(html).toContain('google.com');
+    } finally {
+      delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
+  });
+});

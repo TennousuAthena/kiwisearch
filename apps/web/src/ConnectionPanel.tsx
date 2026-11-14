@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { KiwiLogo } from '@kiwi-search/app/KiwiLogo';
 import { t } from '@kiwi-search/app/i18n';
-import { engineUrl, ENGINES, rememberedEngine, rememberEngine, type EngineId } from './fallback';
+import { engineUrl, ENGINES, rememberedEngine, rememberEngine, safeStorage, type EngineId } from './fallback';
 
 /** Where the extension is installed from, and how to update it: a page of this site. */
 export const INSTALL_URL = '/install';
@@ -10,7 +10,7 @@ export type PanelState = 'missing' | 'incompatible' | 'stale' | 'disabled' | 'un
 
 interface Props {
   state: PanelState;
-  /** What was in the address when the page opened; the box keeps it. */
+  /** What is in the address; the box starts from it. A new address needs a new panel (give it `key={query}`). */
   query: string;
   onOpenLocal?: (query: string) => void;
   store?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -23,7 +23,7 @@ const panelTitle = (state: PanelState) => (state === 'missing' ? t('web.missing.
  * What the page shows when it has no working link to the extension. It never searches itself: the engines are links the user clicks, and
  * only then is anything sent to them. The search box keeps the query so it is not lost on the way to installing.
  */
-export function ConnectionPanel({ state, query: initial, onOpenLocal, store = localStorage }: Props) {
+export function ConnectionPanel({ state, query: initial, onOpenLocal, store = safeStorage() }: Props) {
   const [query, setQuery] = useState(initial);
   const [remember, setRemember] = useState(false);
   const [remembered, setRemembered] = useState<EngineId | null>(() => rememberedEngine(store));

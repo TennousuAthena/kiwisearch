@@ -1,5 +1,6 @@
 import { createBridgeRelay, PROTOCOL_VERSION, type HelloReply, type Relay, type StreamName } from '@kiwi-search/protocol';
 import { browser } from 'wxt/browser';
+import { createBridgeLifecycle } from '@/lib/bridgeLifecycle';
 import type { WebReply } from '@/lib/webBridge';
 import { isWebSitePage, WEB_MATCHES } from '@/lib/webOrigins';
 
@@ -64,9 +65,11 @@ export default defineContentScript({
       });
     });
 
-    window.addEventListener('pagehide', () => {
-      relay?.close();
-      pushPort?.disconnect();
+    const lifecycle = createBridgeLifecycle({
+      closeAll: () => { relay?.close(); pushPort?.disconnect(); },
+      restorePush: () => { pushRetries = 0; pushPort?.disconnect(); pushPort = null; connectPush(); },
     });
+    window.addEventListener('pagehide', (event) => lifecycle.pagehide(event.persisted));
+    window.addEventListener('pageshow', (event) => lifecycle.pageshow(event.persisted));
   },
 });
