@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { CloseIcon } from '@/lib/icons';
-import { addDomains } from '@/lib/domains';
-import { t } from '@/lib/i18n';
+import { CloseIcon } from '@kiwi-search/app/icons';
+import { addDomains } from '@kiwi-search/protocol';
+import { t } from '@kiwi-search/app/i18n';
 
 /** An on/off switch. Used instead of a checkbox where the change takes effect at once. */
 export function Switch({ checked, onChange, label, disabled, id }: { checked: boolean; onChange: (next: boolean) => void; label: string; disabled?: boolean; id?: string }) {

@@ -1,4 +1,4 @@
-import type { SummaryRequest } from './messages';
+import type { SummaryRequest } from '@kiwi-search/protocol';
 
 const TEXT_MODES = new Set(['web', 'news', 'academic', 'zhihu', 'wechat']);
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);

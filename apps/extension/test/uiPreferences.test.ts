@@ -7,15 +7,22 @@ beforeEach(() => {
   storage.get.mockResolvedValue({}); storage.set.mockResolvedValue(undefined);
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn() }));
 });
+/** The preference store of the page, wired to `storage` the way the extension wires it. */
+async function load() {
+  const preferences = await import('@kiwi-search/app/uiPreferences');
+  const { createExtensionPreferenceBackend } = await import('../lib/extensionHost');
+  preferences.configureUiPreferences(createExtensionPreferenceBackend());
+  return preferences;
+}
 describe('independent UI preferences', () => {
   it('validates saved values without changing legacy config', async () => {
-    const { readUiPreferences } = await import('../lib/uiPreferences');
+    const { readUiPreferences } = await load();
     expect(readUiPreferences({ 'ui:theme': 'unknown', 'ui:summaryMode': 'on-demand', 'ui:openNewTab': false, config: { secret: 'test' } }))
       .toEqual({ theme: 'system', summaryMode: 'on-demand', openNewTab: false, recentQueries: true });
   });
 
   it('reads a legacy disabled overview as off until an explicit UI mode is selected', async () => {
-    const { readUiPreferences } = await import('../lib/uiPreferences');
+    const { readUiPreferences } = await load();
     expect(readUiPreferences({ config: { summary: { enabled: false } } }).summaryMode).toBe('off');
     expect(readUiPreferences({ config: { summary: { enabled: true } } }).summaryMode).toBe('auto');
     expect(readUiPreferences({}).summaryMode).toBe('auto');
@@ -28,18 +35,18 @@ describe('independent UI preferences', () => {
 
   it('loads compatibility values without persisting a migration or rewriting config', async () => {
     storage.get.mockResolvedValue({ config: { summary: { enabled: false }, llm: { apiKey: 'test-only' } } });
-    const { initializeUiPreferences, getUiPreferences } = await import('../lib/uiPreferences');
+    const { initializeUiPreferences, getUiPreferences } = await load();
     await initializeUiPreferences();
     expect(storage.get).toHaveBeenCalledWith(['ui:theme', 'ui:summaryMode', 'ui:openNewTab', 'ui:recentQueries', 'config']);
     expect(getUiPreferences().summaryMode).toBe('off'); expect(storage.set).not.toHaveBeenCalled();
   });
   it('writes separate fields and never writes queries, keys or config', async () => {
-    const { updateUiPreferences } = await import('../lib/uiPreferences');
+    const { updateUiPreferences } = await load();
     await Promise.all([updateUiPreferences({ theme: 'light' }), updateUiPreferences({ summaryMode: 'off' })]);
     expect(storage.set.mock.calls.map((call) => call[0])).toEqual([{ 'ui:theme': 'light' }, { 'ui:summaryMode': 'off' }]);
   });
   it('allows read and write failures to be retried', async () => {
-    const { initializeUiPreferences, updateUiPreferences } = await import('../lib/uiPreferences');
+    const { initializeUiPreferences, updateUiPreferences } = await load();
     storage.get.mockRejectedValueOnce(new Error('read failed'));
     await expect(initializeUiPreferences()).rejects.toThrow('read failed');
     await initializeUiPreferences();
@@ -51,9 +58,9 @@ describe('independent UI preferences', () => {
 
   it('shares explicit modes across pages while config changes only affect the legacy fallback', async () => {
     storage.get.mockResolvedValue({ config: { summary: { enabled: false } } });
-    const first = await import('../lib/uiPreferences'); await first.initializeUiPreferences();
+    const first = await load(); await first.initializeUiPreferences();
     vi.resetModules();
-    const second = await import('../lib/uiPreferences'); await second.initializeUiPreferences();
+    const second = await load(); await second.initializeUiPreferences();
     const emit = (changes: Record<string, { newValue?: unknown }>, area = 'local') => storage.listen.mock.calls.forEach(([listener]) => listener(changes, area));
     storage.set.mockImplementation(async (values) => emit(Object.fromEntries(Object.entries(values).map(([key, newValue]) => [key, { newValue }]))));
     expect(first.getUiPreferences().summaryMode).toBe('off'); expect(second.getUiPreferences().summaryMode).toBe('off');
@@ -76,7 +83,7 @@ describe('independent UI preferences', () => {
   it('keeps storage changes arriving during initialization instead of the stale read', async () => {
     let resolveRead!: (values: Record<string, unknown>) => void;
     storage.get.mockImplementation(() => new Promise((resolve) => { resolveRead = resolve; }));
-    const { initializeUiPreferences, getUiPreferences } = await import('../lib/uiPreferences');
+    const { initializeUiPreferences, getUiPreferences } = await load();
     const loading = initializeUiPreferences();
     storage.listen.mock.calls[0][0]({ 'ui:summaryMode': { newValue: 'auto' }, config: { newValue: { summary: { enabled: false } } } }, 'local');
     resolveRead({ config: { summary: { enabled: false } } }); await loading;
@@ -86,7 +93,7 @@ describe('independent UI preferences', () => {
   it('does not replay a slow local write over a newer storage change from another page', async () => {
     let resolveWrite!: () => void;
     storage.set.mockImplementation(() => new Promise<void>((resolve) => { resolveWrite = resolve; }));
-    const { initializeUiPreferences, updateUiPreferences, getUiPreferences } = await import('../lib/uiPreferences');
+    const { initializeUiPreferences, updateUiPreferences, getUiPreferences } = await load();
     await initializeUiPreferences(); const saving = updateUiPreferences({ summaryMode: 'off' });
     await vi.waitFor(() => expect(storage.set).toHaveBeenCalled());
     const changed = storage.listen.mock.calls[0][0];

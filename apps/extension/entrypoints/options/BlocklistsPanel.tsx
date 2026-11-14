@@ -2,8 +2,8 @@ import { RECOMMENDED_BLOCKLISTS, isSubscriptionUrl, parseBlocklist, type Blockli
 import { useDeferredValue, useMemo, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { blocklistStatus, describeCustomRules, type BlocklistMetaMap } from '@/lib/blocklistState';
-import { raw, t } from '@/lib/i18n';
-import { CloseIcon } from '@/lib/icons';
+import { raw, t } from '@kiwi-search/app/i18n';
+import { CloseIcon } from '@kiwi-search/app/icons';
 import { Field, Switch } from './controls';
 
 interface Props {

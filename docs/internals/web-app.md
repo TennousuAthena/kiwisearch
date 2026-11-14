@@ -61,9 +61,17 @@ All runs used throwaway, headless browsers with fresh profiles and random debugg
 | Phase | State |
 |---|---|
 | 0. Verify the risky assumptions | done 2026-11-14, record above |
-| 1. Shared interface package, extension page unchanged | not started |
+| 1. Shared interface package, extension page unchanged | code done 2026-11-14 (record below); not yet activated in the user's Chromium |
 | 2. Protocol package and extension side | not started |
 | 3. Website | not started |
 | 4. Interface source, local mode, fallback | not started |
 | 5. kiwi.moe pages, hosting, CI | not started |
 | 6. Activate in the user's Chromium and verify | not started |
+
+## Phase 1: what was checked (2026-11-14)
+
+The interface moved to `packages/app` (components, page state, catalogs, styles, engine logos) behind the `KiwiHost` interface in `src/host.ts`; the wire types and domain helpers moved to `packages/protocol`; the extension's page is now a shell that calls `mountSearchApp()` with `lib/extensionHost.ts`. The i18n runtime and **all** catalogs moved with the app (the plan had the options, settings and worker catalogs stay in the extension); a split would have needed two typed `t()` functions, and the text is small. The new-tab override is unchanged in this phase.
+
+**Checked:** `pnpm typecheck` passes for all packages. Tests: core 587 and mcp 18 as before; the 244 extension tests of the baseline are now app 145 + extension 96 + protocol 3 (the three domain cases moved out of `settingsLib.test.ts`). The preferences test stayed in the extension on purpose: it exercises the store together with the storage adapter, which is where the `area` and key filtering lives. `noHardcodedText.test.ts` now scans `packages/app/src` and `packages/protocol/src` as well, and fails if the interface is not among the scanned files. `pnpm --filter @kiwi-search/app generate:source-icons` reproduces `sourceIcons.ts` byte for byte except its header comment. `wxt build` works for Chrome and Firefox; the new-tab chunk is 240 KB and the shared chunk 304 KB, the same as before the move.
+
+**Not checked:** the moved page in a running browser (the activation in the user's Chromium comes with the next phases, after the new-tab override is decided); the Edge build; that the new CI steps pass on GitHub.

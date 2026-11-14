@@ -1,0 +1,38 @@
+{
+  "name": "@kiwi-search/app",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./i18n": "./src/i18n/index.ts",
+    "./i18n/rich": "./src/i18n/rich.tsx",
+    "./i18n/coreMessages": "./src/i18n/coreMessages.ts",
+    "./icons": "./src/lib/icons.tsx",
+    "./KiwiLogo": "./src/lib/KiwiLogo.tsx",
+    "./UiPreferencesPanel": "./src/lib/UiPreferencesPanel.tsx",
+    "./uiPreferences": "./src/lib/uiPreferences.ts",
+    "./base.css": "./src/lib/base.css",
+    "./academicLanguage": "./src/lib/academicLanguage.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p .",
+    "generate:source-icons": "node scripts/gen-source-icons.mjs"
+  },
+  "dependencies": {
+    "@kiwi-search/core": "workspace:*",
+    "@kiwi-search/protocol": "workspace:*",
+    "dompurify": "^3.2.6",
+    "marked": "^16.4.1",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "vitest": "^3.2.7"
+  }
+}

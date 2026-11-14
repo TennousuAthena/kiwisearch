@@ -1,10 +1,4 @@
-import { initializeUiPreferences } from '@/lib/uiPreferences';
-import { createRoot } from 'react-dom/client';
-import '@/lib/base.css';
-import { initLocale } from '@/lib/i18n';
-import './style.css';
-import App from './App';
+import { mountSearchApp } from '@kiwi-search/app';
+import { createExtensionHost } from '@/lib/extensionHost';
 
-void initializeUiPreferences().catch(() => {});
-document.documentElement.lang = initLocale();
-createRoot(document.getElementById('root')!).render(<App />);
+mountSearchApp(document.getElementById('root')!, createExtensionHost());

@@ -1,8 +1,8 @@
 import { BROWSER_ENGINES, type FusionConfig, type SourceId } from '@kiwi-search/core';
 import { useState } from 'react';
 import { browser } from 'wxt/browser';
-import { t } from '@/lib/i18n';
-import { ChevronDownIcon, ExternalLinkIcon, TriangleAlertIcon } from '@/lib/icons';
+import { t } from '@kiwi-search/app/i18n';
+import { ChevronDownIcon, ExternalLinkIcon, TriangleAlertIcon } from '@kiwi-search/app/icons';
 import { GROUPS, GROUP_PRESETS, SOURCE_INFO, sourcesInGroup, type SourceGroup } from '@/lib/sourceCatalog';
 import type { SourceHealthMap } from '@/lib/sourceHealth';
 import { sourceLabel } from '@/lib/sourceMeta';

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { t } from '@/lib/i18n';
-import { CheckIcon, CircleAlertIcon } from '@/lib/icons';
+import { t } from '@kiwi-search/app/i18n';
+import { CheckIcon, CircleAlertIcon } from '@kiwi-search/app/icons';
 
 export interface TestReply {
   ok: boolean;

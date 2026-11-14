@@ -1,6 +1,6 @@
 import { OVERVIEW_LANGUAGES, type FusionConfig } from '@kiwi-search/core';
 import { useMemo } from 'react';
-import { t } from '@/lib/i18n';
+import { t } from '@kiwi-search/app/i18n';
 import { browserLanguage, builtinModelWrites, languageLabel } from '@/lib/language';
 import { Field } from './controls';
 

@@ -1,5 +1,5 @@
 import { chat, llmUsable, postSystemOne, systemOneUsable, type FusionConfig, type LlmSettings, type SystemOneResponse } from '@kiwi-search/core';
-import { t } from './i18n';
+import { t } from '@kiwi-search/app/i18n';
 
 export interface LlmTestReply {
   ok: boolean;

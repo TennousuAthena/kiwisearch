@@ -1,9 +1,9 @@
 import type { FusionConfig, SourceId } from '@kiwi-search/core';
 import { useState } from 'react';
 import { browser } from 'wxt/browser';
-import { t } from '@/lib/i18n';
-import { tr } from '@/lib/i18n/rich';
-import { CheckIcon, CopyIcon } from '@/lib/icons';
+import { t } from '@kiwi-search/app/i18n';
+import { tr } from '@kiwi-search/app/i18n/rich';
+import { CheckIcon, CopyIcon } from '@kiwi-search/app/icons';
 import { SOURCE_INFO } from '@/lib/sourceCatalog';
 import type { SourceHealthMap } from '@/lib/sourceHealth';
 import { sourceLabel } from '@/lib/sourceMeta';

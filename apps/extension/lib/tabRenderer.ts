@@ -1,7 +1,7 @@
 import type { BlockReason, BrowserEngine, BrowserRunOptions, SearchHit, SearchMode, SourceId } from '@kiwi-search/core';
 import type { Browser } from 'wxt/browser';
 import { browser } from 'wxt/browser';
-import { t } from './i18n';
+import { t } from '@kiwi-search/app/i18n';
 import { createAsyncLock, isBrowserErrorPage, mergeRendererState, workerIdentity, type RendererState } from './rendererState';
 import { loadConfig } from './settings';
 

@@ -35,7 +35,7 @@ jobs:
       # .wxt/ files its tsconfig extends, so install must come before typecheck.
       - run: pnpm install --frozen-lockfile
 
-      # Typecheck and the three test suites do not depend on each other, so a
+      # Typecheck and the test suites do not depend on each other, so a
       # failure in one must not hide the others. The root `pnpm test` is not
       # used: packages/experiments has no tests and exits 1.
       - name: Typecheck
@@ -44,6 +44,14 @@ jobs:
       - name: Test core
         if: ${{ !cancelled() }}
         run: pnpm --filter @kiwi-search/core test
+
+      - name: Test protocol
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @kiwi-search/protocol test
+
+      - name: Test app
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @kiwi-search/app test
 
       - name: Test extension
         if: ${{ !cancelled() }}
