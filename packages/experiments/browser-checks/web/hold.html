@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8"><title>hold</title><body>hold<script src="/protocol.js"></script><script>
+// connects, opens a search stream and a push listener, then records what happens to them
+window.__hold = { hello: null, streamClosed: false, requestAfter: null };
+(async () => {
+  const { createBridgeClient } = KiwiProtocol;
+  const chan = new MessageChannel();
+  window.postMessage({ kiwi: 'connect' }, location.origin, [chan.port2]);
+  const client = createBridgeClient(chan.port1);
+  window.__hold.hello = (await client.hello(3000)).state;
+  const s = client.connect('search');
+  s.onDisconnect.addListener(() => { window.__hold.streamClosed = true; });
+  s.postMessage({ type: 'keepalive' });
+  setTimeout(() => client.request('prefs.load', undefined, 3000).then(() => { window.__hold.requestAfter = 'ok'; }, (e) => { window.__hold.requestAfter = e.code; }), 5000);
+})();
+</script>

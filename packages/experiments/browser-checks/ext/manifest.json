@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Kiwi phase0 probe",
+  "version": "0.0.1",
+  "permissions": ["declarativeNetRequest", "webNavigation", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["http://localhost/*"], "js": ["bridge.js"], "run_at": "document_start", "all_frames": false }
+  ]
+}

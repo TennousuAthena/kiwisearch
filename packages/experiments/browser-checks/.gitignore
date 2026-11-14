@@ -1,0 +1,8 @@
+# made or collected when the checks run
+key.pem
+cert.pem
+web/protocol.js
+results-*.json
+*.log
+shots/
+tools/

@@ -14,6 +14,10 @@ Which fixtures are real captures and which are hand-written, and what only a rea
 
 `douyin.html` is hand-written from the site's current public frontend modules, with synthetic video IDs/titles and an explicit provenance header. `douyin.test.ts` checks the video-tab URL, video-only extraction, metadata, deduplication, unsafe/foreign URL rejection, exclusion of prediction cards and other lists, and the real login wall. It does not replace a signed-in capture; successful-result rendering still needs live verification. `douyin-captcha.html` is the real same-URL captcha interstitial encountered in fresh extension worker tabs. Its scripts/styles and iframe query (fingerprint, challenge data and environment) were removed. The parser test recognizes the captcha iframe and rejects a page that merely preloads the captcha SDK.
 
+## Browser checks for the website and the bridge
+
+`packages/experiments/browser-checks/` holds throwaway-browser scripts (headless, fresh profile, outside DNS refused) for the website, the extension's bridge and the interface source; see its README. The records of what they showed are in [web-app.md](web-app.md).
+
 ## What is not automated, and how to check it
 
 Nothing automated covers the tab-rendering flow (`tabRenderer.ts`, the content script); check that by loading the unpacked extension in Chrome. The new-tab UI can be checked without the extension: serve `.output/chrome-mv3`, inject a mock `window.chrome.runtime` whose `connect()` port replays `PipelineEvent`s, and screenshot it with headless Chromium over CDP. For an isolated end-to-end run, use a separate Chromium profile and a fresh build-copy path. This avoids a previously observed stale service worker, but is a QA technique, not the way to update the user's live browser: without a manifest `key`, changing the resolved extension path changes its ID and storage namespace.

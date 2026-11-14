@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Kiwi phase0 default-search probe",
+  "version": "0.0.1",
+  "permissions": ["search"],
+  "background": { "service_worker": "background.js" },
+  "chrome_settings_overrides": {
+    "search_provider": {
+      "name": "Kiwi probe",
+      "keyword": "kprobe",
+      "search_url": "https://s.kiwi.moe/#q={searchTerms}",
+      "favicon_url": "https://s.kiwi.moe/favicon.ico",
+      "encoding": "UTF-8",
+      "is_default": true
+    }
+  }
+}

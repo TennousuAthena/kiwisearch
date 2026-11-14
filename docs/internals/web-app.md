@@ -73,7 +73,7 @@ Both sites are static and are meant for Cloudflare Pages (`public/_headers` in b
 
 ## Phase 0: what was checked (2026-11-14)
 
-All runs used throwaway, headless browsers with fresh profiles and random debugging ports, on macOS: Chromium 156.0.8078.79 and Firefox 160.0. The dev browser and its profile were not touched. The probe extension and scripts are not in the repository; they were in `~/.kiwi-search/phase0/` (a small MV3 extension with DNR rules, a content script and a page, plus a CDP harness). Test hosts were mapped to local servers, and all other DNS was refused.
+All runs used throwaway, headless browsers with fresh profiles and random debugging ports, on macOS: Chromium 156.0.8078.79 and Firefox 160.0. The dev browser and its profile were not touched. The probe extension and the scripts are in `packages/experiments/browser-checks/` (a small MV3 extension with DNR rules, a content script and a page, plus a CDP harness; its README says how to run them). The later phases' end-to-end runs use the same folder. Test hosts were mapped to local servers, and all other DNS was refused.
 
 **Checked (Chromium 156):**
 
