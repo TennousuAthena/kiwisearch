@@ -13,7 +13,7 @@ import { describeSource } from '@/lib/sourceView';
 const DEFAULT_SEARCH_FIELDS = [
   { id: 'name', labelKey: 'options.start.fieldName', value: 'Kiwi Search' },
   { id: 'keyword', labelKey: 'options.start.fieldKeyword', value: 'kiwi' },
-  { id: 'url', labelKey: 'options.start.fieldUrl', value: 'https://s.kiwi.moe/#q=%s' },
+  { id: 'url', labelKey: 'options.start.fieldUrl', value: 'https://kiwi.moe/#q=%s' },
 ] as const;
 
 // Firefox refuses to open its own settings pages from an extension, so there the address is shown to copy instead.

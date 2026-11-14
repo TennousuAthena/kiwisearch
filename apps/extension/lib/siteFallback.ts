@@ -16,7 +16,8 @@ export function searchFromFailedNavigation(details: FailedNavigation, siteOrigin
   if (details.frameId !== 0 || details.tabId < 0 || !isSiteUnreachable(details.error)) return null;
   let url: URL;
   try { url = new URL(details.url); } catch { return null; }
-  if (url.origin !== siteOrigin) return null;
+  // Only the search page: a failed introduction or install page has no search to carry over.
+  if (url.origin !== siteOrigin || url.pathname !== '/') return null;
   const params = readPageParams({ search: url.search, hash: url.hash });
   return { query: params.get('q') ?? '', mode: params.get('m') ?? 'web' };
 }

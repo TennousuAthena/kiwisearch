@@ -1,10 +1,10 @@
 import { createBridgeRelay, PROTOCOL_VERSION, type HelloReply, type Relay, type StreamName } from '@kiwi-search/protocol';
 import { browser } from 'wxt/browser';
 import type { WebReply } from '@/lib/webBridge';
-import { WEB_MATCHES, WEB_ORIGINS } from '@/lib/webOrigins';
+import { isWebSitePage, WEB_MATCHES } from '@/lib/webOrigins';
 
 /**
- * The page's way to the extension. It runs only on the Kiwi website, in the top frame, and does three things: it marks the page so the
+ * The page's way to the extension. It runs only on the search page of the Kiwi website, in the top frame, and does three things: it marks the page so the
  * page knows at its first script that the extension is here, it takes the private `MessagePort` the page hands over, and it relays what
  * comes through that port to the service worker, which checks all of it again. The port is private: nothing is broadcast on `window`.
  */
@@ -12,8 +12,8 @@ export default defineContentScript({
   matches: WEB_MATCHES,
   runAt: 'document_start',
   main() {
-    // A match pattern has no port; the origin is exact.
-    if (!WEB_ORIGINS.includes(location.origin)) return;
+    // A match pattern has no port and ignores the query; the origin and the path are checked exactly.
+    if (!isWebSitePage(new URL(location.href))) return;
     document.documentElement.dataset.kiwi = String(PROTOCOL_VERSION);
 
     let relay: Relay | null = null;

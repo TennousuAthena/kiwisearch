@@ -46,22 +46,6 @@ importers:
         specifier: ^0.20.11
         version: 0.20.27(@types/node@22.20.5)(jiti@2.7.0)(lightningcss@1.33.0)(rolldown@1.2.18)(rollup@4.68.2)
 
-  apps/site:
-    dependencies:
-      '@kiwi-search/app':
-        specifier: workspace:*
-        version: link:../../packages/app
-    devDependencies:
-      '@types/node':
-        specifier: ^22.18.0
-        version: 22.20.5
-      vite:
-        specifier: ^8.3.7
-        version: 8.3.7(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)
-      vitest:
-        specifier: ^3.2.7
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@18.0.1)(jiti@2.7.0)(lightningcss@1.33.0)
-
   apps/web:
     dependencies:
       '@kiwi-search/app':

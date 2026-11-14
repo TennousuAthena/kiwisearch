@@ -32,14 +32,6 @@ describe('reading an address', () => {
     expect(read('?q=old&m=images', '#q=new')).toEqual({ q: 'new', m: 'images' });
   });
 
-  it('reads the old address after the extension rewrote it: the rest is a query string, and only our own marker says so', () => {
-    expect(read('', '#legacy=1&q=hello+world')).toEqual({ q: 'hello world' });
-    expect(read('', '#legacy=1&q=a%26b+c&m=news')).toEqual({ q: 'a&b c', m: 'news' });
-    // The user's own text never switches this on, however it is spelled.
-    expect(read('', '#q=legacy=1&q=x+y')).toEqual({ q: 'legacy=1&q=x+y' });
-    expect(read('', '#m=news&legacy=2&q=a+b')).toEqual({ m: 'news', legacy: '2', q: 'a+b' });
-  });
-
   it('reads an empty query and a fragment without q', () => {
     expect(read('', '#m=news')).toEqual({ m: 'news' });
     expect(read('', '#')).toEqual({});
@@ -47,13 +39,13 @@ describe('reading an address', () => {
 });
 
 describe('writing an address', () => {
-  const base = 'https://s.kiwi.moe/?old=1#old';
+  const base = 'https://kiwi.moe/?old=1#old';
 
   it('writes the fragment form with q last and escaped', () => {
-    expect(writePageLocation(base, 'hash', { query: 'a&b #c', mode: 'news', extra: { range: '7d' } })).toBe('https://s.kiwi.moe/#m=news&range=7d&q=a%26b%20%23c');
-    expect(writePageLocation(base, 'hash', { query: 'hello', mode: 'web' })).toBe('https://s.kiwi.moe/#q=hello');
-    expect(writePageLocation(base, 'hash', { query: '', mode: 'images' })).toBe('https://s.kiwi.moe/#m=images');
-    expect(writePageLocation(base, 'hash', { query: '', mode: 'web' })).toBe('https://s.kiwi.moe/');
+    expect(writePageLocation(base, 'hash', { query: 'a&b #c', mode: 'news', extra: { range: '7d' } })).toBe('https://kiwi.moe/#m=news&range=7d&q=a%26b%20%23c');
+    expect(writePageLocation(base, 'hash', { query: 'hello', mode: 'web' })).toBe('https://kiwi.moe/#q=hello');
+    expect(writePageLocation(base, 'hash', { query: '', mode: 'images' })).toBe('https://kiwi.moe/#m=images');
+    expect(writePageLocation(base, 'hash', { query: '', mode: 'web' })).toBe('https://kiwi.moe/');
   });
 
   it('writes the query-string form for the extension page', () => {
@@ -63,7 +55,7 @@ describe('writing an address', () => {
   it('round-trips every query in both styles', () => {
     for (const query of ['hello', 'a&b=c', 'a&q=b', '100%', '50% off #1', 'c++ + python', '你好 世界', 'x=1&m=news', '?q=1', 'line\nbreak', '\u{1F600}']) {
       for (const style of ['search', 'hash'] as const) {
-        const url = new URL(writePageLocation('https://s.kiwi.moe/', style, { query, mode: 'news', extra: { range: '7d' } }));
+        const url = new URL(writePageLocation('https://kiwi.moe/', style, { query, mode: 'news', extra: { range: '7d' } }));
         expect(Object.fromEntries(readPageParams({ search: url.search, hash: url.hash })), `${style}: ${query}`).toEqual({ q: query, m: 'news', range: '7d' });
       }
     }

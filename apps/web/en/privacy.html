@@ -12,8 +12,9 @@
   </head>
   <body>
     <header class="site-header">
-      <a class="site-brand" href="/en/"><span class="site-mark" aria-hidden="true"></span><span>Kiwi Search</span></a>
+      <a class="site-brand" href="/"><span class="site-mark" aria-hidden="true"></span><span>Kiwi Search</span></a>
       <nav aria-label="Site">
+        <a href="/en/about">About</a>
         <a href="/en/install">Install</a>
         <a href="/en/start">Get started</a>
         <a href="/en/privacy" aria-current="page">Privacy</a>
@@ -23,7 +24,7 @@
     </header>
     <main class="doc">
       <h1>Privacy</h1>
-      <p class="note">This is the privacy statement for the Kiwi Search extension and the websites s.kiwi.moe and kiwi.moe.</p>
+      <p class="note">This is the privacy statement for the Kiwi Search extension and the website kiwi.moe.</p>
       <h2>In one sentence</h2>
       <p>Searching happens in your own browser. Kiwi runs no accounts, proxies or back-end servers, so no “Kiwi server” receives your searches.</p>
       <h2>The extension</h2>
@@ -36,14 +37,14 @@
         <li>The <strong>MCP server</strong> listens only on <code>127.0.0.1</code> on your machine, and the extension connects to it only after you have paired a token.</li>
         <li>The extension has no analytics, advertising or telemetry, and sends nothing to any server of Kiwi's.</li>
       </ul>
-      <h2>The websites s.kiwi.moe and kiwi.moe</h2>
+      <h2>The website kiwi.moe</h2>
       <ul>
-        <li>Both are static pages: no back end, no cookies, no analytics, no third-party scripts. The page of s.kiwi.moe carries a content security policy that forbids any network connection.</li>
+        <li>The website is static pages: no back end, no cookies, no analytics, no third-party scripts. The search page (the home page) carries a content security policy that forbids any network connection.</li>
         <li>Your search is written after the <code>#</code> in the address. A browser does not send what follows the <code>#</code> when it requests a page, so the search does not reach the website's server.</li>
         <li>The hosting provider sees, as for any website, the visitor's IP address, the time, the browser identifier and the requested path.</li>
-        <li>One exception: the old search address <code>https://s.kiwi.moe/s?q=…</code>. With the extension installed the browser rewrites it on your machine to the new address and no request is made; without the extension, or with it disabled, that address sends the search to the server once. The server's access log does not record the query string of an address.</li>
-        <li>Without the extension, s.kiwi.moe does not search for you. It shows links to other search engines, and your search goes to an engine only when you click its link. You can have the page remember one choice on your device (in the browser's localStorage, not uploaded).</li>
-        <li>With “the extension's own page” chosen in the extension's settings, your browser does not contact s.kiwi.moe at all, and the website cannot use the extension.</li>
+        <li>No address on the website takes a search: it only ever appears after the <code>#</code>.</li>
+        <li>Without the extension, the website does not search for you. It shows links to other search engines, and your search goes to an engine only when you click its link. You can have the page remember one choice on your device (in the browser's localStorage, not uploaded).</li>
+        <li>With “the extension's own page” chosen in the extension's settings, a search does not contact kiwi.moe, and the website cannot use the extension.</li>
       </ul>
       <h2>Your choices</h2>
       <p>You can turn off any source, leave every AI service unconfigured and choose the extension's own page. Uninstalling the extension removes everything it stored in your browser.</p>

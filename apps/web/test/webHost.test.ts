@@ -40,7 +40,7 @@ async function website() {
   });
   const client = createBridgeClient(channel.port1);
   await client.hello();
-  const host = createWebHost(client, { origin: 'https://s.kiwi.moe' });
+  const host = createWebHost(client, { origin: 'https://kiwi.moe' });
   return { host, world, relay, dispose: () => { client.close(); relay.close(); channel.port1.close(); channel.port2.close(); } };
 }
 
@@ -53,7 +53,7 @@ describe('the website host', () => {
   it('writes hash addresses, links home to the site and has no settings link to follow', async () => {
     const { host, dispose } = await website();
     expect(host.urlStyle).toBe('hash');
-    expect(host.homeUrl).toBe('https://s.kiwi.moe/');
+    expect(host.homeUrl).toBe('https://kiwi.moe/');
     expect(host.optionsUrl).toBe('#');
     dispose();
   });

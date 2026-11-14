@@ -9,12 +9,13 @@ import type { PortMessage, SearchRequest } from '@kiwi-search/protocol';
 import { handleConfigUpdate, isConfigUpdateMessage } from '@/lib/backgroundConfig';
 import { isExtensionPageSender } from '@/lib/summaryRequest';
 import { observedKeys, parseSearchStreamMessage, parseSummaryRequest, parseSummaryStreamMessage, preferenceValues } from '@kiwi-search/protocol';
-import { localSearchUrl, SITE_ORIGIN, siteSearchUrl } from '@/lib/localUrl';
+import { localSearchUrl, siteSearchUrl } from '@/lib/localUrl';
+import { SITE_ORIGIN } from '@/lib/webOrigins';
 import { REDIRECT_RULE_IDS, searchRedirectRules } from '@/lib/searchRedirect';
 import { searchFromFailedNavigation, type FailedNavigation } from '@/lib/siteFallback';
 import { loadUiFallback, loadUiSource, parseUiSource, UI_SOURCE_KEY } from '@/lib/uiSource';
 import { answer, createWebBridgeHandlers } from '@/lib/webBridge';
-import { WEB_ORIGINS } from '@/lib/webOrigins';
+import { WEB_SITES } from '@/lib/webOrigins';
 import { browserLanguage } from '@/lib/language';
 import { loadConfig } from '@/lib/settings';
 import { handleFaviconMessage } from '@/lib/faviconService';
@@ -72,7 +73,7 @@ export default defineBackground(() => {
   const webBridge = createWebBridgeHandlers({
     extensionId: browser.runtime.id,
     version: browser.runtime.getManifest().version,
-    origins: WEB_ORIGINS,
+    sites: WEB_SITES,
     uiSource: loadUiSource,
     favicon: async (host) => (await handleFaviconMessage({ type: 'kiwi:favicon', host })).src,
     focusWorker,

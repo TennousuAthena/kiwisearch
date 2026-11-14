@@ -5,14 +5,14 @@ import { localSearchUrl, siteSearchUrl } from '../lib/localUrl';
 import { answer, createWebBridgeHandlers, isWebBridgeSender, WebRequestError, type WebBridgeDeps } from '../lib/webBridge';
 
 const ID = 'ext-id';
-const ORIGINS = ['https://s.kiwi.moe'];
-const site = { id: ID, url: 'https://s.kiwi.moe/#q=x', tab: { id: 7 }, frameId: 0 };
+const SITES = [{ origin: 'https://kiwi.moe', paths: ['/'] }] as const;
+const site = { id: ID, url: 'https://kiwi.moe/#q=x', tab: { id: 7 }, frameId: 0 };
 
 function setup(patch: Partial<WebBridgeDeps> = {}) {
   let source: 'site' | 'local' = 'site';
   let clock = 0;
   const deps = {
-    extensionId: ID, version: '1.2.3', origins: ORIGINS,
+    extensionId: ID, version: '1.2.3', sites: SITES,
     uiSource: vi.fn(async () => source),
     favicon: vi.fn(async (host: string) => `data:${host}`),
     focusWorker: vi.fn(async () => true),
@@ -30,14 +30,23 @@ function setup(patch: Partial<WebBridgeDeps> = {}) {
 }
 
 describe('who counts as the website', () => {
-  it('accepts only our content script in the top frame of an allowed origin, in a tab', () => {
-    expect(isWebBridgeSender(site, ID, ORIGINS)).toBe(true);
-    expect(isWebBridgeSender({ ...site, frameId: undefined }, ID, ORIGINS)).toBe(true);
-    for (const bad of [undefined, { ...site, id: 'other' }, { ...site, url: 'https://evil.example/' }, { ...site, url: 'https://s.kiwi.moe.evil.example/' },
-      { ...site, url: 'http://s.kiwi.moe/' }, { ...site, url: 'not a url' }, { ...site, url: undefined }, { ...site, tab: undefined }, { ...site, frameId: 3 },
+  it('accepts only our content script in the top frame of the search page of the website, in a tab', () => {
+    expect(isWebBridgeSender(site, ID, SITES)).toBe(true);
+    expect(isWebBridgeSender({ ...site, frameId: undefined }, ID, SITES)).toBe(true);
+    for (const bad of [undefined, { ...site, id: 'other' }, { ...site, url: 'https://evil.example/' }, { ...site, url: 'https://kiwi.moe.evil.example/' },
+      { ...site, url: 'https://s.kiwi.moe/' }, { ...site, url: 'https://kiwi.moe/install' }, { ...site, url: 'https://kiwi.moe/privacy' }, { ...site, url: 'http://kiwi.moe/' }, { ...site, url: 'not a url' }, { ...site, url: undefined }, { ...site, tab: undefined }, { ...site, frameId: 3 },
       { id: ID, url: `chrome-extension://${ID}/app.html`, tab: { id: 1 } }]) {
-      expect(isWebBridgeSender(bad, ID, ORIGINS), JSON.stringify(bad)).toBe(false);
+      expect(isWebBridgeSender(bad, ID, SITES), JSON.stringify(bad)).toBe(false);
     }
+  });
+});
+
+describe('a development build', () => {
+  it('lets every path of its one extra origin use the bridge, and still only the root of the real site', () => {
+    const sites = [...SITES, { origin: 'http://localhost:5173', paths: null }];
+    expect(isWebBridgeSender({ ...site, url: 'http://localhost:5173/any/page.html' }, ID, sites)).toBe(true);
+    expect(isWebBridgeSender({ ...site, url: 'http://localhost:9999/' }, ID, sites)).toBe(false);
+    expect(isWebBridgeSender({ ...site, url: 'https://kiwi.moe/install' }, ID, sites)).toBe(false);
   });
 });
 
@@ -156,6 +165,6 @@ describe('the lists shared with core and the address of the local page', () => {
   it('writes the address form the website uses, for the extension page and for the website', () => {
     expect(localSearchUrl('chrome-extension://x/app.html', 'hello world', 'web')).toBe('chrome-extension://x/app.html#q=hello%20world');
     expect(localSearchUrl('chrome-extension://x/app.html', 'a&b', 'images')).toBe('chrome-extension://x/app.html#m=images&q=a%26b');
-    expect(siteSearchUrl('a&b c', 'news')).toBe('https://s.kiwi.moe/#m=news&q=a%26b%20c');
+    expect(siteSearchUrl('a&b c', 'news')).toBe('https://kiwi.moe/#m=news&q=a%26b%20c');
   });
 });

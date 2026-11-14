@@ -6,7 +6,7 @@ import { establish, readMarker, waitForMarker } from '../src/connection';
 /** A window whose `postMessage` hands the transferred port to the test, as the content script would take it. */
 function fakeWindow() {
   const taken: MessagePort[] = [];
-  const win = { location: { origin: 'https://s.kiwi.moe' }, postMessage: (_message: unknown, _origin: string, transfer: MessagePort[]) => { taken.push(...transfer); } } as unknown as Window;
+  const win = { location: { origin: 'https://kiwi.moe' }, postMessage: (_message: unknown, _origin: string, transfer: MessagePort[]) => { taken.push(...transfer); } } as unknown as Window;
   return { win, taken };
 }
 const marked = () => { const doc = document.implementation.createHTMLDocument('x'); doc.documentElement.dataset.kiwi = '1'; return doc; };

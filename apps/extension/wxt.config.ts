@@ -16,6 +16,6 @@ export default defineConfig({
     // Only for "open the extension's own interface when the website cannot be reached"; asked for when the user turns that on.
     optional_permissions: ['webNavigation'],
     // Navigations that a web page starts to the extension's own page need this; the browser's own (address bar, `k`) do not. Only the Kiwi sites.
-    web_accessible_resources: [{ resources: ['app.html'], matches: ['https://s.kiwi.moe/*', 'https://kiwi.moe/*'] }],
+    web_accessible_resources: [{ resources: ['app.html'], matches: ['https://kiwi.moe/*'] }],
   }),
 });

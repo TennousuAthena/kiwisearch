@@ -11,12 +11,12 @@ export const ROOT = path.dirname(new URL(import.meta.url).pathname);
 /** The browser to test in: set CHROMIUM to the binary of a Chromium (the default is the macOS app). Never point this at your own browser profile. */
 export const CHROMIUM = process.env.CHROMIUM ?? '/Applications/Chromium.app/Contents/MacOS/Chromium';
 
-/** A self-signed certificate for `s.kiwi.moe`, made once; the test browsers ignore certificate errors. */
+/** A self-signed certificate for `kiwi.moe`, made once; the test browsers ignore certificate errors. */
 function ensureCertificate() {
   const key = path.join(ROOT, 'key.pem');
   const cert = path.join(ROOT, 'cert.pem');
   if (!fs.existsSync(key) || !fs.existsSync(cert)) {
-    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert, '-days', '30', '-subj', '/CN=s.kiwi.moe'], { stdio: 'ignore' });
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert, '-days', '30', '-subj', '/CN=kiwi.moe'], { stdio: 'ignore' });
   }
   return { key: fs.readFileSync(key), cert: fs.readFileSync(cert) };
 }
@@ -103,7 +103,7 @@ export async function cdp(wsUrl) {
 export async function launchChromium({ ext, httpsPort, extraArgs = [] }) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'kiwi-p0-'));
   const rules = [
-    `MAP s.kiwi.moe 127.0.0.1:${httpsPort}`, `MAP u.kiwi.moe 127.0.0.1:${httpsPort}`,
+    `MAP kiwi.moe 127.0.0.1:${httpsPort}`, `MAP s.kiwi.moe 127.0.0.1:${httpsPort}`, `MAP u.kiwi.moe 127.0.0.1:${httpsPort}`,
     'MAP * ~NOTFOUND', 'EXCLUDE localhost', 'EXCLUDE 127.0.0.1',
   ].join(', ');
   const args = [

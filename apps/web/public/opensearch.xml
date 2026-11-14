@@ -3,6 +3,6 @@
   <ShortName>Kiwi Search</ShortName>
   <Description>Kiwi Search</Description>
   <InputEncoding>UTF-8</InputEncoding>
-  <Image width="32" height="32" type="image/png">https://s.kiwi.moe/icon/32.png</Image>
-  <Url type="text/html" template="https://s.kiwi.moe/#q={searchTerms}"/>
+  <Image width="32" height="32" type="image/png">https://kiwi.moe/icon/32.png</Image>
+  <Url type="text/html" template="https://kiwi.moe/#q={searchTerms}"/>
 </OpenSearchDescription>

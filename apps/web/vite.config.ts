@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, writeFileSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
+
+const here = (file: string) => fileURLToPath(new URL(file, import.meta.url));
+
+/** The search app is the home page; the introduction, install, getting-started and privacy pages are plain HTML, in Chinese and in English. */
+const docs = ['about', 'install', 'start', 'privacy'];
 
 /** The page's own files, kept so a repeat visit needs no network and the page opens when the site is down. */
 function serviceWorkerSource(version: string, files: string[]): string {
@@ -20,14 +28,15 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// The page itself comes from the network when it can, so a new release shows up at once; the cached copy is for when it cannot.
-// Everything else the build names is cached and never changes (the names carry a hash).
+// The search page itself comes from the network when it can, so a new release shows up at once; the cached copy is for when it cannot.
+// The other pages of the site are left to the network. Everything else the build names is cached and never changes (the names carry a hash).
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (request.mode === 'navigate') {
+    if (url.pathname !== '/') return;
     event.respondWith(
       Promise.race([fetch(request), new Promise((_, reject) => setTimeout(() => reject(new Error('slow')), 3000))])
         .then((response) => {
@@ -43,20 +52,40 @@ self.addEventListener('fetch', (event) => {
 `;
 }
 
+/**
+ * Writes `sw.js` once the build is on disk, from the files that are really there: the names in the bundle are not enough (Vite drops
+ * the small chunks of HTML entries after `generateBundle`, and a file in the list that does not exist would fail the whole install).
+ */
 function shellServiceWorker(): Plugin {
+  let outDir = '';
+  const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)]));
   return {
     name: 'kiwi-shell-service-worker',
     apply: 'build',
-    generateBundle(_options, bundle) {
-      const names = Object.keys(bundle).filter((name) => !name.endsWith('.map'));
-      const files = ['/', ...names.filter((name) => name !== 'index.html').map((name) => `/${name}`), '/favicon.svg', '/icon/32.png'];
-      const version = createHash('sha256').update(names.sort().join('|')).digest('hex').slice(0, 10);
-      this.emitFile({ type: 'asset', fileName: 'sw.js', source: serviceWorkerSource(version, files) });
+    configResolved(config) { outDir = resolve(config.root, config.build.outDir); },
+    closeBundle() {
+      if (!existsSync(join(outDir, 'index.html'))) throw new Error('The search page was not built; there is no shell to cache');
+      // The shell is the search page and what it loads; the other pages are plain HTML and are not kept.
+      const files = walk(outDir).map((file) => `/${relative(outDir, file).split(sep).join('/')}`)
+        .filter((file) => file.startsWith('/assets/') || file === '/favicon.svg' || file === '/icon/32.png')
+        .sort();
+      const version = createHash('sha256').update(files.join('|')).digest('hex').slice(0, 10);
+      writeFileSync(join(outDir, 'sw.js'), serviceWorkerSource(version, ['/', ...files]));
     },
   };
 }
 
 export default defineConfig({
   plugins: [react(), shellServiceWorker()],
-  build: { target: 'es2022', sourcemap: false },
+  build: {
+    target: 'es2022',
+    sourcemap: false,
+    rollupOptions: {
+      input: Object.fromEntries([
+        ['index', here('./index.html')],
+        ...docs.map((name) => [name, here(`./${name}.html`)]),
+        ...docs.map((name) => [`en-${name}`, here(`./en/${name}.html`)]),
+      ]),
+    },
+  },
 });

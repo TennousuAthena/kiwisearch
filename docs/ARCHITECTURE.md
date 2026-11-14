@@ -163,7 +163,7 @@
 
 `apps/extension` 有四类入口：
 
-- **`background.ts`**（Service Worker）：运行 `runSearch`。搜索页通过 `runtime.connect({ name: 'search' })` 打开一个端口，发 `search` 请求（`query`、`mode`），收到流式的 `PortMessage`（`event` 或 `fatal`）；有来源被拦住或晚到时，端口会一直开到它们结束。同一个文件还注册了：地址栏关键词 `k`；一条 declarativeNetRequest 规则，把 `https://s.kiwi.moe/s?…` 重定向到扩展自己的搜索页；`kiwi:*` 消息（`favicon`、`test-llm`、`test-decision`、`blocklist-refresh`，以及渲染器用的 `worker?`、`extracted`、`blocked`、`refused`、`focus-worker`）；屏蔽列表的刷新（启动时、每 6 小时的闹钟、订阅变化时）；MCP 桥的重连闹钟（每 30 秒）。
+- **`background.ts`**（Service Worker）：运行 `runSearch`。搜索页通过 `runtime.connect({ name: 'search' })` 打开一个端口，发 `search` 请求（`query`、`mode`），收到流式的 `PortMessage`（`event` 或 `fatal`）；有来源被拦住或晚到时，端口会一直开到它们结束。同一个文件还注册了：地址栏关键词 `k`；按“界面来源”设置注册的 declarativeNetRequest 规则（旧地址 `s.kiwi.moe` 和本地模式下 `kiwi.moe` 的搜索页都改写到扩展自己的搜索页，见 [web-app.md](internals/web-app.md)）；`kiwi:*` 消息（`favicon`、`test-llm`、`test-decision`、`blocklist-refresh`，以及渲染器用的 `worker?`、`extracted`、`blocked`、`refused`、`focus-worker`）；屏蔽列表的刷新（启动时、每 6 小时的闹钟、订阅变化时）；MCP 桥的重连闹钟（每 30 秒）。
 - **`newtab/`**：搜索页。`packages/app/src/lib/useSearchSession.ts` 管端口、保活和浏览器内置模型的概览；`packages/app/src/lib/searchState.ts` 是把 `PipelineEvent` 折成页面状态的纯 reducer；`packages/app/src/lib/results.ts`、`packages/app/src/lib/justify.ts` 是纯函数。组件按模式分：结果列表、图片网格、笔记墙、概览、学术计划与核心文献、“各平台怎么说”（`PlatformStrip`）、引擎小图标（`SourceMarks`）、标签（`ModeTabs`，知乎、小红书、公众号、X 收在“社区”下）。地址形如 `newtab.html?q=…&m=images`，新搜索用 `pushState`。
 - **`options/`**：设置页，以整页标签打开。改动由 `useAutosave` 自动保存；来源按内容类型分组（`lib/sourceCatalog.ts`），每个来源显示 `sourceStatus` 里记的状态（`lib/sourceView.ts`）；各种“测试连接”发 `kiwi:test-llm` 或 `kiwi:test-decision` 给后台。
 - **`engines.content.ts`**：内容脚本，见第 6 节。

@@ -3,8 +3,8 @@ import { KiwiLogo } from '@kiwi-search/app/KiwiLogo';
 import { t } from '@kiwi-search/app/i18n';
 import { engineUrl, ENGINES, rememberedEngine, rememberEngine, type EngineId } from './fallback';
 
-/** Where the extension is installed from, and how to update it. The page for it is on the main site. */
-export const INSTALL_URL = 'https://kiwi.moe/install';
+/** Where the extension is installed from, and how to update it: a page of this site. */
+export const INSTALL_URL = '/install';
 
 export type PanelState = 'missing' | 'incompatible' | 'stale' | 'disabled' | 'unavailable';
 

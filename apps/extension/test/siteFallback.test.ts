@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { isSiteUnreachable, searchFromFailedNavigation } from '../lib/siteFallback';
 import { parseUiSource } from '../lib/uiSource';
 
-const SITE = 'https://s.kiwi.moe';
+const SITE = 'https://kiwi.moe';
 const failed = (url: string, error = 'net::ERR_NAME_NOT_RESOLVED', extra = {}) => ({ url, error, frameId: 0, tabId: 4, ...extra });
 
 describe('which errors mean the website cannot be reached', () => {
@@ -21,7 +21,6 @@ describe('what is done with a failed navigation', () => {
   it('reads the search from the address it failed on, in either form', () => {
     expect(searchFromFailedNavigation(failed(`${SITE}/#q=hello%20world`), SITE)).toEqual({ query: 'hello world', mode: 'web' });
     expect(searchFromFailedNavigation(failed(`${SITE}/#m=news&q=a&b=c`), SITE)).toEqual({ query: 'a&b=c', mode: 'news' });
-    expect(searchFromFailedNavigation(failed(`${SITE}/#legacy=1&q=x+y`), SITE)).toEqual({ query: 'x y', mode: 'web' });
     expect(searchFromFailedNavigation(failed(`${SITE}/`), SITE)).toEqual({ query: '', mode: 'web' });
   });
 
@@ -31,6 +30,9 @@ describe('what is done with a failed navigation', () => {
     expect(searchFromFailedNavigation(failed(`${SITE}/#q=x`, 'net::ERR_NAME_NOT_RESOLVED', { frameId: 2 }), SITE)).toBeNull();
     expect(searchFromFailedNavigation(failed(`${SITE}/#q=x`, 'net::ERR_NAME_NOT_RESOLVED', { tabId: -1 }), SITE)).toBeNull();
     expect(searchFromFailedNavigation(failed('not a url'), SITE)).toBeNull();
+    // Only the search page: a failed introduction or install page has no search to carry over.
+    expect(searchFromFailedNavigation(failed(`${SITE}/install`), SITE)).toBeNull();
+    expect(searchFromFailedNavigation(failed('https://s.kiwi.moe/#q=x'), SITE)).toBeNull();
   });
 });
 

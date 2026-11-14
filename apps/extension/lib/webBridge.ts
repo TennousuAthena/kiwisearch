@@ -6,12 +6,13 @@ import {
 import type { SearchMode } from '@kiwi-search/core';
 import type { SettingsUpdate, SettingsUpdateResponse } from './configUpdates';
 import type { UiSource } from './uiSource';
+import { isWebSitePage, type WebSite } from './webOrigins';
 
 /** What the service worker needs to answer a website. Everything outside the checks lives behind this, so the checks can be tested. */
 export interface WebBridgeDeps {
   extensionId: string;
   version: string;
-  origins: readonly string[];
+  sites: readonly WebSite[];
   uiSource(): Promise<UiSource>;
   favicon(host: string): Promise<string | null>;
   focusWorker(source: string): Promise<boolean>;
@@ -37,19 +38,19 @@ export class WebRequestError extends Error {
 }
 
 /**
- * True for a message that came from our content script in the top frame of one of the allowed websites. The content script runs only
- * on those pages, but the service worker does not rely on that: the sender's identity, frame and address are checked here as well.
+ * True for a message that came from our content script in the top frame of the search page of the website. The content script runs only
+ * on that page, but the service worker does not rely on that: the sender's identity, frame, origin and path are checked here as well.
  */
-export function isWebBridgeSender(sender: WebSender | undefined, extensionId: string, origins: readonly string[]): boolean {
+export function isWebBridgeSender(sender: WebSender | undefined, extensionId: string, sites: readonly WebSite[]): boolean {
   if (!sender || sender.id !== extensionId || !sender.url || sender.tab?.id === undefined || (sender.frameId !== undefined && sender.frameId !== 0)) return false;
-  try { return origins.includes(new URL(sender.url).origin); } catch { return false; }
+  try { return isWebSitePage(new URL(sender.url), sites); } catch { return false; }
 }
 
 const WRITES_PER_MINUTE = 30;
 
 export function createWebBridgeHandlers(deps: WebBridgeDeps) {
   const allowWrite = createRateLimiter(WRITES_PER_MINUTE, 60_000, deps.now);
-  const isSender = (sender: WebSender | undefined): sender is WebSender & { tab: { id: number } } => isWebBridgeSender(sender, deps.extensionId, deps.origins);
+  const isSender = (sender: WebSender | undefined): sender is WebSender & { tab: { id: number } } => isWebBridgeSender(sender, deps.extensionId, deps.sites);
 
   /** The page may use the extension only from a web sender, and only while the extension is set to use the website. */
   async function allowed(sender: WebSender | undefined): Promise<boolean> {

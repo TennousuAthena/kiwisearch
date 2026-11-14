@@ -4,7 +4,7 @@ Scripts that check, in a real browser, what the unit tests cannot: how the exten
 
 **Rules.** Every browser these scripts start is a throwaway: a fresh temporary profile, a random debugging port, headless, and all outside DNS refused (only the mapped test hosts and `localhost` resolve), so nothing is sent to a search engine or to `kiwi.moe`. Never point them at your own browser or profile, and do not change them to run headed.
 
-**Needs** Node 24, `openssl` (a self-signed certificate for `s.kiwi.moe` is made on first use and ignored by git) and a Chromium binary: set `CHROMIUM` to it (the default is the macOS app, `/Applications/Chromium.app/Contents/MacOS/Chromium`). Run `node bundle-protocol.mjs` once after `pnpm install` to make `web/protocol.js`, which the test pages load.
+**Needs** Node 24, `openssl` (a self-signed certificate for `kiwi.moe` is made on first use and ignored by git) and a Chromium binary: set `CHROMIUM` to it (the default is the macOS app, `/Applications/Chromium.app/Contents/MacOS/Chromium`). Run `node bundle-protocol.mjs` once after `pnpm install` to make `web/protocol.js`, which the test pages load.
 
 | Script | What it checks |
 |---|---|
@@ -13,7 +13,7 @@ Scripts that check, in a real browser, what the unit tests cannot: how the exten
 | `smoke.mjs <build> <shots-dir>` | Loads a built extension, opens its search page, settings page and a search, and reports console errors and screenshots. |
 | `web-smoke.mjs <build>` | The real protocol client in a page against a built extension (build it with `WXT_KIWI_WEB_DEV_ORIGIN=http://localhost:18765`). |
 | `web-e2e.mjs <build> <apps/web/dist> <shots-dir>` | The built website served with its `_headers`, against the extension (same dev origin): a search, a fragment navigation, the service worker and the page opening with the server down, and the page with no extension. |
-| `mode-e2e.mjs <build>` | The interface source: the redirects in both modes, the website's handshake, and cutting a connected page when the setting changes (dev-origin build, port 18765). |
-| `site-shot.mjs <apps/site/dist> <shots-dir>` | The pages of `kiwi.moe` under their own security policy, at desktop and phone width. |
+| `mode-e2e.mjs <build>` | The interface source: the redirects in both modes (the search page of `kiwi.moe`, its other pages, the old host `s.kiwi.moe`), the website's handshake, and cutting a connected page when the setting changes (dev-origin build, port 18765). |
+| `site-shot.mjs <apps/web/dist> <shots-dir>` | The pages of `kiwi.moe` (introduction, install, getting started, privacy) under their own security policy, at desktop and phone width. |
 
 Results are printed, and some are also written as `results-*.json` (ignored).

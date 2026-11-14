@@ -1,15 +1,15 @@
-name: Deploy sites
+name: Deploy site
 
-# Publishes the two static sites to Cloudflare Pages: s.kiwi.moe (apps/web) and kiwi.moe (apps/site). Nothing here runs until the
-# repository has the variable CLOUDFLARE_PAGES set to "true" and the secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, and the two
-# Pages projects exist (docs/internals/web-app.md, "Hosting"). Not yet run: it was written without access to the account.
+# Publishes the website (apps/web: the search page at the root and the introduction, install, getting-started and privacy pages) to Cloudflare
+# Pages, where it is served as kiwi.moe. Nothing here runs until the repository has the variable CLOUDFLARE_PAGES set to "true" and the secrets
+# CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, and the Pages project exists (docs/internals/web-app.md, "Hosting"). Not yet run: it was
+# written without access to the account.
 
 on:
   push:
     branches: [master]
     paths:
       - 'apps/web/**'
-      - 'apps/site/**'
       - 'packages/app/**'
       - 'packages/protocol/**'
       - 'pnpm-lock.yaml'
@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-sites
+  group: deploy-site
   cancel-in-progress: false
 
 permissions:
@@ -45,14 +45,11 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build
+      - name: Build and check
         run: |
           pnpm --filter @kiwi-search/web build
-          pnpm --filter @kiwi-search/site build
+          pnpm --filter @kiwi-search/web check:dist
 
       # `wrangler` is not a dependency of the repository: it is only needed here.
-      - name: Deploy s.kiwi.moe
-        run: npx --yes wrangler@4 pages deploy apps/web/dist --project-name=kiwi-search-web --branch=main
-
       - name: Deploy kiwi.moe
-        run: npx --yes wrangler@4 pages deploy apps/site/dist --project-name=kiwi-search-site --branch=main
+        run: npx --yes wrangler@4 pages deploy apps/web/dist --project-name=kiwi-search --branch=main
