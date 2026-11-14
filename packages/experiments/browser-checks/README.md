@@ -14,6 +14,7 @@ Scripts that check, in a real browser, what the unit tests cannot: how the exten
 | `web-smoke.mjs <build>` | The real protocol client in a page against a built extension (build it with `WXT_KIWI_WEB_DEV_ORIGIN=http://localhost:18765`). |
 | `web-e2e.mjs <build> <apps/web/dist> <shots-dir>` | The built website served with its `_headers`, against the extension (same dev origin): a search, a fragment navigation, the service worker and the page opening with the server down, and the page with no extension. |
 | `mode-e2e.mjs <build>` | The interface source: the redirects in both modes (the search page of `kiwi.moe`, its other pages, the old host `s.kiwi.moe`), the website's handshake, and cutting a connected page when the setting changes (dev-origin build, port 18765). |
+| `preview-check.mjs <url> [shots-dir]` | The website as a host serves it (a Cloudflare preview or `kiwi.moe`), in a headless Chromium with no extension where only that host resolves: the install screen, console errors, and the service worker over https (set `WAIT_MS` longer than the default 4000 if it is not active yet). |
 | `site-shot.mjs <apps/web/dist> <shots-dir>` | The pages of `kiwi.moe` (introduction, install, getting started, privacy) under their own security policy, at desktop and phone width. |
 
 Results are printed, and some are also written as `results-*.json` (ignored).

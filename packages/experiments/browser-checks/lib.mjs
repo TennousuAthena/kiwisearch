@@ -100,11 +100,11 @@ export async function cdp(wsUrl) {
 }
 
 /** A throwaway headless Chromium. All external DNS is refused; only the mapped test hosts and localhost resolve. */
-export async function launchChromium({ ext, httpsPort, extraArgs = [] }) {
+export async function launchChromium({ ext, httpsPort, extraArgs = [], allowHosts = [] }) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'kiwi-p0-'));
   const rules = [
     `MAP kiwi.moe 127.0.0.1:${httpsPort}`, `MAP s.kiwi.moe 127.0.0.1:${httpsPort}`, `MAP u.kiwi.moe 127.0.0.1:${httpsPort}`,
-    'MAP * ~NOTFOUND', 'EXCLUDE localhost', 'EXCLUDE 127.0.0.1',
+    'MAP * ~NOTFOUND', 'EXCLUDE localhost', 'EXCLUDE 127.0.0.1', ...allowHosts.map((host) => `EXCLUDE ${host}`),
   ].join(', ');
   const args = [
     '--headless=new', `--user-data-dir=${profile}`, '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check',

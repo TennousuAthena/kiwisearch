@@ -14,6 +14,8 @@ Which fixtures are real captures and which are hand-written, and what only a rea
 
 `douyin.html` is hand-written from the site's current public frontend modules, with synthetic video IDs/titles and an explicit provenance header. `douyin.test.ts` checks the video-tab URL, video-only extraction, metadata, deduplication, unsafe/foreign URL rejection, exclusion of prediction cards and other lists, and the real login wall. It does not replace a signed-in capture; successful-result rendering still needs live verification. `douyin-captcha.html` is the real same-URL captcha interstitial encountered in fresh extension worker tabs. Its scripts/styles and iframe query (fingerprint, challenge data and environment) were removed. The parser test recognizes the captcha iframe and rejects a page that merely preloads the captcha SDK.
 
+**Activated on 2026-11-14 (the website, the bridge and the interface source):** same profile, loaded path and extension ID; the build that was loaded was the merged master build (`a6c78e2b`) and the branch was based on it; storage was saved first (480 `local` keys) and compared after the reload (all equal); the running source equalled the build. The reload closed the one open Kiwi results page, which was reopened. Details: [web-app.md](web-app.md), "Activation in the user's Chromium".
+
 ## Browser checks for the website and the bridge
 
 `packages/experiments/browser-checks/` holds throwaway-browser scripts (headless, fresh profile, outside DNS refused) for the website, the extension's bridge and the interface source; see its README. The records of what they showed are in [web-app.md](web-app.md).
