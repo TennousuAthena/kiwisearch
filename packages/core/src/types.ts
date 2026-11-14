@@ -225,7 +225,9 @@ export type HiddenReason =
   | { reason: 'rule'; rule: string }
   /** An academic search limited to one language, and the title is not in it (see `academicLanguage.ts`). */
   | { reason: 'language' }
-  | { reason: 'time'; detail: 'outside' | 'unknown' };
+  | { reason: 'time'; detail: 'outside' | 'unknown' }
+  /** A Google `/goto` link that could not be turned into the page's address and that no other engine returned (see `links.ts`). */
+  | { reason: 'unresolved' };
 
 export interface FusedResult {
   /** Normalized URL, used as the dedup key. */

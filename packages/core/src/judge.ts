@@ -21,7 +21,7 @@ const LLM_BATCH = 10;
 const LLM_CONCURRENCY = 3;
 const INJECTION_BATCH = 6;
 /** Never leave the main list thinner than this because of model-based hiding. */
-const MIN_VISIBLE = 3;
+export const MIN_VISIBLE = 3;
 /** Penalty for results the model suspects are filler but not clearly enough to hide. */
 const JUNK_PENALTY = 0.5;
 const BOOST = 1.25;
@@ -319,7 +319,7 @@ export function applyJudgments(
   const boosted = normalizedDomains(judge.boostedDomains);
   const alpha = judge.relevanceWeight;
   const scored = results.map((result): FusedResult => {
-    if (result.hidden?.reason === 'blocked' || result.hidden?.reason === 'time') return result;
+    if (result.hidden?.reason === 'blocked' || result.hidden?.reason === 'time' || result.hidden?.reason === 'unresolved') return result;
     const judgment = fresh.get(result.key) ?? result.judgment;
     const prior = result.rrfScore / maxRrf;
     if (!judgment) return { ...result, score: prior * (1 - alpha) };
@@ -334,7 +334,7 @@ export function applyJudgments(
   const visible = scored.filter((r) => !r.hidden).length;
   if (visible < MIN_VISIBLE) {
     const restorable = scored
-      .filter((r) => r.hidden && (r.hidden.reason === 'junk' || r.hidden.reason === 'irrelevant'))
+      .filter((r) => r.hidden && (r.hidden.reason === 'junk' || r.hidden.reason === 'irrelevant' || r.hidden.reason === 'unresolved'))
       .sort(byScore)
       .slice(0, MIN_VISIBLE - visible);
     for (const result of restorable) delete result.hidden;

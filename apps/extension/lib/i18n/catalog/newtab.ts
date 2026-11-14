@@ -79,6 +79,7 @@ export const newtab = {
   'newtab.hidden.language': '语言不符：当前只看英文文献',
   'newtab.hidden.time.outside': '发布时间不在所选范围内',
   'newtab.hidden.time.unknown': '发布时间不明确，无法确认是否在所选范围内',
+  'newtab.hidden.unresolved': 'Google 跳转链接未能还原，点击仍可打开',
 
   'newtab.duration.seconds': '{seconds} 秒',
 

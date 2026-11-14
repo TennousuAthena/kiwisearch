@@ -186,7 +186,7 @@ function formatSearchResult(result: Record<string, unknown>): { text: string; st
   const planNote = plan
     ? `检索理解：${plan.intent ?? ''}${plan.keywords?.length ? `（关键词：${plan.keywords.join('、')}）` : ''}${landmarks.length ? `\n已核对存在的核心文献：${landmarks.map((l) => `${l.title}${l.year ? `（${l.year}）` : ''}`).join('；')}` : ''}\n\n`
     : '';
-  const hiddenNote = hidden.length ? `\n\n另有 ${hidden.length} 条结果被过滤（低质量、不相关、语言不符、时间不符或命中屏蔽规则），详见 structuredContent.hidden。` : '';
+  const hiddenNote = hidden.length ? `\n\n另有 ${hidden.length} 条结果被过滤（低质量、不相关、语言不符、时间不符、命中屏蔽规则，或 Google 跳转链接未能还原），详见 structuredContent.hidden。` : '';
   return {
     text: `${planNote}${entries.length ? entries.join('\n\n') : '没有找到搜索结果。'}${hiddenNote}${blockedNote(result)}${newsNote(result)}`,
     structured: {

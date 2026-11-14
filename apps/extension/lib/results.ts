@@ -19,6 +19,8 @@ export function hiddenLabel(hidden: HiddenReason): string {
       return t('newtab.hidden.language');
     case 'time':
       return t(`newtab.hidden.time.${hidden.detail}`);
+    case 'unresolved':
+      return t('newtab.hidden.unresolved');
   }
 }
 

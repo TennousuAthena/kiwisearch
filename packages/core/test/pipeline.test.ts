@@ -532,4 +532,49 @@ describe('runSearch', () => {
     expect(again.results).toHaveLength(1);
     expect(events.some((event) => event.type === 'source_done' && event.source === 'google')).toBe(true);
   });
+
+  describe('Google links that were not unwrapped', () => {
+    const wrapper = (n: number, extra: Partial<SearchHit> = {}): SearchHit => ({ ...hit('google', `https://www.google.com/goto?url=opaque-${n}`, `Wrapped page ${n}`), rank: n, ...extra });
+    const direct = (n: number): SearchHit => ({ ...hit('bing', `https://site${n}.example/page`, `Direct page ${n}`), rank: n });
+    const envFor = (byEngine: Record<string, SearchHit[]>): Env => ({
+      fetch: fetch,
+      runBrowserEngine: async (engine) => byEngine[engine.id] ?? [],
+    });
+
+    it('go to the hidden results, with their reason, when enough other results stay', async () => {
+      const events: PipelineEvent[] = [];
+      const result = await runSearch('query', configFor('google', 'bing'), envFor({ google: [wrapper(1), wrapper(2)], bing: [direct(1), direct(2), direct(3)] }), { onEvent: (event) => events.push(event) });
+      expect(result.results.filter((r) => !r.hidden).map((r) => r.url).sort()).toEqual(['https://site1.example/page', 'https://site2.example/page', 'https://site3.example/page']);
+      expect(result.results.filter((r) => r.hidden).map((r) => r.hidden)).toEqual([{ reason: 'unresolved' }, { reason: 'unresolved' }]);
+      const fused = events.filter((event): event is Extract<PipelineEvent, { type: 'fused' }> => event.type === 'fused').at(-1);
+      expect(fused?.results.filter((r) => r.hidden)).toHaveLength(2);
+    });
+
+    it('are not hidden when another engine returned the same page: they merge into it', async () => {
+      const same = wrapper(1, { host: 'site1.example', title: 'Direct page 1' });
+      const result = await runSearch('query', configFor('google', 'bing'), envFor({ google: [same], bing: [direct(1), direct(2), direct(3)] }), {});
+      expect(result.results).toHaveLength(3);
+      expect(result.results.some((r) => r.hidden)).toBe(false);
+      expect(result.results.find((r) => r.url === 'https://site1.example/page')?.sources.map((s) => s.source).sort()).toEqual(['bing', 'google']);
+    });
+
+    it('stay in the list when they are all there is, so the page is not empty', async () => {
+      const result = await runSearch('query', configFor('google'), envFor({ google: [wrapper(1), wrapper(2), wrapper(3), wrapper(4)] }), {});
+      expect(result.results).toHaveLength(4);
+      expect(result.results.some((r) => r.hidden)).toBe(false);
+    });
+
+    it('are hidden in news too, where the fusion does not merge by host and title', async () => {
+      const news = (n: number, source: SourceId, url: string): SearchHit => ({ ...hit(source, url, `Story ${n}`), rank: n, news: { timeKind: 'published', retrievedAt: new Date().toISOString() } });
+      const env: Env = {
+        fetch: fetch,
+        runBrowserEngine: async (engine) => (engine.id === 'google'
+          ? [news(1, 'google', 'https://www.google.com/goto?url=opaque-1')]
+          : [news(2, 'bravesearch', 'https://news1.example/a'), news(3, 'bravesearch', 'https://news2.example/b'), news(4, 'bravesearch', 'https://news3.example/c')]),
+      };
+      const result = await runSearch('query', configFor('google', 'bravesearch'), env, { mode: 'news' });
+      expect(result.results.filter((r) => r.hidden?.reason === 'unresolved').map((r) => r.url)).toEqual(['https://www.google.com/goto?url=opaque-1']);
+      expect(result.results.filter((r) => !r.hidden)).toHaveLength(3);
+    });
+  });
 });

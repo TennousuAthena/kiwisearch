@@ -130,6 +130,8 @@ describe('MCP server smoke test', () => {
     expect(text).toContain('Good');
     expect(text).not.toContain('Farm');
     expect(text).toContain('3 条结果被过滤');
+    // The note names what can hide a result, a Google link that could not be unwrapped included.
+    expect(text).toContain('Google 跳转链接未能还原');
     expect(text).not.toContain('图片：');
     expect(result.structuredContent).toMatchObject({
       results: [{ title: 'Good', n: 1 }],

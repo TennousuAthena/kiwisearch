@@ -219,6 +219,30 @@ describe('applyJudgments', () => {
     expect(out.find((r) => r.title === 'Spam')?.hidden).toEqual({ reason: 'blocked' });
   });
 
+  it('keeps a Google link nothing could unwrap hidden, even one that was judged while it was still shown', () => {
+    const wrapped = [...results(hit('https://www.google.com/goto?url=opaque', 'Wrapped', 1)), ...base()];
+    const link = wrapped.find((r) => r.title === 'Wrapped')!;
+    const fresh = new Map<string, Judgment>(wrapped.map((r) => [r.key, judgment(3)]));
+    const first = applyJudgments(wrapped, fresh, judge);
+    expect(first.find((r) => r.key === link.key)?.hidden).toBeUndefined();
+    // A later pass hides it (more results turned up, so it no longer has to stay); judging must not bring it back.
+    const hidden = first.map((r) => (r.key === link.key ? { ...r, hidden: { reason: 'unresolved' as const } } : r));
+    const second = applyJudgments(hidden, new Map(), judge);
+    expect(second.find((r) => r.key === link.key)?.hidden).toEqual({ reason: 'unresolved' });
+  });
+
+  it('brings such a link back like any other hidden result when the model would leave fewer than three', () => {
+    // Two good results, one blocked site (never brought back) and the link: the link is the only one that can be restored.
+    const list = results(hit('https://a.example/1', 'Relevant', 1), hit('https://b.example/2', 'Fine', 2), hit('https://c.example/3', 'Blocked', 3));
+    const blocked = list.map((r) => (r.title === 'Blocked' ? { ...r, hidden: { reason: 'blocked' as const } } : r));
+    const link = { ...results(hit('https://www.google.com/goto?url=opaque', 'Wrapped', 4))[0], hidden: { reason: 'unresolved' as const } };
+    const fresh = new Map<string, Judgment>(list.map((r) => [r.key, judgment(3)]));
+    const out = applyJudgments([...blocked, link], fresh, judge);
+    expect(out.filter((r) => !r.hidden)).toHaveLength(3);
+    expect(out.find((r) => r.title === 'Wrapped')?.hidden).toBeUndefined();
+    expect(out.find((r) => r.title === 'Blocked')?.hidden).toEqual({ reason: 'blocked' });
+  });
+
   it('is repeatable: judgments stored on results survive a later pass', () => {
     const list = base();
     const first = applyJudgments(list, new Map(list.map((r) => [r.key, judgment(2)])), judge);

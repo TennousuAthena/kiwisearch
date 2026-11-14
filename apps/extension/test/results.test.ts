@@ -52,6 +52,7 @@ describe('result helpers', () => {
     expect(hiddenLabel({ reason: 'blocked' })).toBe('来自你屏蔽的网站');
     expect(hiddenLabel({ reason: 'blocked', list: 'Content Farm Terminator' })).toBe('命中屏蔽列表“Content Farm Terminator”');
     expect(hiddenLabel({ reason: 'language' })).toBe('语言不符：当前只看英文文献');
+    expect(hiddenLabel({ reason: 'unresolved' })).toBe('Google 跳转链接未能还原，点击仍可打开');
   });
 
   it('tells text with Chinese, Japanese or Korean characters from text without', () => {

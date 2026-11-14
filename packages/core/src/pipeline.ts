@@ -6,7 +6,8 @@ import { applyRerank, fuse, mergeLateHits } from './fusion';
 import { errorMessage, withTimeout } from './http';
 import { judgeIntent } from './intent';
 import { applyNewsOptions, normalizeNewsOptions } from './news';
-import { applyDomainRules, applyJudgments, judgeEnabled, judgeResults } from './judge';
+import { applyDomainRules, applyJudgments, judgeEnabled, judgeResults, MIN_VISIBLE } from './judge';
+import { hideUnresolvedLinks } from './links';
 import { llmUsable } from './llm';
 import { rerank } from './rerank';
 import { SOURCES } from './sources';
@@ -84,9 +85,10 @@ export async function runSearch(
   // The deterministic pass every list of results goes through: Wikipedia copies in other languages folded away, then domain rules and block lists.
   const wikipedia = wikipediaFoldEnabled(config.judge.foldWikipediaEditions, env.browserLanguage) ? wikipediaTarget(env.browserLanguage) : undefined;
   const orderNews = (list: FusedResult[]): FusedResult[] => news ? applyNewsOptions(list, news, requestedAt) : list;
-  const tidy = (list: FusedResult[]): FusedResult[] => orderNews(
+  // The links Google would not unwrap are hidden last, so that the other hiding has been counted first (see `links.ts`).
+  const tidy = (list: FusedResult[]): FusedResult[] => hideUnresolvedLinks(orderNews(
     applyDomainRules(fusionOptions?.urlOnly ? list : foldWikipediaEditions(applyAcademicLanguage(list, paperLanguage), wikipedia, weights), config.judge, lists),
-  );
+  ), MIN_VISIBLE);
   let currentResults: FusedResult[] = [];
   let resolveDone!: () => void;
   const done = new Promise<void>((resolve) => {
