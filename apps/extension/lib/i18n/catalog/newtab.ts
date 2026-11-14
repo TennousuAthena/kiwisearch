@@ -139,7 +139,6 @@ export const newtab = {
   'newtab.news.summaryStale': '有新结果到达，当前概览尚未包含这些变化。',
   'newtab.news.refreshOverview': '刷新新闻和概览',
 
-  'newtab.shopping.priceNote': '价格来自搜索页面，实际售价以商品页面为准。',
   'newtab.shopping.rating': '评分：{rating}',
 
   // Status.tsx

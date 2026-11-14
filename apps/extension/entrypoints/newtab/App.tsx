@@ -366,7 +366,6 @@ export default function App() {
                 <QuickAnswer answer={quickAnswer} citations={state.citations} onHoverCite={setHoverCite} />
                 {!quickAnswer.remainder && <Overview state={state} controlsOnly optionsUrl={optionsUrl} onHoverCite={setHoverCite} summaryMode={preferences.summaryMode} onRetry={() => summarize()} onStop={stopSummary} />}
               </>}
-              {state.mode === 'shopping' && shown.length > 0 && <p className="shopping-note">{t('newtab.shopping.priceNote')}</p>}
               {state.mode === 'news' && <NewsToolbar value={newsOptions} onChange={changeNews} onRefresh={refreshNews} busy={searching} />}
               {state.mode === 'academic' && state.plan && <PlanLine plan={state.plan} />}
           {state.mode === 'academic' && <Landmarks results={landmarkResults} citedUrls={citedUrls} />}

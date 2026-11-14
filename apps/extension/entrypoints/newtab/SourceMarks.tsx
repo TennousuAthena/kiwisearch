@@ -23,7 +23,6 @@ export function SourceMarks({ sources }: { sources: FusedResult['sources'] }) {
       {() => <>
         <p className="result-ux-popover-title">{t('resultUx.sources.title')}</p>
         <ul className="result-ux-source-list">{marks.map(({ mark, name }) => <li key={mark}>{picture(MARK_ART[mark])}<span>{name}</span></li>)}</ul>
-        <p className="result-ux-popover-note result-ux-separator">{t('resultUx.sources.note')}</p>
       </>}
     </ResultPopover>
   );

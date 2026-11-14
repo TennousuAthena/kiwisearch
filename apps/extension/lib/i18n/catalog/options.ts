@@ -110,7 +110,7 @@ export const options = {
   'group.web.title': '网页',
   'group.web.lead': '通用网页搜索。开启的越多，结果越全，速度也越慢。',
   'group.shopping.title': '购物',
-  'group.shopping.lead': '“购物”标签用到的来源，使用你在浏览器中的登录状态。价格、库存和配送范围以商品页面为准。',
+  'group.shopping.lead': '“购物”标签用到的来源，使用你在浏览器中的登录状态。',
   'group.academic.title': '学术',
   'group.academic.lead': '论文、预印本和引用。',
   'group.video.title': '视频',
