@@ -157,7 +157,7 @@ function newsSnapshot(result: Record<string, unknown>): { news?: unknown; incomp
 function newsNote(result: Record<string, unknown>): string {
   if (result.mode !== 'news') return '';
   const news = result.news as { summaryAt?: string; requestedAt?: string } | undefined;
-  return `\n\n新闻快照：${news?.summaryAt ?? news?.requestedAt ?? '时间未知'}。${newsSnapshot(result).incomplete ? '部分来源未完成或出错，结果可能不完整。' : '仅代表本次检索，不保证覆盖全部新闻。'}`;
+  return `\n\n新闻快照：${news?.summaryAt ?? news?.requestedAt ?? '时间未知'}。${newsSnapshot(result).incomplete ? '部分来源未完成或出错，结果可能不完整。' : ''}`;
 }
 
 function hiddenResults(all: Record<string, unknown>[]) {

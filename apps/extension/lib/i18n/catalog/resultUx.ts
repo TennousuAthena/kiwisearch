@@ -2,7 +2,6 @@
 export const resultUx = {
   'resultUx.close': '关闭',
   'resultUx.sources.title': '收录来源',
-  'resultUx.sources.note': '多个来源收录，不代表内容已经核实。',
   'resultUx.site.menu': '{domain} 的站点选项',
   'resultUx.site.only': '本次仅看此站',
   'resultUx.site.exclude': '本次排除此站',
