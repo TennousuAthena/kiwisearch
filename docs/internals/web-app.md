@@ -20,7 +20,7 @@ This file records the design decisions and what was checked. Status per phase is
 
 ## Bridge protocol (website to extension)
 
-Not built yet; the shape that was tested in Phase 0:
+Built in phase 2: the wire format, relay (content-script half) and client (page half) are in `packages/protocol/src/{bridge,relay,client}.ts`, the checks on what a page may ask for in `webRequests.ts`, the content script is `apps/extension/entrypoints/web-bridge.content.ts` and the service-worker half is `apps/extension/lib/webBridge.ts`, wired into `entrypoints/background.ts`. The website's own client (`WebHost`) is phase 3.
 
 - A content script on `https://s.kiwi.moe/*` (top frame, `document_start`) sets `data-kiwi="<protocol>"` on `<html>`, so the page knows at its first script whether an extension is there.
 - The page creates a `MessageChannel` and hands one end to the content script with `window.postMessage({kiwi:'connect'}, location.origin, [port])`. Everything after that uses the private port; nothing is broadcast on `window`. The content script checks `event.source === window` and the exact origin.
@@ -28,6 +28,15 @@ Not built yet; the shape that was tested in Phase 0:
 - `hello`, `welcome`, `incompatible` and `openLocal` exist from protocol 1 and never change, so any extension can at least send the user to the local interface.
 - Versioning: the protocol number only grows on an incompatible change; inside one number things are only added; unknown fields and events are ignored; both sides support the current and the previous number for a release cycle; fixtures of each version's message stream are replayed in CI.
 - `externally_connectable` is not used: Firefox does not have it.
+
+How the pieces behave:
+
+- **Handshake outcomes** the page can get: `welcome {protocol, ext, caps}`, `incompatible {protocols}`, `disabled` (the extension is set to use its own interface, `uiSource === 'local'`), `unavailable` (the service worker did not answer; the client also says it when nothing answers in 3 s). The page decides what to show from `caps`, not from a version string.
+- **Who is the website.** The content script matches `https://s.kiwi.moe/*` only, and runs in the top frame. A build made with `WXT_KIWI_WEB_DEV_ORIGIN=http://localhost:5173` also takes that one origin (`lib/webOrigins.ts`); the store builds are made without it. The service worker does not rely on the match pattern: `isWebBridgeSender` checks the extension id, a tab, the top frame and the exact origin of the sender's address on every message.
+- **Separate message names.** Website requests travel as `kiwi-web:hello` and `kiwi-web:request` and are answered only by `createWebBridgeHandlers`; every existing `kiwi:*` message is ignored when its sender is a website page. Streams reuse the ports `search` and `summary`, and a push port `web-push` carries preference changes. At most 8 ports of website pages at once.
+- **What a page can ask for** is `WEB_METHODS`: site icon, focus a worker tab, block/boost/undo a site, load and save the four interface preferences, load and save the academic language, open the local interface, open the settings. Each request is parsed field by field and the service worker builds its own message from the checked fields: a page cannot make a settings update carry a patch (the settings update handler accepts patches for the whole config and for the bridge token). Writes are limited to 30 a minute per tab. Stream messages from a page are parsed the same way (`parseSearchStreamMessage`, `parseSummaryStreamMessage`); the extension's own pages are still trusted with their shape.
+- **What a page cannot do:** read the config, any key or token, cookies or worker-tab HTML, save any stored key other than the four preferences, reach `test-llm` or the other `kiwi:*` messages, or use the MCP bridge. The preference pushes carry only the four preferences and, as before, the one bit of `config` that says whether the summary is on.
+- **The relay's limits:** 4 streams and 16 requests in flight per page, and a page that sends 50 malformed or out-of-turn messages is cut off. Errors that reach a page are a short code and a fixed message; nothing from inside the extension.
 
 ## Phase 0: what was checked (2026-11-14)
 
@@ -62,7 +71,7 @@ All runs used throwaway, headless browsers with fresh profiles and random debugg
 |---|---|
 | 0. Verify the risky assumptions | done 2026-11-14, record above |
 | 1. Shared interface package, extension page unchanged | code done 2026-11-14 (record below); not yet activated in the user's Chromium |
-| 2. Protocol package and extension side | not started |
+| 2. Protocol package and extension side | code done 2026-11-14 (record below); not yet activated in the user's Chromium |
 | 3. Website | not started |
 | 4. Interface source, local mode, fallback | not started |
 | 5. kiwi.moe pages, hosting, CI | not started |
@@ -75,3 +84,11 @@ The interface moved to `packages/app` (components, page state, catalogs, styles,
 **Checked:** `pnpm typecheck` passes for all packages. Tests: core 587 and mcp 18 as before; the 244 extension tests of the baseline are now app 145 + extension 96 + protocol 3 (the three domain cases moved out of `settingsLib.test.ts`). The preferences test stayed in the extension on purpose: it exercises the store together with the storage adapter, which is where the `area` and key filtering lives. `noHardcodedText.test.ts` now scans `packages/app/src` and `packages/protocol/src` as well, and fails if the interface is not among the scanned files. `pnpm --filter @kiwi-search/app generate:source-icons` reproduces `sourceIcons.ts` byte for byte except its header comment. `wxt build` works for Chrome and Firefox; the new-tab chunk is 240 KB and the shared chunk 304 KB, the same as before the move.
 
 **Not checked:** the moved page in a running browser (the activation in the user's Chromium comes with the next phases, after the new-tab override is decided); the Edge build; that the new CI steps pass on GitHub.
+
+## Phase 2: what was checked (2026-11-14)
+
+**Checked:** typecheck passes. Protocol tests (34): the handshake in all four outcomes over a real `MessageChannel`, requests, errors, the in-flight limit, streams and their limits, pushes, junk messages and the violation cut-off, every request parser, the rate limiter. Extension tests (111, 16 of them new in `webBridge.test.ts`): who counts as the website (wrong id, wrong origin, a lookalike host, plain http, no tab, a subframe, the extension's own page), the disabled state, that a smuggled settings patch never reaches the settings handler, the rate limit, what a failure shows the page, and that `SEARCH_MODES` in the protocol equals core's.
+
+An end-to-end run in a throwaway headless Chromium 156 (external DNS refused): the extension built with `WXT_KIWI_WEB_DEV_ORIGIN=http://localhost:18765`, a page on that origin using the real client bundled from `packages/protocol`. `data-kiwi` was set when the page's first script ran; the handshake took 3.6 ms; preferences, academic language, site icon (null: nothing resolves), a blocked site with a smuggled `config` patch (only the block took effect), refused requests (bad host, unknown method, a `config` preference save, an unknown mode) all behaved as designed; a search stream delivered `readiness`, four `source_start`, four `source_error`, `fused` and `done` (first event 1.2 ms, all sources failing because of the refused DNS); a stream message with an invalid source id got the invalid-request error; saving a preference came back as a push; a page on `http://127.0.0.1:18765`, which the content script does not match, got no `data-kiwi` and `unavailable`.
+
+**Not checked:** the bridge in Firefox (phase 0 checked the `MessagePort` hand-over there, not this content script in the MV2 build); the `disabled` state in a running browser (the setting arrives in phase 4); the production build's manifest was only inspected for the dev build; the website's own `WebHost` (phase 3); service-worker restarts while a page is connected, and the push port's reconnects; that a real `https://s.kiwi.moe` page is matched (there is no such site yet).

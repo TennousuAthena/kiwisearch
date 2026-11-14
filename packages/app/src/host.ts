@@ -1,9 +1,8 @@
 import type { AcademicLanguage } from '@kiwi-search/core';
-import type { DomainPreferenceAction, DomainPreferenceUndo } from '@kiwi-search/protocol';
+import type { DomainPreferenceAction, DomainPreferenceUndo, PreferenceValues } from '@kiwi-search/protocol';
 import type { SessionPort } from './lib/searchSessionController';
 
-/** Stored interface preferences, keyed as they are stored (`ui:theme`, …). Already reduced to what the page may see. */
-export type PreferenceValues = Record<string, unknown>;
+export type { PreferenceValues };
 
 export interface PreferenceBackend {
   load(): Promise<PreferenceValues>;

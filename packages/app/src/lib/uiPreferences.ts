@@ -1,44 +1,9 @@
 import { useSyncExternalStore } from 'react';
-import type { PreferenceBackend, PreferenceValues } from '../host';
+import type { PreferenceBackend } from '../host';
 
-export type ThemePreference = 'system' | 'light' | 'dark';
-export type SummaryMode = 'auto' | 'on-demand' | 'off';
-export interface UiPreferences {
-  theme: ThemePreference;
-  summaryMode: SummaryMode;
-  openNewTab: boolean;
-  recentQueries: boolean;
-}
-export const DEFAULT_UI_PREFERENCES: UiPreferences = { theme: 'system', summaryMode: 'auto', openNewTab: true, recentQueries: true };
-const keys = Object.keys(DEFAULT_UI_PREFERENCES) as (keyof UiPreferences)[];
-const storageKey = (key: keyof UiPreferences) => `ui:${key}`;
-/** The stored keys the interface reads: the preferences, and `config` only for the old on/off switch of the summary. */
-export const observedKeys = [...keys.map(storageKey), 'config'];
-
-function legacySummaryEnabled(config: unknown): boolean {
-  if (!config || typeof config !== 'object' || !('summary' in config)) return true;
-  const summary = config.summary;
-  return !summary || typeof summary !== 'object' || !('enabled' in summary) || summary.enabled !== false;
-}
-
-/** Retain only the compatibility bit from config, never its model keys or other fields. */
-export function preferenceValues(values: PreferenceValues): PreferenceValues {
-  return Object.fromEntries(observedKeys.filter((key) => key in values).map((key) => [key,
-    key === 'config' ? { summary: { enabled: legacySummaryEnabled(values[key]) } } : values[key],
-  ]));
-}
-
-export function readUiPreferences(values: Record<string, unknown>): UiPreferences {
-  const theme = values['ui:theme'];
-  const summaryMode = values['ui:summaryMode'];
-  return {
-    theme: theme === 'light' || theme === 'dark' ? theme : 'system',
-    summaryMode: summaryMode === 'auto' || summaryMode === 'on-demand' || summaryMode === 'off' ? summaryMode
-      : legacySummaryEnabled(values.config) ? 'auto' : 'off',
-    openNewTab: typeof values['ui:openNewTab'] === 'boolean' ? values['ui:openNewTab'] : true,
-    recentQueries: typeof values['ui:recentQueries'] === 'boolean' ? values['ui:recentQueries'] : true,
-  };
-}
+import { DEFAULT_UI_PREFERENCES, observedKeys, preferenceKeys, preferenceValues, readUiPreferences, storageKey, type PreferenceValues, type UiPreferences } from '@kiwi-search/protocol';
+export { DEFAULT_UI_PREFERENCES, observedKeys, preferenceValues, readUiPreferences };
+export type { SummaryMode, ThemePreference, UiPreferences } from '@kiwi-search/protocol';
 
 type Snapshot = { preferences: UiPreferences; ready: boolean; error: string | null; resolvedTheme: 'light' | 'dark' };
 let snapshot: Snapshot = { preferences: DEFAULT_UI_PREFERENCES, ready: false, error: null, resolvedTheme: 'light' };
@@ -106,7 +71,7 @@ export function initializeUiPreferences(): Promise<void> {
 export function updateUiPreferences(patch: Partial<UiPreferences>): Promise<void> {
   const operation = writes.catch(() => {}).then(async () => {
     await initializeUiPreferences();
-    const values = Object.fromEntries(keys.filter((key) => key in patch).map((key) => [storageKey(key), patch[key]]));
+    const values = Object.fromEntries(preferenceKeys.filter((key) => key in patch).map((key) => [storageKey(key), patch[key]]));
     const versions = Object.fromEntries(Object.keys(values).map((key) => [key, changedVersions[key] ?? 0]));
     await requireBackend().save(values);
     // Storage events may already include this write and a newer edit from another page.
