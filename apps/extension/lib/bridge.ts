@@ -1,6 +1,6 @@
 import { isAcademicLanguage, isSearchMode, normalizeNewsOptions, runSearch, usableSources, type Env, type FusionConfig, type NewsOptions, type RunOptions, type SourceId } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
-import { t } from './i18n';
+import { t } from '@kiwi-search/app/i18n';
 import { loadBridge, loadConfig } from './settings';
 import { recordSourceStatus } from './sourceStatus';
 

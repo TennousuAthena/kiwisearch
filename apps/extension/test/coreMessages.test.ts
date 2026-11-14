@@ -1,6 +1,6 @@
 import { DEFAULT_CORE_MESSAGES } from '@kiwi-search/core';
 import { describe, expect, it } from 'vitest';
-import { coreMessagesFor } from '../lib/i18n/coreMessages';
+import { coreMessagesFor } from '@kiwi-search/app/i18n/coreMessages';
 
 // Core words these sentences itself when nobody gives it better ones (MCP, tests); the extension words them from its catalog.
 // In the language the catalog is written in, the two must say the same thing.

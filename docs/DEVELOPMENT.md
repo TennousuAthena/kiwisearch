@@ -54,8 +54,8 @@ CI 只覆盖纯逻辑测试、类型检查和构建。标签渲染、内容脚�
 apps/extension/            WXT + React，Manifest V3
   entrypoints/             background.ts、engines.content.ts、newtab/、options/
   lib/                     后台与页面共用的逻辑（渲染器、设置、来源状态、屏蔽列表、图标……）
-  assets/engine-logos/     引擎小图标的 logo 文件，logos.json 记出处，NOTICE.md 记许可
-  scripts/                 gen-source-icons.mjs：把 logo 转成 lib/sourceIcons.ts
+  packages/app/assets/engine-logos/     引擎小图标的 logo 文件，logos.json 记出处，NOTICE.md 记许可
+  scripts/                 gen-source-icons.mjs：把 logo 转成 packages/app/src/lib/sourceIcons.ts
   test/                    vitest：只测纯逻辑，不碰真实浏览器
 packages/core/             搜索管线（src/）与测试（test/，夹具在 test/fixtures/）
 packages/mcp/              stdio MCP 服务
@@ -105,13 +105,13 @@ chromium --headless=new --remote-debugging-port=9334 --user-data-dir=<临时目�
   --load-extension=<副本> --disable-extensions-except=<副本> --no-first-run about:blank
 ```
 
-然后用 CDP 驱动：打开 `chrome-extension://<id>/options.html`，在页面里用 `chrome.storage.local.set({ config })` 写入配置；再打开 `newtab.html?q=…`，读页面上的结果。扩展 ID 可以从 `/json/list` 里 Service Worker 的网址取得。几条经验：
+然后用 CDP 驱动：打开 `chrome-extension://<id>/options.html`，在页面里用 `chrome.storage.local.set({ config })` 写入配置；再打开 `app.html#q=…`，读页面上的结果。扩展 ID 可以从 `/json/list` 里 Service Worker 的网址取得。几条经验：
 
 - **只开一个 API 来源**（比如 Exa）做端到端最省事：不需要浏览器引擎、工作窗口、登录，结果是真的、也快；页面上可见的结果是 `.result-list:not(.muted) article`，折叠区的按钮是 `.hidden-results .disclosure`（默认收起，点开后卡片才渲染）。
 - 要测“下载别人的文件”的逻辑（屏蔽列表订阅），在本机起一个能控制响应的小服务：支持 `ETag`、可以故意返回 500、可以返回 HTML。localhost 的 `http://` 地址订阅是允许的。
 - 往存储里写测试配置时要带 `version: <当前的 CONFIG_VERSION>`。不带的配置会被当成版本 1，依次跑所有迁移，其中有的会改你写的值（比如把百度关掉、把“需要人机验证时自动弹出验证窗口”关掉）。
 
-### 不开扩展看新标签页
+### 不开扩展看搜索页
 
 页面本身可以脱离扩展检查：把 `.output/chrome-mv3` 用静态服务器起来，注入一个模拟的 `window.chrome.runtime`，它的 `connect()` 返回的端口重放一串 `PipelineEvent`，再用无头 Chromium 通过 CDP 截图。
 
@@ -123,13 +123,13 @@ chromium --headless=new --remote-debugging-port=9334 --user-data-dir=<临时目�
 2. **来源本身**：
    - API 来源：写 `sources/<id>.ts`（`SearchSource`，通过 `env.fetch` 请求），在 `sources/index.ts` 的 `SOURCES` 里登记。
    - 浏览器引擎：写 `engines/<id>.ts`（`BrowserEngine`），加进 `engines/index.ts` 的 `BROWSER_ENGINES`。百度要一直排在最后，`config.test.ts` 里有一条测试检查这一点。
-3. **语言包**（`apps/extension/lib/i18n/catalog/`）：`source.label.<id>` 和 `source.blurb.<id>`（`options.ts`），`mark.<id>`（`newtab.ts`）。这些是按 `SourceId` 类型检查的动态键，漏一个 `tsc` 会报错。
-4. **`apps/extension/lib/sourceMarks.ts`**：`SOURCE_MARKS`（`Record<SourceId, …>`），以及它的 logo：文件放进 `assets/engine-logos/`，在 `logos.json` 里登记出处，在 `NOTICE.md` 里写许可（`test/sourceMarks.test.ts` 要求两者都有），然后运行 `node apps/extension/scripts/gen-source-icons.mjs` 生成 `lib/sourceIcons.ts`。logo 必须是品牌真的 logo：先找 SVG Logos、Simple Icons 这类开放集合，没有就取品牌自己网站的图标；**不要自己画字母徽标**。
+3. **语言包**（`packages/app/src/i18n/catalog/`）：`source.label.<id>` 和 `source.blurb.<id>`（`options.ts`），`mark.<id>`（`newtab.ts`）。这些是按 `SourceId` 类型检查的动态键，漏一个 `tsc` 会报错。
+4. **`packages/app/src/lib/sourceMarks.ts`**：`SOURCE_MARKS`（`Record<SourceId, …>`），以及它的 logo：文件放进 `packages/app/assets/engine-logos/`，在 `logos.json` 里登记出处，在 `NOTICE.md` 里写许可（`packages/app/test/sourceMarks.test.ts` 要求两者都有），然后运行 `node packages/app/scripts/gen-source-icons.mjs` 生成 `packages/app/src/lib/sourceIcons.ts`。logo 必须是品牌真的 logo：先找 SVG Logos、Simple Icons 这类开放集合，没有就取品牌自己网站的图标；**不要自己画字母徽标**。
 5. **`DEFAULT_CONFIG.sources`**（`config.ts`）：**这个字段是 `Partial`，缺了不会报错，来源会悄悄地默认关闭。**
 6. **`apps/extension/lib/sourceCatalog.ts`**：`SOURCE_INFO`（设置页里的分组、是否需要登录、是否需要 Key、是否要确认才能开；一句话说明和确认的理由在语言包里）。
 7. **测试**：浏览器引擎要有保存下来的真实页面作夹具；拿不到就手写，并在夹具第一行写明是手写的、依据是什么。同时在 [PLAN.md](PLAN.md) 和 [internals/](internals/) 里对应主题的文件中写清**哪些验证过、哪些没有**，这是这个项目的约定。
 
-**界面文字不要写在组件里**，写进 `apps/extension/lib/i18n/catalog/`，用 `t()` 取，见 [I18N.md](I18N.md)。`test/noHardcodedText.test.ts` 会拦住写死的中文，`test/copyStyle.test.ts` 检查 DESIGN.md “Copy” 里能机器检查的规则。
+**界面文字不要写在组件里**，写进 `packages/app/src/i18n/catalog/`，用 `t()` 取，见 [I18N.md](I18N.md)。`test/noHardcodedText.test.ts` 会拦住写死的中文，`packages/app/test/copyStyle.test.ts` 检查 DESIGN.md “Copy” 里能机器检查的规则。
 
 浏览器引擎的 `readySelector`、`blockedSelector`、`isBlockedUrl`、`loginSelector`、`refusedPattern` 各自的含义见 [ARCHITECTURE.md](ARCHITECTURE.md) 第 5 节。没有已知验证码标记的引擎，`blockedSelector` 用 `':not(*)'`。
 

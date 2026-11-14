@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>隐私 - Kiwi Search</title>
+    <meta name="description" content="Kiwi Search 扩展和网站怎么处理你的数据。" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon/32.png" />
+    <link rel="alternate" hreflang="en" href="https://kiwi.moe/en/privacy" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="site-brand" href="/"><span class="site-mark" aria-hidden="true"></span><span>Kiwi Search</span></a>
+      <nav aria-label="站点导航">
+        <a href="/about">介绍</a>
+        <a href="/install">安装</a>
+        <a href="/start">开始使用</a>
+        <a href="/privacy" aria-current="page">隐私</a>
+        <a href="https://github.com/TennousuAthena/kiwisearch" rel="noreferrer">GitHub</a>
+        <a href="/en/privacy" hreflang="en">English</a>
+      </nav>
+    </header>
+    <main class="doc">
+      <h1>隐私</h1>
+      <p class="note">这是 Kiwi Search 扩展以及网站 kiwi.moe 的隐私说明。</p>
+      <h2>一句话</h2>
+      <p>搜索在你自己的浏览器里完成。Kiwi 不运营账号、代理或后端服务器，所以没有一台“Kiwi 的服务器”会收到你的搜索词。</p>
+      <h2>扩展</h2>
+      <ul>
+        <li><strong>搜索词会发给你启用的搜索来源。</strong>浏览器渲染的来源（搜索引擎、视频站、社区平台等）由你的浏览器直接打开它们的页面，使用你的 IP 和你在那个浏览器里的登录状态；API 来源使用你填的 Key。默认开启的来源和每个来源的开关都在扩展的设置页里，可以随时关闭。</li>
+        <li><strong>AI 功能只有配置后才会用到。</strong>你填了 API Key 并启用摘要或决策模型后，搜索词、结果的标题、网址和摘要，以及用于摘要的网页文字，会发给你配置的服务。决策模型的预设服务是 TypeSafe，没有填 Key 时不会发送。使用浏览器内置模型时，内容在你的设备上处理。</li>
+        <li><strong>网站图标</strong>由你的浏览器直接向结果所在的网站请求（它的 <code>/favicon.ico</code> 和首页），不经过第三方图标服务。你没有访问过的网站会因此收到一次图标请求。</li>
+        <li><strong>屏蔽列表订阅</strong>默认关闭。开启后，扩展会向你选择的第三方主机下载名单。</li>
+        <li><strong>保存在本机的内容：</strong>设置、你填的 API Key、来源状态和图标缓存，都保存在浏览器的扩展存储里，不会上传。搜索词和结果不会被扩展写入存储，只在打开的页面里保留，关闭页面即消失。</li>
+        <li><strong>MCP 服务</strong>只在本机 <code>127.0.0.1</code> 上监听，扩展只在你配对了令牌后才会连接它。</li>
+        <li>扩展没有统计、广告或遥测，也不向 Kiwi 的任何服务器发送数据。</li>
+      </ul>
+      <h2>网站 kiwi.moe</h2>
+      <ul>
+        <li>网站是静态页面：没有后端，不设 cookie，不用统计，不加载第三方脚本。搜索页（首页）设置了禁止任何网络连接的内容安全策略。</li>
+        <li>搜索词写在网址的 <code>#</code> 后面。浏览器请求页面时不会发送 <code>#</code> 之后的内容，所以搜索词不会到达网站的服务器。</li>
+        <li>托管服务商会像对待任何网站一样，看到访问的 IP、时间、浏览器标识和请求的路径。</li>
+        <li>网站上没有任何地址接收搜索词：搜索词只出现在 <code>#</code> 之后。</li>
+        <li>没有安装扩展时，网站不会替你搜索。它给出其他搜索引擎的链接，只有你点了某个链接，搜索词才会发给那家引擎。你可以让页面在本机记住一个选择（保存在浏览器的 localStorage 里，不上传）。</li>
+        <li>在扩展设置里选择“扩展自带界面”后，搜索不会访问 kiwi.moe，网站也无法使用这个扩展。</li>
+      </ul>
+      <h2>你的选择</h2>
+      <p>可以在设置里关闭任何来源、不配置任何 AI 服务、选择扩展自带界面。卸载扩展会删除它在你浏览器里保存的全部内容。</p>
+      <h2>联系和更新</h2>
+      <p>问题和反馈请到 <a href="https://github.com/TennousuAthena/kiwisearch/issues" rel="noreferrer">GitHub</a>。这份说明有变化时会更新本页。</p>
+    </main>
+    <footer class="site-footer">
+      <p>Kiwi Search 以 MIT 许可证开源。</p>
+    </footer>
+    <script type="module" src="/src/site.ts"></script>
+  </body>
+</html>

@@ -1,12 +1,12 @@
 import { DEFAULT_CONFIG, type FusionConfig, type SourceId } from '@kiwi-search/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckIcon, CircleAlertIcon } from '@/lib/icons';
+import { CheckIcon, CircleAlertIcon } from '@kiwi-search/app/icons';
 import { loadBlocklistMeta, watchBlocklistMeta } from '@/lib/blocklistService';
 import type { BlocklistMetaMap } from '@/lib/blocklistState';
 import { resetKeepingSecrets, tidyConfig } from '@/lib/configReset';
-import { t } from '@/lib/i18n';
-import { KiwiLogo } from '@/lib/KiwiLogo';
-import { UiPreferencesPanel } from '@/lib/UiPreferencesPanel';
+import { t } from '@kiwi-search/app/i18n';
+import { KiwiLogo } from '@kiwi-search/app/KiwiLogo';
+import { UiPreferencesPanel } from '@kiwi-search/app/UiPreferencesPanel';
 import {
   DEFAULT_BRIDGE,
   loadBridge,

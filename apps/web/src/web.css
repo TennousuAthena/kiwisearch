@@ -1,0 +1,34 @@
+/* The website's own screens; the search interface brings its own styles. Tokens come from the interface's base.css. */
+.panel {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+  padding: clamp(3rem, 14vh, 9rem) 1.5rem 3rem;
+}
+.panel-logo { color: var(--accent); display: block; font-size: clamp(3rem, 7vw, 4.5rem); font-weight: 700; letter-spacing: -0.03em; text-decoration: none; }
+.panel-search { width: min(38rem, 100%); }
+.panel-search input {
+  width: 100%;
+  font: inherit;
+  font-size: 1.0625rem;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border-ctl);
+  border-radius: 999px;
+  padding: 0.8rem 1.25rem;
+}
+.panel-search input:hover { box-shadow: var(--shadow-1); }
+.panel-search input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring), var(--shadow-1); }
+.panel-title { font-size: 1.25rem; font-weight: 600; margin: 0.5rem 0 0; text-align: center; }
+.panel-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; }
+.panel-hint { color: var(--fg-3); margin: 0; text-align: center; }
+.panel-engines { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; margin-top: 1.5rem; color: var(--fg-3); }
+.panel-engines p { margin: 0; }
+.panel-engines ul { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.25rem 1.25rem; list-style: none; margin: 0; padding: 0; }
+.panel-engines a { color: var(--link); }
+.panel-remember { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
+.btn.primary { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; text-decoration: none; }
+.btn.primary:hover { background: var(--accent-solid-hover); }
+button.link { background: none; border: 0; padding: 0; font: inherit; color: var(--link); cursor: pointer; text-decoration: underline; }

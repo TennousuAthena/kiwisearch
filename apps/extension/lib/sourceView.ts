@@ -1,5 +1,5 @@
 import type { FusionConfig, SourceId } from '@kiwi-search/core';
-import { t } from './i18n';
+import { t } from '@kiwi-search/app/i18n';
 import { SOURCE_INFO } from './sourceCatalog';
 import { ageLabel, type SourceHealth } from './sourceHealth';
 

@@ -1,0 +1,1 @@
+{ "manifest_version": 3, "name": "Kiwi phase0 search-api probe", "version": "0.0.1", "permissions": ["search"], "background": { "service_worker": "background.js" } }

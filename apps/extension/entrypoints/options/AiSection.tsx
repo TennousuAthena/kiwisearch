@@ -1,5 +1,5 @@
 import { decisionModelUsable, llmUsable, systemOneUsable, type FusionConfig, type JudgeProvider } from '@kiwi-search/core';
-import { t } from '@/lib/i18n';
+import { t } from '@kiwi-search/app/i18n';
 import { DecisionFields } from './DecisionFields';
 import { Field, RuleList, SecretInput, Segmented, SwitchRow } from './controls';
 import { LanguageFields } from './LanguageFields';

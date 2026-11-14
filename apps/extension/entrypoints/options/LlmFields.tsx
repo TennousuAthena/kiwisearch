@@ -1,6 +1,6 @@
 import type { LlmSettings } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
-import { t } from '@/lib/i18n';
+import { t } from '@kiwi-search/app/i18n';
 import { Field, SecretInput } from './controls';
 import { TestRow, type TestReply } from './TestRow';
 

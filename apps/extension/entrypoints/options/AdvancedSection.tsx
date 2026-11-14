@@ -1,8 +1,8 @@
 import { wikipediaFoldEnabled, type FusionConfig, type SourceId } from '@kiwi-search/core';
 import { useMemo } from 'react';
 import { browserLanguage } from '@/lib/language';
-import { t } from '@/lib/i18n';
-import { tr } from '@/lib/i18n/rich';
+import { t } from '@kiwi-search/app/i18n';
+import { tr } from '@kiwi-search/app/i18n/rich';
 import { SOURCE_INFO } from '@/lib/sourceCatalog';
 import { sourceLabel } from '@/lib/sourceMeta';
 import type { BridgeSettings } from '@/lib/settings';

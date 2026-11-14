@@ -11,6 +11,11 @@ export default defineConfig({
     // `webRequest` only observes: it reads where a Google result link redirects to (`lib/redirectTarget.ts`).
     permissions: ['storage', 'tabs', 'tabGroups', 'alarms', ...(browser === 'firefox' ? [] : ['favicon']), 'declarativeNetRequestWithHostAccess', 'webRequest'],
     host_permissions: ['<all_urls>'],
-    web_accessible_resources: [{ resources: ['newtab.html'], matches: ['<all_urls>'] }],
+    // The toolbar button opens the extension's own interface. Not an override of the new-tab page: where that is shown is the user's choice.
+    action: { default_title: 'Kiwi Search' },
+    // Only for "open the extension's own interface when the website cannot be reached"; asked for when the user turns that on.
+    optional_permissions: ['webNavigation'],
+    // Navigations that a web page starts to the extension's own page need this; the browser's own (address bar, `k`) do not. Only the Kiwi sites.
+    web_accessible_resources: [{ resources: ['app.html'], matches: ['https://kiwi.moe/*'] }],
   }),
 });

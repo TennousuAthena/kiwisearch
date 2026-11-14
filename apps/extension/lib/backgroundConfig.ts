@@ -1,6 +1,6 @@
 import { browser } from 'wxt/browser';
 import { applySettingsPatch, type DomainPreferenceState, type SettingsUpdate, type SettingsUpdateResponse } from './configUpdates';
-import { normalizeDomain } from './domains';
+import { normalizeDomain } from '@kiwi-search/protocol';
 import { loadBridge, loadConfig } from './settings';
 
 let writes: Promise<unknown> = Promise.resolve();

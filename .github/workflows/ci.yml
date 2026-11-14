@@ -35,7 +35,7 @@ jobs:
       # .wxt/ files its tsconfig extends, so install must come before typecheck.
       - run: pnpm install --frozen-lockfile
 
-      # Typecheck and the three test suites do not depend on each other, so a
+      # Typecheck and the test suites do not depend on each other, so a
       # failure in one must not hide the others. The root `pnpm test` is not
       # used: packages/experiments has no tests and exits 1.
       - name: Typecheck
@@ -45,9 +45,21 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm --filter @kiwi-search/core test
 
+      - name: Test protocol
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @kiwi-search/protocol test
+
+      - name: Test app
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @kiwi-search/app test
+
       - name: Test extension
         if: ${{ !cancelled() }}
         run: pnpm --filter @kiwi-search/extension test
+
+      - name: Test web
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @kiwi-search/web test
 
       - name: Test mcp
         if: ${{ !cancelled() }}
@@ -55,6 +67,12 @@ jobs:
 
       - name: Build mcp server
         run: pnpm --filter @kiwi-search/mcp build
+
+      - name: Build web
+        run: pnpm --filter @kiwi-search/web build
+
+      - name: Check the web build
+        run: pnpm --filter @kiwi-search/web check:dist
 
   # One unpacked extension per browser for every pushed commit, independent of
   # `verify` so a commit with a failing test still has builds to bisect with.

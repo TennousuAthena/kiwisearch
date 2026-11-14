@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>安装 - Kiwi Search</title>
+    <meta name="description" content="怎么安装 Kiwi Search 扩展。" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon/32.png" />
+    <link rel="alternate" hreflang="en" href="https://kiwi.moe/en/install" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="site-brand" href="/"><span class="site-mark" aria-hidden="true"></span><span>Kiwi Search</span></a>
+      <nav aria-label="站点导航">
+        <a href="/about">介绍</a>
+        <a href="/install" aria-current="page">安装</a>
+        <a href="/start">开始使用</a>
+        <a href="/privacy">隐私</a>
+        <a href="https://github.com/TennousuAthena/kiwisearch" rel="noreferrer">GitHub</a>
+        <a href="/en/install" hreflang="en">English</a>
+      </nav>
+    </header>
+    <main class="doc">
+      <h1>安装</h1>
+      <p>Kiwi Search 还没有上架浏览器商店，目前从源码构建后加载。</p>
+      <h2>Chrome 和 Edge</h2>
+      <ol>
+        <li>需要 Node.js 24 和 pnpm 12。从 <a href="https://github.com/TennousuAthena/kiwisearch" rel="noreferrer">GitHub</a> 取得源码，在仓库根目录运行 <code>pnpm install</code> 和 <code>pnpm --filter @kiwi-search/extension build</code>。</li>
+        <li>在 Chrome 打开 <code>chrome://extensions</code>（Edge 打开 <code>edge://extensions</code>），启用“开发者模式”。</li>
+        <li>点“加载已解压的扩展程序”，选择 <code>apps/extension/.output/chrome-mv3</code>。</li>
+      </ol>
+      <h2>Firefox</h2>
+      <ol>
+        <li>运行 <code>pnpm --filter @kiwi-search/extension build:firefox</code>。</li>
+        <li>打开 <code>about:debugging#/runtime/this-firefox</code>，点“临时载入附加组件”，选择 <code>apps/extension/.output/firefox-mv2/manifest.json</code>。临时载入的扩展在浏览器重启后要重新载入。</li>
+      </ol>
+      <h2>装好之后</h2>
+      <p>设置页会自动打开一次，里面有“开始使用”引导。怎么打开 Kiwi、怎么设为默认搜索，见<a href="/start">开始使用</a>。</p>
+    </main>
+    <footer class="site-footer">
+      <p>Kiwi Search 以 MIT 许可证开源。</p>
+    </footer>
+    <script type="module" src="/src/site.ts"></script>
+  </body>
+</html>

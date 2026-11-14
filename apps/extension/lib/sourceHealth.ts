@@ -1,5 +1,5 @@
 import type { PipelineEvent, SourceId } from '@kiwi-search/core';
-import { t } from './i18n';
+import { t } from '@kiwi-search/app/i18n';
 
 /** What the last search that used a source found out about it. The settings page shows this next to the source. */
 export type SourceHealth =

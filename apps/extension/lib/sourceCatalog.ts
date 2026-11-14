@@ -1,5 +1,5 @@
 import type { SourceId } from '@kiwi-search/core';
-import type { MessageKey } from './i18n';
+import type { MessageKey } from '@kiwi-search/app/i18n';
 
 export type SourceGroup = 'web' | 'shopping' | 'academic' | 'video' | 'community' | 'image';
 

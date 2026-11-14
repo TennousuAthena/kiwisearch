@@ -1,5 +1,5 @@
 import { languageName, overviewLanguageFor } from '@kiwi-search/core';
-import { getLocale, t } from './i18n';
+import { getLocale, t } from '@kiwi-search/app/i18n';
 
 /**
  * The languages Chrome's built-in model (Prompt API) accepts for output, from Chrome's documentation of it (read 2026-11-12:

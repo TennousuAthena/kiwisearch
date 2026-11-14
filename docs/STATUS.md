@@ -113,7 +113,7 @@ Kiwi Search 是一个在用户自己的浏览器里跑的元搜索：用你自�
 
 ## 待决定
 
-- **上架各商店。** 2026-11-12 评估过：合适的顺序是 Edge → Firefox → Chrome → Safari。Chrome 的单一用途规则要求提供网页搜索体验的新标签页扩展用 Chrome Search API，或通过 `chrome_settings_overrides.search_provider` 声明，这和现在 Kiwi 自己的搜索页冲突，是唯一可能改变产品形态的发现。还没有选路线，也没有改动清单。
+- **上架各商店。** 2026-11-12 评估过：合适的顺序是 Edge → Firefox → Chrome → Safari。当时的最大障碍是 Chrome 单一用途规则：提供网页搜索体验的新标签页扩展要用 Chrome Search API 或 `chrome_settings_overrides.search_provider`。2026-11-14 起扩展不再覆盖新标签页，也不改任何搜索设置，界面放在网站 kiwi.moe 和扩展自带的页面两处（见 [web-app.md](internals/web-app.md)），这一项不再适用。还没做的：隐私政策页、收窄 `<all_urls>` 和 `tabs`、MCP 桥默认关闭、给审核员的说明、各商店的清单和打包。
 - **摘要模型、默认开哪些来源、是否彻底移除 LLM 重排**：见 [PLAN.md](PLAN.md) 第 9 节。
 
 ## 接下来建议

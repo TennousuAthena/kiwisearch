@@ -1,7 +1,7 @@
 import type { BlockReason, BrowserEngine, BrowserRunOptions, SearchHit, SearchMode, SourceId } from '@kiwi-search/core';
 import type { Browser } from 'wxt/browser';
 import { browser } from 'wxt/browser';
-import { t } from './i18n';
+import { t } from '@kiwi-search/app/i18n';
 import { createAsyncLock, isBrowserErrorPage, mergeRendererState, workerIdentity, type RendererState } from './rendererState';
 import { loadConfig } from './settings';
 
@@ -360,21 +360,24 @@ export async function handleWorkerMessage(message: unknown, sender: Browser.runt
     }
     return { ok: true };
   }
-  if (msg?.type === 'kiwi:focus-worker' && typeof msg.source === 'string') {
-    const state = await withStateLock(async () => validState(await readState()));
-    const tabId = state?.tabs[msg.source as SourceId];
-    if (state && tabId !== undefined) {
-      const request = pendingByTab.get(tabId);
-      if (request) {
-        await focusForCaptcha(request, state, false, true);
-      } else {
-        await browser.windows.update(state.windowId, { state: 'normal', focused: true });
-        await browser.tabs.update(tabId, { active: true });
-      }
-    }
-    return { ok: !!tabId };
-  }
+  if (msg?.type === 'kiwi:focus-worker' && typeof msg.source === 'string') return { ok: await focusWorker(msg.source) };
   return undefined;
+}
+
+/** Brings the worker tab of a source to the front, so the user can solve a captcha or sign in. False if that source has no worker tab. */
+export async function focusWorker(source: string): Promise<boolean> {
+  const state = await withStateLock(async () => validState(await readState()));
+  const tabId = state?.tabs[source as SourceId];
+  if (state && tabId !== undefined) {
+    const request = pendingByTab.get(tabId);
+    if (request) {
+      await focusForCaptcha(request, state, false, true);
+    } else {
+      await browser.windows.update(state.windowId, { state: 'normal', focused: true });
+      await browser.tabs.update(tabId, { active: true });
+    }
+  }
+  return !!tabId;
 }
 
 export async function collectIdleWorkers(): Promise<void> {

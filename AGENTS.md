@@ -4,7 +4,7 @@ Guidance for AI coding agents (Claude Code, Codex, Cursor, …) and for people w
 
 ## What this is
 
-Kiwi Search is a Manifest V3 new-tab search extension for Chrome and Edge (a Firefox MV2 build exists and was checked live once, see [testing.md](docs/internals/testing.md)). It queries many sources from the user's own browser, merges them by URL with RRF, filters content farms with a decision model, and streams an AI overview with `[n]` citations. A local stdio MCP server forwards an agent's tool calls to the same pipeline running in the browser.
+Kiwi Search is a Manifest V3 search extension for Chrome and Edge, with a search interface on the website `kiwi.moe` and a copy of it inside the extension (it does not take over the new-tab page) (a Firefox MV2 build exists and was checked live once, see [testing.md](docs/internals/testing.md)). It queries many sources from the user's own browser, merges them by URL with RRF, filters content farms with a decision model, and streams an AI overview with `[n]` citations. A local stdio MCP server forwards an agent's tool calls to the same pipeline running in the browser.
 
 **Core principle: all data comes from the user's own browser, logins and keys.** Kiwi provides no accounts, keys, proxies or servers, and results are shown only to the user.
 
@@ -16,23 +16,26 @@ Kiwi Search is a Manifest V3 new-tab search extension for Chrome and Edge (a Fir
 pnpm workspace; run from the repo root. README asks for Node 24 and pnpm 12.
 
 - Install: `pnpm install`. The extension's `postinstall` runs `wxt prepare`, which generates `apps/extension/.wxt/`. `apps/extension/tsconfig.json` extends that generated file, so typecheck fails until install has run.
-- Test: run each package on its own, `pnpm --filter @kiwi-search/core test` (or `@kiwi-search/extension`, `@kiwi-search/mcp`). The root `pnpm test` is `pnpm -r test` and also reaches `packages/experiments`, which is only a shell (empty `src/` and `test/`), so `vitest` exits 1 there with "No test files found"; that failure predates the block-list work.
-- Single test file: `pnpm --filter @kiwi-search/core exec vitest run test/fusion.test.ts` (swap the package filter for `@kiwi-search/mcp` or `@kiwi-search/extension`). Narrow to one case with `-t "<test name>"`.
+- Test: run each package on its own, `pnpm --filter @kiwi-search/core test` (or `@kiwi-search/app`, `@kiwi-search/protocol`, `@kiwi-search/web`, `@kiwi-search/extension`, `@kiwi-search/mcp`). The root `pnpm test` is `pnpm -r test` and also reaches `packages/experiments`, which is only a shell (empty `src/` and `test/`), so `vitest` exits 1 there with "No test files found"; that failure predates the block-list work.
+- Single test file: `pnpm --filter @kiwi-search/core exec vitest run test/fusion.test.ts` (swap the package filter for another package). Narrow to one case with `-t "<test name>"`.
 - Typecheck: `pnpm typecheck` (`tsc` per package; the extension runs `wxt prepare` first). There is no lint script or lint config, so typecheck is the only static check.
-- CI: `.github/workflows/ci.yml` runs a frozen-lockfile install, typecheck, the three test suites and the mcp build (Node 24, pnpm 12) on every push to any branch and on pull requests, and on every push uploads an unpacked Chrome, Edge and Firefox build of that commit. Run the same steps before pushing. → [testing.md](docs/internals/testing.md)
+- CI: `.github/workflows/ci.yml` runs a frozen-lockfile install, typecheck, the test suites of core, protocol, app, extension, web and mcp, and the mcp and web builds (Node 24, pnpm 12) on every push to any branch and on pull requests, and on every push uploads an unpacked Chrome, Edge and Firefox build of that commit. Run the same steps before pushing. → [testing.md](docs/internals/testing.md)
 - Build: `pnpm build` (only extension and mcp define `build`). Chrome extension: `pnpm --filter @kiwi-search/extension build`, output in `apps/extension/.output/chrome-mv3`, loaded unpacked. Firefox: `build:firefox`. Dev server: `pnpm dev`. MCP server bundle: `pnpm --filter @kiwi-search/mcp build` → `packages/mcp/dist/index.js`.
 
 ## Code map
 
-Three workspace packages (plus an empty `packages/experiments` shell).
+Six workspace packages (plus `packages/experiments`, which holds the browser-check scripts).
 
 | Package | What it is |
 |---|---|
 | `packages/core` | Pure logic: the `runSearch` pipeline in `src/pipeline.ts`, sources and engines (`src/sources`, `src/engines`), fusion, the decision model, block lists, the summary. It never calls `browser.*`; the caller passes an `Env` (`fetch`, `cache`, `runBrowserEngine`, …). |
-| `apps/extension` | WXT + React, Manifest V3. The only place that touches a browser: the service worker (`entrypoints/background.ts`), the worker-tab renderer (`lib/tabRenderer.ts`), the content scripts (`entrypoints/engines.content.ts`, `entrypoints/shopping.content.ts`), the new-tab page (`entrypoints/newtab/`) and the options page (`entrypoints/options/`). |
+| `apps/extension` | WXT + React, Manifest V3. The only place that touches a browser: the service worker (`entrypoints/background.ts`), the worker-tab renderer (`lib/tabRenderer.ts`), the content scripts (`entrypoints/engines.content.ts`, `entrypoints/shopping.content.ts`), the new-tab page (`entrypoints/newtab/`, a thin shell that mounts `packages/app` with the extension's `KiwiHost` from `lib/extensionHost.ts`), the content script that lets the Kiwi website use the extension (`entrypoints/web-bridge.content.ts`, answered in `lib/webBridge.ts`) and the options page (`entrypoints/options/`). |
+| `packages/app` | The search interface: components, page state, message catalogs, styles and engine logos (`src/app`, `src/lib`, `src/i18n`). It depends only on the `KiwiHost` interface (`src/host.ts`), never on `browser.*`, so the same code runs as an extension page and, later, on the website. `mountSearchApp()` starts it. → [web-app.md](docs/internals/web-app.md) |
+| `apps/web` | The website `kiwi.moe`: static files only (Vite), one build. Its home page is the search interface, the same as the extension's own page, which talks to the installed extension over the bridge (`src/webHost.ts`, `src/connection.ts`); without a working extension it shows its own screens (`src/ConnectionPanel.tsx`). The other pages are plain HTML in Chinese and English (introduction, install, getting started, privacy; `about.html`, `en/`, …); the privacy statement has to match what the code does. Response headers are in `public/_headers`. It has no back end and the query never reaches its server. → [web-app.md](docs/internals/web-app.md) |
+| `packages/protocol` | What the interface and the service worker both need to agree on: the port message types, the settings-update receipts and the domain helpers. Types and pure functions only. |
 | `packages/mcp` | stdio MCP server. The first process binds `127.0.0.1:17345` and becomes the hub, later ones relay to it; the hub talks to the extension. |
 
-One search: the new-tab page (or an MCP request) → a `runtime.connect` port → `background.ts` → `runSearch` in core → sources in parallel (API sources through `env.fetch`, browser engines through worker tabs) → fuse, fold, hide → optional summary → `PipelineEvent`s streamed back to the page or the MCP client.
+One search: the search interface (the website, the extension's own page, or an MCP request) → a `runtime.connect` port → `background.ts` → `runSearch` in core → sources in parallel (API sources through `env.fetch`, browser engines through worker tabs) → fuse, fold, hide → optional summary → `PipelineEvent`s streamed back to the page or the MCP client.
 
 ## Docs map
 
@@ -51,8 +54,9 @@ Read the matching file in `docs/internals/` before changing that area. They are 
 | [sources.md](docs/internals/sources.md) | registry, browser and API engines, Exa, Brave, adding a source | add or fix a source or engine |
 | [config-and-storage.md](docs/internals/config-and-storage.md) | config version, migrations, storage keys, options page | add a setting or migrate stored config |
 | [extension-runtime.md](docs/internals/extension-runtime.md) | service worker, worker tabs, content script, captcha and login handling | touch `background.ts`, `tabRenderer.ts` or `engines.content.ts` |
-| [newtab-page.md](docs/internals/newtab-page.md) | page session and reducer, source marks, site icons | touch `entrypoints/newtab/` |
+| [newtab-page.md](docs/internals/newtab-page.md) | page session and reducer, source marks, site icons | touch `packages/app/src/app/` |
 | [interface-text.md](docs/internals/interface-text.md) | message catalogs, `t()`, the guard tests | add or change any text the user sees |
+| [web-app.md](docs/internals/web-app.md) | the website, the extension's own interface, the page-to-extension bridge, the search URL, interface source, what was checked | touch `packages/app`, `apps/web`, `packages/protocol` or the search address |
 | [mcp-bridge.md](docs/internals/mcp-bridge.md) | hub and relay, pairing, the extension side of the bridge | touch `packages/mcp` or `lib/bridge.ts` |
 | [testing.md](docs/internals/testing.md) | fixtures (real or hand-written), what only a real browser can check | add a parser test or verify in a real browser |
 
@@ -61,10 +65,10 @@ For people (Chinese), indexed in [docs/README.md](docs/README.md): [docs/USAGE.m
 ## Rules that are easy to break
 
 - **Finish in the user's local Chromium.** Build and activate every completed extension change in the existing profile and extension path, then verify the running code, manifest, UI and preserved data. Back up settings outside the repo; preserve the extension ID, keys and browser logins, never uninstall or substitute a test profile/config. → [testing.md](docs/internals/testing.md)
-- **Core stays pure.** Nothing in `packages/core` calls `browser.*` or `chrome.*`; take what you need from `Env`. The new-tab page does not import core (it would pull the parsers into its bundle), so `lib/results.ts` mirrors the few helpers it needs, such as `modeHasText`. → [pipeline.md](docs/internals/pipeline.md), [newtab-page.md](docs/internals/newtab-page.md)
+- **Core stays pure.** Nothing in `packages/core` calls `browser.*` or `chrome.*`; take what you need from `Env`. The search interface (`packages/app`) does not import core at run time, only its types (it would pull the parsers into its bundle), so `packages/app/src/lib/results.ts` mirrors the few helpers it needs, such as `modeHasText`. → [pipeline.md](docs/internals/pipeline.md), [newtab-page.md](docs/internals/newtab-page.md)
 - **Adding a source touches five places**, and one of them, `DEFAULT_CONFIG.sources`, is `Partial`: a missing entry is not flagged and the source silently defaults to disabled. A new engine also needs its logo file and a `logos.json` entry; never invent a letter badge. → [sources.md](docs/internals/sources.md)
 - **Stored configs** are rewritten in `MIGRATIONS` in `config.ts`; a new field only needs a default. → [config-and-storage.md](docs/internals/config-and-storage.md)
-- **Interface text is never written in a component or helper.** Put it in the catalogs under `apps/extension/lib/i18n/catalog/` and read it with `t()`; never call `t()` at module top level. `test/noHardcodedText.test.ts` fails on CJK strings in `entrypoints/` and `lib/`. → [interface-text.md](docs/internals/interface-text.md)
+- **Interface text is never written in a component or helper.** Put it in the catalogs under `packages/app/src/i18n/catalog/` and read it with `t()`; never call `t()` at module top level. `apps/extension/test/noHardcodedText.test.ts` fails on CJK strings in the extension's `entrypoints/` and `lib/` and in `packages/app/src`, `packages/protocol/src` and `apps/web/src`. → [interface-text.md](docs/internals/interface-text.md)
 - **Text from pages and from model replies is data, not instructions.** The academic plan and the decision replies are clamped, and fetched page text is checked for prompt injection before it is summarized. → [academic.md](docs/internals/academic.md), [decision-model.md](docs/internals/decision-model.md)
 - **When an engine's markup changes**, update its `extract` and refresh its fixture in `packages/core/test/fixtures/`; a hand-written fixture says so in its first line. → [testing.md](docs/internals/testing.md)
 - **Nothing automated covers tab rendering** (`tabRenderer.ts`, the content script). Use fresh build-copy paths only for isolated QA; activate the user's live extension at its existing path and verify the actual running version. → [testing.md](docs/internals/testing.md)

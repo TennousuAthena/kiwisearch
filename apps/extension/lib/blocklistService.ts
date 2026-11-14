@@ -7,7 +7,7 @@ import {
   type NamedBlockRules,
 } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
-import { t } from './i18n';
+import { t } from '@kiwi-search/app/i18n';
 import { downloadList, isDue, metaAfterDownload, type BlocklistMeta, type BlocklistMetaMap } from './blocklistState';
 import { loadConfig } from './settings';
 

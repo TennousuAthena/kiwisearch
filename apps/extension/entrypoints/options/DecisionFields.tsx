@@ -1,7 +1,7 @@
 import { DEFAULT_SYSTEMONE_ENDPOINT, type FusionConfig } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
-import { raw, t } from '@/lib/i18n';
-import { tr } from '@/lib/i18n/rich';
+import { raw, t } from '@kiwi-search/app/i18n';
+import { tr } from '@kiwi-search/app/i18n/rich';
 import { Field, SecretInput } from './controls';
 import { TestRow, type TestReply } from './TestRow';
 

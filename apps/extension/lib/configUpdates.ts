@@ -1,13 +1,11 @@
 import { browser } from 'wxt/browser';
-import { normalizeDomain } from './domains';
+import { normalizeDomain, type DomainPreferenceAction, type DomainPreferenceState, type DomainPreferenceUndo } from '@kiwi-search/protocol';
 
 export type SettingsPatch =
   | { path: string[]; value: unknown }
   | { path: string[]; remove: true }
   | { path: string[]; add: string[]; subtract: string[] };
-export type DomainPreferenceAction = 'block' | 'boost' | 'clear';
-export interface DomainPreferenceState { blocked: boolean; boosted: boolean }
-export interface DomainPreferenceUndo { domain: string; before: DomainPreferenceState; after: DomainPreferenceState; revision: string }
+export type { DomainPreferenceAction, DomainPreferenceState, DomainPreferenceUndo };
 export type SettingsUpdate =
   | { type: 'kiwi:update-settings'; config?: SettingsPatch[]; bridge?: SettingsPatch[] }
   | { type: 'kiwi:update-settings'; domain: string; action: DomainPreferenceAction }

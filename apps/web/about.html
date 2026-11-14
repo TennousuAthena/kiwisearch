@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>介绍 - Kiwi Search</title>
+    <meta name="description" content="在你自己的浏览器里同时搜索多个来源，合并、过滤后显示，并可以生成带引用的 AI 概览。" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon/32.png" />
+    <link rel="alternate" hreflang="en" href="https://kiwi.moe/en/about" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="site-brand" href="/"><span class="site-mark" aria-hidden="true"></span><span>Kiwi Search</span></a>
+      <nav aria-label="站点导航">
+        <a href="/about" aria-current="page">介绍</a>
+        <a href="/install">安装</a>
+        <a href="/start">开始使用</a>
+        <a href="/privacy">隐私</a>
+        <a href="https://github.com/TennousuAthena/kiwisearch" rel="noreferrer">GitHub</a>
+        <a href="/en/about" hreflang="en">English</a>
+      </nav>
+    </header>
+    <main class="doc">
+      <h1>Kiwi Search</h1>
+      <p class="lead">在你自己的浏览器里同时搜索多个来源，合并、过滤后显示，并可以生成带引用的 AI 概览。</p>
+      <p class="actions"><a class="btn primary" href="/install">安装扩展</a> <a class="btn" href="/">打开搜索</a></p>
+      <p class="note">打开搜索需要先装好扩展：搜索由扩展在你的浏览器里完成，网站只提供页面。</p>
+      <h2>它做什么</h2>
+      <ul>
+        <li><strong>多种搜索模式。</strong>网页、图片、视频、新闻、购物、学术，以及社交和社区平台。</li>
+        <li><strong>多个来源并排。</strong>搜索引擎、视频站、学术索引和 API 一起查询，每个来源都能在设置里开关。</li>
+        <li><strong>合并而不是堆叠。</strong>重复的链接和转载折叠成一条，多个来源都给出的结果排在前面。</li>
+        <li><strong>更少的垃圾。</strong>决策模型隐藏内容农场和跑题的页面；也可以订阅屏蔽列表。</li>
+        <li><strong>带引用的 AI 概览。</strong>使用你自己的 OpenAI 兼容模型，或浏览器自带的模型。</li>
+        <li><strong>配合你的 Agent。</strong>本地 MCP 服务让支持 MCP 的 Agent 通过你的浏览器做同样的搜索。</li>
+      </ul>
+      <h2>数据来自你自己的浏览器</h2>
+      <p>每条结果都来自你自己的浏览器、你自己的登录和你自己的 API Key。Kiwi 不提供账号、代理或服务器，结果只显示给你。详见<a href="/privacy">隐私</a>。</p>
+    </main>
+    <footer class="site-footer">
+      <p>Kiwi Search 以 MIT 许可证开源。</p>
+    </footer>
+    <script type="module" src="/src/site.ts"></script>
+  </body>
+</html>

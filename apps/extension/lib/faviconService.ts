@@ -41,7 +41,7 @@ async function limited<T>(work: () => Promise<T>): Promise<T> {
 
 function faviconApi(pageUrl: string): string {
   // `getURL` only accepts the extension's own pages as typed paths; `_favicon` is a built-in endpoint on the same origin.
-  const url = new URL(browser.runtime.getURL('/newtab.html'));
+  const url = new URL(browser.runtime.getURL('/app.html'));
   url.pathname = '/_favicon/';
   url.searchParams.set('pageUrl', pageUrl);
   url.searchParams.set('size', '64');

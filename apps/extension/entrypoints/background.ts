@@ -3,53 +3,56 @@ import { browser } from 'wxt/browser';
 import { ensureBridge } from '@/lib/bridge';
 import { handleBlocklistMessage, loadBlocklistRules, refreshDueBlocklists } from '@/lib/blocklistService';
 import { subscriptionsChanged } from '@/lib/blocklistState';
-import { initLocale, t } from '@/lib/i18n';
-import { coreMessagesFor } from '@/lib/i18n/coreMessages';
-import type { PortMessage, SearchRequest } from '@/lib/messages';
+import { initLocale, t } from '@kiwi-search/app/i18n';
+import { coreMessagesFor } from '@kiwi-search/app/i18n/coreMessages';
+import type { PortMessage, SearchRequest } from '@kiwi-search/protocol';
 import { handleConfigUpdate, isConfigUpdateMessage } from '@/lib/backgroundConfig';
-import { isExtensionPageSender, parseSummaryRequest } from '@/lib/summaryRequest';
+import { isExtensionPageSender } from '@/lib/summaryRequest';
+import { observedKeys, parseSearchStreamMessage, parseSummaryRequest, parseSummaryStreamMessage, preferenceValues } from '@kiwi-search/protocol';
+import { localSearchUrl, siteSearchUrl } from '@/lib/localUrl';
+import { SITE_ORIGIN } from '@/lib/webOrigins';
+import { REDIRECT_RULE_IDS, searchRedirectRules } from '@/lib/searchRedirect';
+import { searchFromFailedNavigation, type FailedNavigation } from '@/lib/siteFallback';
+import { loadUiFallback, loadUiSource, parseUiSource, UI_SOURCE_KEY } from '@/lib/uiSource';
+import { answer, createWebBridgeHandlers } from '@/lib/webBridge';
+import { createEvidenceStore } from '@/lib/webEvidence';
+import { sessionEvidenceStorage } from '@/lib/webEvidenceStorage';
+import { WEB_SITES } from '@/lib/webOrigins';
 import { browserLanguage } from '@/lib/language';
 import { loadConfig } from '@/lib/settings';
 import { handleFaviconMessage } from '@/lib/faviconService';
 import { handleDecisionTest, handleLlmTest } from '@/lib/llmTest';
 import { createRedirectTarget, type RedirectEvents } from '@/lib/redirectTarget';
 import { recordSourceStatus } from '@/lib/sourceStatus';
-import { collectIdleWorkers, forgetWorkerTab, handleWorkerMessage, runBrowserEngine } from '@/lib/tabRenderer';
+import { collectIdleWorkers, focusWorker, forgetWorkerTab, handleWorkerMessage, runBrowserEngine } from '@/lib/tabRenderer';
 
-/** The new-tab page shows results once the fast sources are in; slower ones merge in afterwards. */
+/** The search interface shows results once the fast sources are in; slower ones merge in afterwards. */
 const UI_SOFT_DEADLINE_MS = 6000;
 
 export default defineBackground(() => {
   initLocale();
-  const searchRedirectRuleId = 1001;
+  const appUrl = browser.runtime.getURL('/app.html');
+  // What the browser does by itself with an address of the Kiwi website depends on where the interface comes from (lib/searchRedirect.ts).
   const ensureSearchRedirectRule = async () => {
-    await browser.declarativeNetRequest.updateDynamicRules({ removeRuleIds: [searchRedirectRuleId] });
     await browser.declarativeNetRequest.updateDynamicRules({
-      addRules: [{
-        id: searchRedirectRuleId,
-        priority: 1,
-        action: {
-          type: 'redirect',
-          redirect: { regexSubstitution: browser.runtime.getURL('/newtab.html') + '?\\1' },
-        },
-        condition: {
-          regexFilter: '^https://s\\.kiwi\\.moe/s\\?(.*)$',
-          resourceTypes: ['main_frame'],
-        },
-      }],
+      removeRuleIds: [...REDIRECT_RULE_IDS],
+      addRules: searchRedirectRules(await loadUiSource(), appUrl),
     });
   };
   let searchRedirectRegistration: Promise<void> | null = null;
+  let searchRedirectAgain = false;
   const registerSearchRedirectRule = () => {
-    if (searchRedirectRegistration) return;
+    // A change that arrives while the rules are being replaced is applied right after, so the last setting wins.
+    if (searchRedirectRegistration) { searchRedirectAgain = true; return; }
     searchRedirectRegistration = ensureSearchRedirectRule()
       .catch((error) => console.error('Could not register Kiwi Search redirect rule:', error))
       .finally(() => {
         searchRedirectRegistration = null;
+        if (searchRedirectAgain) { searchRedirectAgain = false; registerSearchRedirectRule(); }
       });
   };
 
-  // Shared by the new-tab page and the MCP bridge, so repeat queries skip the rate-limited engines.
+  // Shared by the search interface and the MCP bridge, so repeat queries skip the rate-limited engines.
   const cache = createSourceCache();
   // Google's result links are wrapped (`/goto?url=…`); this reads where one leads without waiting for the page. Absent where the browser has no webRequest.
   const redirectTarget = browser.webRequest?.onBeforeRedirect
@@ -66,6 +69,54 @@ export default defineBackground(() => {
     // The few sentences core writes for the user (why a feature was skipped), in the interface language.
     messages: coreMessagesFor(),
   });
+
+  // What the website may ask of the extension. Every request is checked in lib/webBridge.ts; see docs/internals/web-app.md.
+  const ACADEMIC_LANGUAGE_KEY = 'academicLanguage';
+  const webBridge = createWebBridgeHandlers({
+    extensionId: browser.runtime.id,
+    version: browser.runtime.getManifest().version,
+    sites: WEB_SITES,
+    uiSource: loadUiSource,
+    favicon: async (host) => (await handleFaviconMessage({ type: 'kiwi:favicon', host })).src,
+    focusWorker,
+    updateSettings: handleConfigUpdate,
+    loadPreferences: async () => preferenceValues(await browser.storage.local.get(observedKeys)),
+    savePreferences: (values) => browser.storage.local.set(values),
+    loadAcademicLanguage: async () => ((await browser.storage.local.get(ACADEMIC_LANGUAGE_KEY))[ACADEMIC_LANGUAGE_KEY] === 'en' ? 'en' : 'any'),
+    saveAcademicLanguage: (language) => browser.storage.local.set({ [ACADEMIC_LANGUAGE_KEY]: language }),
+    openLocal: async (tabId, query, mode) => { await browser.tabs.update(tabId, { url: localSearchUrl(appUrl, query, mode) }); },
+    openOptions: async (section) => { await browser.tabs.create({ url: browser.runtime.getURL('/options.html') + (section ? `#${section}` : '') }); },
+  });
+  // When the website cannot be reached the tab can open the extension's own interface instead. Off unless the user turned it on, which also
+  // asks for the one optional permission it needs; the listener starts as soon as the permission exists.
+  let watchingSite = false;
+  const onSiteNavigationError = async (details: FailedNavigation) => {
+    const search = searchFromFailedNavigation(details, SITE_ORIGIN);
+    if (!search || (await loadUiSource()) !== 'site' || !(await loadUiFallback())) return;
+    await browser.tabs.update(details.tabId, { url: localSearchUrl(appUrl, search.query, search.mode) });
+  };
+  const watchSiteNavigation = () => {
+    if (watchingSite || !browser.webNavigation) return;
+    watchingSite = true;
+    browser.webNavigation.onErrorOccurred.addListener((details) => void onSiteNavigationError(details), { url: [{ hostEquals: new URL(SITE_ORIGIN).hostname }] });
+  };
+  watchSiteNavigation();
+  browser.permissions?.onAdded?.addListener(watchSiteNavigation);
+
+  // What was sent to each website tab. A summary a website asks for is built from this, never from what the page sends back (lib/webEvidence.ts).
+  const evidence = createEvidenceStore(sessionEvidenceStorage());
+  browser.tabs.onRemoved.addListener((tabId) => evidence.forget(tabId));
+
+  // Open streams and push ports of website pages: capped, so one page cannot hold the service worker with an unbounded number of them,
+  // and tracked, so they can all be closed when the extension is set to use its own interface.
+  const MAX_WEB_PORTS = 8;
+  const webStreamPorts = new Set<ReturnType<typeof browser.runtime.connect>>();
+  const webPushPorts = new Set<ReturnType<typeof browser.runtime.connect>>();
+  const cutWebPages = () => {
+    for (const port of [...webStreamPorts, ...webPushPorts]) { try { port.disconnect(); } catch { /* already gone */ } }
+    webStreamPorts.clear();
+    webPushPorts.clear();
+  };
 
   browser.runtime.onInstalled.addListener(({ reason }) => {
     registerSearchRedirectRule();
@@ -84,20 +135,34 @@ export default defineBackground(() => {
   });
 
   browser.omnibox.setDefaultSuggestion({ description: t('omnibox.suggestion') });
+  // `k` opens the interface the user chose: the website, or the extension's own page.
   browser.omnibox.onInputEntered.addListener((text, disposition) => {
-    const url = `${browser.runtime.getURL('/newtab.html')}?q=${encodeURIComponent(text)}`;
-    if (disposition === 'currentTab') {
-      void browser.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
-        if (tab?.id !== undefined) return browser.tabs.update(tab.id, { url });
-        return browser.tabs.create({ url, active: true });
-      });
-      return;
-    }
-    void browser.tabs.create({ url, active: disposition === 'newForegroundTab' });
+    void (async () => {
+      const url = (await loadUiSource()) === 'local' ? localSearchUrl(appUrl, text, 'web') : siteSearchUrl(text, 'web');
+      if (disposition === 'currentTab') {
+        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id !== undefined) { await browser.tabs.update(tab.id, { url }); return; }
+        await browser.tabs.create({ url, active: true });
+        return;
+      }
+      await browser.tabs.create({ url, active: disposition === 'newForegroundTab' });
+    })();
   });
+  // The toolbar button always opens the extension's own interface: the way that works whatever happens to the website.
+  const toolbarButton = browser.action ?? (browser as unknown as { browserAction?: typeof browser.action }).browserAction;
+  toolbarButton?.onClicked.addListener(() => { void browser.tabs.create({ url: appUrl, active: true }); });
 
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    const kind = (msg as { type?: unknown } | null)?.type;
+    if (kind === 'kiwi-web:hello') { void answer(webBridge.hello(sender)).then(sendResponse); return true; }
+    if (kind === 'kiwi-web:request') {
+      const { method, params } = msg as { method?: unknown; params?: unknown };
+      void answer(webBridge.request(method, params, sender)).then(sendResponse);
+      return true;
+    }
     if (typeof (msg as { type?: string })?.type !== 'string' || !(msg as { type: string }).type.startsWith('kiwi:')) return false;
+    // A page of the website has the extension's identity through its content script, but none of the extension's own messages.
+    if (webBridge.isSender(sender)) return false;
     const type = (msg as { type: string }).type;
     if (isConfigUpdateMessage(msg)) {
       if (!isExtensionPageSender(sender, browser.runtime.id, browser.runtime.getURL('/'))) return false;
@@ -120,11 +185,31 @@ export default defineBackground(() => {
   browser.tabs.onRemoved.addListener(forgetWorkerTab);
 
   browser.runtime.onConnect.addListener((port) => {
+    if (port.name === 'web-push') {
+      if (!webBridge.isSender(port.sender) || webPushPorts.size >= MAX_WEB_PORTS) { port.disconnect(); return; }
+      void webBridge.allowed(port.sender).then((ok) => {
+        if (!ok) { port.disconnect(); return; }
+        webPushPorts.add(port);
+        port.onDisconnect.addListener(() => webPushPorts.delete(port));
+      });
+      return;
+    }
     if (port.name !== 'search' && port.name !== 'summary') return;
-    if (!isExtensionPageSender(port.sender, browser.runtime.id, browser.runtime.getURL('/'))) { port.disconnect(); return; }
+    const trusted = isExtensionPageSender(port.sender, browser.runtime.id, browser.runtime.getURL('/'));
+    const fromWeb = !trusted && webBridge.isSender(port.sender);
+    if (!trusted && !fromWeb) { port.disconnect(); return; }
+    if (fromWeb) {
+      if (webStreamPorts.size >= MAX_WEB_PORTS) { port.disconnect(); return; }
+      webStreamPorts.add(port);
+      port.onDisconnect.addListener(() => { webStreamPorts.delete(port); });
+    }
+    // A page of the website is let in only while the extension is set to use the website.
+    const admitted = fromWeb ? webBridge.allowed(port.sender).then((ok) => { if (!ok) port.disconnect(); return ok; }) : Promise.resolve(true);
     let ctrl: AbortController | null = null;
     let summaryCtrl: AbortController | null = null;
+    const webTab = fromWeb ? port.sender?.tab?.id : undefined;
     const post = (m: PortMessage) => {
+      if (webTab !== undefined) evidence.record(webTab, m);
       try {
         port.postMessage(m);
       } catch {
@@ -132,13 +217,22 @@ export default defineBackground(() => {
       }
     };
     port.onDisconnect.addListener(() => { ctrl?.abort(); summaryCtrl?.abort(); });
-    port.onMessage.addListener(async (raw) => {
+    port.onMessage.addListener(async (received) => {
+      let raw: unknown = received;
       if (!raw || typeof raw !== 'object') return;
+      if (!(await admitted)) return;
+      if (fromWeb) {
+        // The interface of the extension is trusted with the shape of what it sends; a website is not. What comes out is a copy built from checked fields.
+        raw = port.name === 'summary' ? parseSummaryStreamMessage(raw) : parseSearchStreamMessage(raw);
+        if (!raw) { post({ type: 'fatal', error: t('newtab.session.invalidRequest') }); return; }
+      }
       const req = raw as SearchRequest;
       if (req.type === 'keepalive') return;
       if (req.type === 'stop-summary') { summaryCtrl?.abort(); return; }
       if (port.name === 'summary') {
-        const request = parseSummaryRequest(raw);
+        const asked = parseSummaryRequest(raw);
+        // A website names results by key; what is summarized is the extension's own copy of them.
+        const request = asked && webTab !== undefined ? await evidence.resolve(webTab, asked) : asked;
         if (!request) { post({ type: 'fatal', error: t('newtab.session.invalidRequest') }); return; }
         ctrl?.abort();
         const current = (ctrl = new AbortController());
@@ -234,6 +328,16 @@ export default defineBackground(() => {
     else if (a.name === 'blocklist-refresh') refreshSubscribedLists();
   });
   browser.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes[UI_SOURCE_KEY]) {
+      registerSearchRedirectRule();
+      if (parseUiSource(changes[UI_SOURCE_KEY].newValue) === 'local') cutWebPages();
+    }
+    if (area === 'local' && webPushPorts.size && observedKeys.some((key) => key in changes)) {
+      const changed = preferenceValues(Object.fromEntries(observedKeys.filter((key) => key in changes).map((key) => [key, changes[key].newValue])));
+      for (const port of webPushPorts) {
+        try { port.postMessage({ name: 'prefs', data: changed }); } catch { webPushPorts.delete(port); }
+      }
+    }
     if (changes.bridge) void ensureBridge(makeEnv);
     if (area === 'local' && subscriptionsChanged(changes.config)) refreshSubscribedLists();
   });

@@ -1,5 +1,5 @@
 import { DEFAULT_CONFIG, activeSubscriptions, mergeConfig, migrateConfig, type BlocklistSource, type ParsedBlocklist } from '@kiwi-search/core';
-import { getLocale, t } from './i18n';
+import { getLocale, t } from '@kiwi-search/app/i18n';
 
 /**
  * The pure part of keeping subscribed block lists: what is remembered about each, when one is due, how a download is read

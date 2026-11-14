@@ -1,0 +1,7 @@
+{
+  "manifest_version": 3,
+  "name": "Kiwi phase0 optional-permission probe",
+  "version": "0.0.1",
+  "optional_permissions": ["webNavigation"],
+  "background": { "service_worker": "background.js" }
+}

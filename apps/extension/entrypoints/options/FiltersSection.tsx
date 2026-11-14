@@ -1,6 +1,6 @@
 import type { FusionConfig } from '@kiwi-search/core';
 import type { BlocklistMetaMap } from '@/lib/blocklistState';
-import { t } from '@/lib/i18n';
+import { t } from '@kiwi-search/app/i18n';
 import { BlocklistsPanel } from './BlocklistsPanel';
 import { DomainInput } from './controls';
 
