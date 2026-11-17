@@ -2,7 +2,7 @@ import type { BlockReason, BrowserEngine, BrowserRunOptions, SearchHit, SearchMo
 import type { Browser } from 'wxt/browser';
 import { browser } from 'wxt/browser';
 import { t } from '@kiwi-search/app/i18n';
-import { createAsyncLock, isBrowserErrorPage, mergeRendererState, workerIdentity, type RendererState } from './rendererState';
+import { createAsyncLock, isBrowserErrorPage, parseRendererState, workerIdentity, type RendererState } from './rendererState';
 import { loadConfig } from './settings';
 
 interface PendingRequest {
@@ -26,7 +26,6 @@ interface PendingRequest {
 const HANDSHAKE_GRACE_MS = 4000;
 
 const STORAGE_KEY = 'kiwiRenderer';
-const GROUP_TITLE = 'Kiwi Search';
 const withStateLock = createAsyncLock();
 let cachedState: RendererState | undefined;
 let statePromise: Promise<RendererState | null> | undefined;
@@ -34,11 +33,13 @@ const pendingById = new Map<string, PendingRequest>();
 const pendingByTab = new Map<number, PendingRequest>();
 const queues = new Map<SourceId, Promise<unknown>>();
 const lastStarted = new Map<SourceId, number>();
+/** Relinquish immediately, even while the state lock is busy. IDs last only for this browser session. */
+const releasedTabs = new Set<number>();
 
 async function readState(): Promise<RendererState | null> {
   if (cachedState) return cachedState;
   statePromise ??= browser.storage.session.get(STORAGE_KEY).then(({ [STORAGE_KEY]: saved }) => {
-    cachedState = saved as RendererState | undefined;
+    cachedState = parseRendererState(saved) ?? undefined;
     return cachedState ?? null;
   });
   try {
@@ -49,14 +50,6 @@ async function readState(): Promise<RendererState | null> {
 }
 
 async function saveState(state: RendererState): Promise<void> {
-  if (
-    cachedState &&
-    cachedState !== state &&
-    cachedState.windowId === state.windowId &&
-    cachedState.groupId === state.groupId
-  ) {
-    state = mergeRendererState(cachedState, state);
-  }
   cachedState = state;
   await browser.storage.session.set({ [STORAGE_KEY]: state });
 }
@@ -71,53 +64,32 @@ async function createWorkerWindow(): Promise<{ id: number; initialTabId?: number
   return { id: created.id, initialTabId: tab?.id };
 }
 
-/**
- * Put tabs into the worker group (a new one in `windowId` without `groupId`), titled so it is recognizable if the window is ever brought forward.
- * A new group is created in the *current* window unless `createProperties.windowId` says otherwise, which would pull the tabs into the user's window.
- */
-async function groupWorkerTabs(tabIds: [number, ...number[]], windowId: number, groupId?: number): Promise<number> {
-  const id = await browser.tabs.group(groupId === undefined ? { tabIds, createProperties: { windowId } } : { tabIds, groupId });
-  await browser.tabGroups.update(id, { title: GROUP_TITLE, color: 'grey' });
-  return id;
+/** Grouping, pinning or moving a worker hands it to the user; never adopt it again by title or URL. */
+function ownsTab(state: RendererState, tab: Browser.tabs.Tab): boolean {
+  return tab.id !== undefined && !releasedTabs.has(tab.id) && tab.windowId === state.windowId &&
+    (tab.groupId === undefined || tab.groupId === -1) && !tab.pinned;
 }
 
 async function validState(state: RendererState | null): Promise<RendererState | null> {
   if (!state) return null;
-  let window: Browser.windows.Window;
   try {
-    window = await browser.windows.get(state.windowId);
+    const window = await browser.windows.get(state.windowId);
+    if (window.incognito || window.type !== 'normal') return null;
   } catch {
     return null;
   }
-  if (window.incognito || window.type !== 'normal') return null;
-  try {
-    const group = await browser.tabGroups.get(state.groupId);
-    if (group.windowId !== state.windowId) return null;
-  } catch {
-    // The group is gone (the user ungrouped its tabs): group the worker tabs that are still in the window again.
-    const remaining: number[] = [];
-    for (const tabId of Object.values(state.tabs)) {
-      if (tabId === undefined) continue;
-      try {
-        const tab = await browser.tabs.get(tabId);
-        if (tab.windowId === state.windowId && tab.groupId === -1) remaining.push(tabId);
-      } catch {
-        // The tab was closed with its window.
-      }
-    }
-    if (!remaining.length) return null;
-    state.groupId = await groupWorkerTabs(remaining as [number, ...number[]], state.windowId);
-    await saveState(state);
-  }
+  let changed = false;
   for (const [id, tabId] of Object.entries(state.tabs) as [SourceId, number][]) {
     try {
-      const tab = await browser.tabs.get(tabId);
-      // A tab the user dragged out of the worker window or its group is theirs now.
-      if (tab.windowId !== state.windowId || tab.groupId !== state.groupId) delete state.tabs[id];
+      if (ownsTab(state, await browser.tabs.get(tabId))) continue;
     } catch {
-      delete state.tabs[id];
+      // The user closed this tab or its window.
     }
+    delete state.tabs[id];
+    delete state.lastUsedByEngine[id];
+    changed = true;
   }
+  if (changed) await saveState(state);
   return state;
 }
 
@@ -127,11 +99,10 @@ async function ensureState(engineId: SourceId): Promise<RendererState> {
   const { id: windowId, initialTabId } = await createWorkerWindow();
   const tabId = initialTabId ?? (await browser.tabs.create({ windowId, url: 'about:blank', active: false })).id;
   if (tabId === undefined) throw new Error('Unable to create a worker tab');
-  const groupId = await groupWorkerTabs([tabId], windowId);
   await browser.tabs.update(tabId, { muted: true, autoDiscardable: false });
   const state: RendererState = {
     windowId,
-    groupId,
+    version: 2,
     tabs: { [engineId]: tabId },
     lastUsed: Date.now(),
     lastUsedByEngine: {},
@@ -145,7 +116,7 @@ async function ensureWorkerTab(state: RendererState, engineId: SourceId): Promis
   if (existingId !== undefined) {
     try {
       const tab = await browser.tabs.get(existingId);
-      if (tab.windowId === state.windowId && tab.groupId === state.groupId) return existingId;
+      if (ownsTab(state, tab)) return existingId;
     } catch {
       // Recreate a worker tab that the user or browser closed.
     }
@@ -153,7 +124,6 @@ async function ensureWorkerTab(state: RendererState, engineId: SourceId): Promis
   }
   const tab = await browser.tabs.create({ windowId: state.windowId, url: 'about:blank', active: false });
   if (tab.id === undefined) throw new Error(`Unable to create ${engineId} worker tab`);
-  await groupWorkerTabs([tab.id], state.windowId, state.groupId);
   await browser.tabs.update(tab.id, { muted: true, autoDiscardable: false });
   state.tabs[engineId] = tab.id;
   await saveState(state);
@@ -384,26 +354,41 @@ export async function collectIdleWorkers(): Promise<void> {
   const config = await loadConfig();
   await withStateLock(async () => {
     const state = await validState(await readState());
-    if (!state) return;
+    if (!state) {
+      cachedState = undefined;
+      await browser.storage.session.remove(STORAGE_KEY);
+      return;
+    }
     const maxIdle = config.renderer.workerIdleMinutes * 60_000;
     const now = Date.now();
     for (const [source, tabId] of Object.entries(state.tabs) as [SourceId, number][]) {
-      if (pendingByTab.has(tabId)) continue;
+      // Includes rate-limited/queued searches and the gap before their pending request is registered.
+      if (queues.has(source) || pendingByTab.has(tabId)) continue;
       if (now - (state.lastUsedByEngine[source] ?? state.lastUsed) < maxIdle) continue;
       try {
-        await browser.tabs.remove(tabId);
+        // Recheck after the earlier awaits: the user may have taken this tab in the meantime.
+        if (ownsTab(state, await browser.tabs.get(tabId))) await browser.tabs.remove(tabId);
       } catch {
         // Already closed.
       }
       delete state.tabs[source];
       delete state.lastUsedByEngine[source];
     }
-    state.lastUsed = now;
-    await saveState(state);
+    if (Object.keys(state.tabs).length) {
+      await saveState(state);
+    } else {
+      cachedState = undefined;
+      await browser.storage.session.remove(STORAGE_KEY);
+    }
   });
 }
 
+export function handleWorkerTabUpdated(tabId: number, change: { pinned?: boolean; groupId?: number }): void {
+  if (change.pinned || (change.groupId !== undefined && change.groupId !== -1)) forgetWorkerTab(tabId);
+}
+
 export function forgetWorkerTab(tabId: number): void {
+  releasedTabs.add(tabId);
   const pending = pendingByTab.get(tabId);
   if (pending) {
     pendingByTab.delete(tabId);
@@ -415,8 +400,11 @@ export function forgetWorkerTab(tabId: number): void {
     const state = await readState();
     if (!state) return;
     for (const [id, workerTab] of Object.entries(state.tabs) as [SourceId, number][]) {
-      if (workerTab === tabId) delete state.tabs[id];
+      if (workerTab === tabId) {
+        delete state.tabs[id];
+        delete state.lastUsedByEngine[id];
+      }
     }
     await saveState(state);
-  }).catch(() => {});
+  }).finally(() => releasedTabs.delete(tabId)).catch(() => {});
 }

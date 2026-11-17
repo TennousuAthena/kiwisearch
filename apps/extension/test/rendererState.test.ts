@@ -1,65 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { createAsyncLock, isBrowserErrorPage, mergeRendererState, workerIdentity, type RendererState } from '../lib/rendererState';
-import type { SourceId } from '@kiwi-search/core';
+import { isBrowserErrorPage, parseRendererState, workerIdentity } from '../lib/rendererState';
 
-const engines: SourceId[] = ['google', 'bing', 'baidu', 'duckduckgo', 'scholar'];
-
-function initialState(): RendererState {
-  return {
-    windowId: 1,
-    groupId: 10,
-    tabs: {},
-    lastUsed: 0,
-    lastUsedByEngine: {},
-  };
-}
-
-describe('renderer state helpers', () => {
-  it('serializes concurrent initialization and merges tabs for five engines', async () => {
-    const withLock = createAsyncLock();
-    let state: RendererState | undefined;
-    let groupsCreated = 0;
-    let nextTabId = 0;
-
-    await Promise.all(
-      engines.map(async (engine) => {
-        await withLock(async () => {
-          if (!state) {
-            groupsCreated++;
-            await Promise.resolve();
-            state = initialState();
-          }
-        });
-
-        await Promise.resolve();
-        await withLock(async () => {
-          const current = state!;
-          const now = Date.now();
-          const incoming: RendererState = {
-            ...current,
-            tabs: { [engine]: ++nextTabId },
-            lastUsed: now,
-            lastUsedByEngine: { [engine]: now },
-          };
-          state = mergeRendererState(current, incoming);
-        });
-      }),
-    );
-
-    expect(groupsCreated).toBe(1);
-    expect(state).toBeDefined();
-    expect(Object.keys(state!.tabs).sort()).toEqual([...engines].sort());
-    expect(new Set(Object.values(state!.tabs)).size).toBe(5);
-    expect(Object.keys(state!.lastUsedByEngine).sort()).toEqual([...engines].sort());
-  });
-
-  it('returns the engine ID string in the worker handshake identity', () => {
+describe('renderer state', () => {
+  const state = { version: 2, windowId: 1, tabs: { google: 2 }, lastUsed: 0, lastUsedByEngine: { google: 0 } };
+  it('accepts the ungrouped session format', () => { expect(parseRendererState(state)).toEqual(state); });
+  it.each([undefined, null, {}, { ...state, version: 1 }, { ...state, groupId: 10 },
+    { ...state, tabs: null }, { ...state, tabs: { google: '2' } },
+    { ...state, windowId: -1 }, { ...state, lastUsed: NaN }, { ...state, lastUsedByEngine: [] }])(
+    'rejects legacy or malformed state: %j', (value) => { expect(parseRendererState(value)).toBeNull(); },
+  );
+  it('returns the engine ID in the worker handshake identity', () => {
     expect(workerIdentity('google', 'request-1')).toEqual({ engine: 'google', requestId: 'request-1' });
   });
-});
-
-describe('isBrowserErrorPage', () => {
-  it('recognizes the page the browser shows when a navigation failed', () => {
+  it('recognizes browser error pages', () => {
     expect(isBrowserErrorPage('chrome-error://chromewebdata/')).toBe(true);
     expect(isBrowserErrorPage('https://x.com/search?q=1')).toBe(false);
     expect(isBrowserErrorPage(undefined)).toBe(false);

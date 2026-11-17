@@ -2,7 +2,8 @@ import type { SourceId } from '@kiwi-search/core';
 
 export interface RendererState {
   windowId: number;
-  groupId: number;
+  /** v1 used auto-saved browser groups. Never reclaim that legacy state. */
+  version: 2;
   tabs: Partial<Record<SourceId, number>>;
   lastUsed: number;
   lastUsedByEngine: Partial<Record<SourceId, number>>;
@@ -30,17 +31,17 @@ export function createAsyncLock() {
   };
 }
 
-export function mergeRendererState(current: RendererState, incoming: RendererState): RendererState {
-  if (current === incoming) return current;
-  if (current.windowId !== incoming.windowId || current.groupId !== incoming.groupId) return incoming;
-  const tabs = { ...current.tabs, ...incoming.tabs };
-  const lastUsedByEngine = { ...current.lastUsedByEngine, ...incoming.lastUsedByEngine };
-  Object.assign(current, incoming, {
-    tabs,
-    lastUsedByEngine,
-    lastUsed: Math.max(current.lastUsed, incoming.lastUsed),
-  });
-  return current;
+/** Session IDs establish ownership only for this format; legacy groups and malformed state stay untouched. */
+export function parseRendererState(value: unknown): RendererState | null {
+  if (!value || typeof value !== 'object') return null;
+  const state = value as Partial<RendererState>;
+  const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+  const timestamp = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+  const id = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+  if (state.version !== 2 || 'groupId' in state || !id(state.windowId) || !timestamp(state.lastUsed) ||
+      !record(state.tabs) || !Object.values(state.tabs).every(id) ||
+      !record(state.lastUsedByEngine) || !Object.values(state.lastUsedByEngine).every(timestamp)) return null;
+  return state as RendererState;
 }
 
 export function workerIdentity(engine: SourceId, requestId: string): { engine: SourceId; requestId: string } {
