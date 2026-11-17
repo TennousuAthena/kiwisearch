@@ -20,7 +20,7 @@ const dom = (html: string) => {
 };
 const ZHIHU_PAGE = 'https://www.zhihu.com/search?type=content&q=x';
 const RN_PAGE = 'https://www.rednote.com/search_result?keyword=x';
-const NOTE_ID = '6af44acb000000002c00ed7b';
+const NOTE_ID = '08630439b1f5b98da7c90e66';
 
 describe('parseCount', () => {
   it('reads the number styles the platforms print', () => {
@@ -54,19 +54,19 @@ describe('Zhihu engine (real captured page, see the fixture header)', () => {
   });
 
   it('keeps an answer with its author, excerpt, votes, comments and date, without the highlight markup', () => {
-    const answer = hits.find((hit) => hit.url.endsWith('/answer/2101105852715484425'));
+    const answer = hits.find((hit) => hit.url.endsWith('/answer/9000000000000000001'));
     expect(answer).toMatchObject({
-      url: 'https://www.zhihu.com/question/1999782884576358775/answer/2101105852715484425',
+      url: 'https://www.zhihu.com/question/1999782884576358775/answer/9000000000000000001',
       title: '《红楼梦》有没有可能就不是曹雪芹写的，而是明朝宗室后裔的杰作？',
       host: 'zhihu.com',
-      meta: { author: '永乐大帝明成祖', votes: 423, comments: 105, age: '11-04' },
+      meta: { author: '用户01', votes: 423, comments: 105, age: '11-04' },
     });
     expect(answer?.snippet).toMatch(/^我最推荐朱世巍先生对红楼梦的另类研究方法/);
     expect(answer?.content).toBe(answer?.snippet.replace(/…$/, '') ? answer?.content : undefined);
   });
 
   it('keeps an article with its cover and an absolute link', () => {
-    const article = hits.find((hit) => hit.url === 'https://zhuanlan.zhihu.com/p/2009971748947380021');
+    const article = hits.find((hit) => hit.url === 'https://zhuanlan.zhihu.com/p/9000000000000000101');
     expect(article).toMatchObject({ title: '为什么《红楼梦》几乎没有宅斗，却比宫斗剧更残酷？', meta: { votes: 8485 } });
     expect(article?.meta?.thumbnail).toMatch(/^https:\/\/picx\.zhimg\.com\/80\//);
   });
@@ -142,7 +142,7 @@ describe('Xiaohongshu / RedNote engines (real captured page, see the fixture hea
       host: 'rednote.com',
       title: '是这个门子坏吧，红楼梦',
       snippet: '',
-      note: { author: '小坏、', time: '昨天 19:00', likes: '1', width: 4284, height: 5712 },
+      note: { author: '用户01', time: '昨天 19:00', likes: '1', width: 4284, height: 5712 },
     });
     expect(hits[0].url.startsWith(`https://www.rednote.com/search_result/${NOTE_ID}?xsec_token=`)).toBe(true);
     expect(hits[0].note?.avatar).toMatch(/^https:\/\/sns-avatar-qc\.xhscdn\.com\//);
@@ -155,7 +155,7 @@ describe('Xiaohongshu / RedNote engines (real captured page, see the fixture hea
       dom(
         card(`/search_result/${NOTE_ID}?xsec_token=T&xsec_source=pc_search&utm=x&channel_type=web`, 'With token') +
           card(`/search_result/${NOTE_ID}?xsec_token=T`, 'Same note') +
-          card('/user/profile/65f8f1ac000000000600f0b9', 'A profile') +
+          card('/user/profile/2622db505bc633be4109b4d5', 'A profile') +
           card('/search_result/abc', 'Not a note id') +
           card(`/search_result/${'0'.repeat(24)}`, '') +
           `<section class="note-item"><a class="cover" href="/search_result/${'1'.repeat(24)}"></a></section>`,
@@ -196,7 +196,7 @@ describe('Xiaohongshu / RedNote engines (real captured page, see the fixture hea
     const fused = fuse([international, mainland]);
     expect(fused).toHaveLength(11);
     expect(fused.every((result) => result.sources.length === 2)).toBe(true);
-    expect(fused[0].note?.author).toBe('小坏、');
+    expect(fused[0].note?.author).toBe('用户01');
 
     const key = `xhs:${NOTE_ID}`;
     for (const url of [
@@ -206,7 +206,7 @@ describe('Xiaohongshu / RedNote engines (real captured page, see the fixture hea
     ]) {
       expect(normalizeUrl(url)).toBe(key);
     }
-    expect(normalizeUrl('https://www.rednote.com/user/profile/65f8f1ac000000000600f0b9')).toBe('rednote.com/user/profile/65f8f1ac000000000600f0b9');
+    expect(normalizeUrl('https://www.rednote.com/user/profile/2622db505bc633be4109b4d5')).toBe('rednote.com/user/profile/2622db505bc633be4109b4d5');
   });
 });
 

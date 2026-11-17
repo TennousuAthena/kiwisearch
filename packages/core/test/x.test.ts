@@ -44,10 +44,10 @@ describe('X engine (real captured page, see the fixture header)', () => {
   });
 
   it('takes a quote tweet\'s own words, not the tweet it quotes', () => {
-    const quote = hits.find((hit) => hit.meta?.author === '@lidangzzz');
+    const quote = hits.find((hit) => hit.meta?.author === '@user_c');
     expect(quote?.snippet).toMatch(/^太好了。/);
     expect(quote?.snippet).not.toContain('Fable');
-    expect(quote?.title).toMatch(/^lidang 立党/);
+    expect(quote?.title).toMatch(/^User C/);
   });
 
   it('skips promoted tweets and ones without a permalink, reads singular counts, and copes with media-only tweets', () => {
