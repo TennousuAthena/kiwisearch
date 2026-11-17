@@ -38,8 +38,9 @@ describe('browser engine extraction fixtures', () => {
         }
       });
     }
-    // These engines have no captured block page; inventing one would only prove the guess.
-    if (!['yandex', 'bilibili', 'xiaohongshu', 'rednote', 'sogou', 'weixin', 'yuanbao', 'amazon'].includes(id)) {
+    // These engines have no captured block page; inventing one would only prove the guess. (Xianyu's one capture is a refusal, which is not
+    // a block or a login wall: shopping.test.ts reads it.)
+    if (!['yandex', 'bilibili', 'xiaohongshu', 'rednote', 'sogou', 'weixin', 'yuanbao', 'amazon', 'xianyu'].includes(id)) {
       it(`${id} recognizes blocked pages when present`, () => {
         try {
           const html = readFileSync(blockedFixture, 'utf8');

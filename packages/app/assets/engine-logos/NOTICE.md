@@ -39,6 +39,7 @@ Font Awesome Free Brands icons are licensed CC BY 4.0 by Fonticons, Inc. (https:
 | searxng | `searxng.svg` | simple-icons 16.37.0, icon "searxng", brand colour #3050FF | CC0-1.0 data (the glyph itself is the brand's trademark) |
 | taobao | `taobao.png` | https://www.taobao.com/favicon.ico (64x64 frame, converted to PNG; checked 2026-11-13) | the brand's own icon, used only to name the engine |
 | jd | `jd.png` | https://www.jd.com/favicon.ico (48x48 frame, converted to PNG; checked 2026-11-13) | the brand's own icon, used only to name the engine |
+| xianyu | `xianyu.png` | https://img.alicdn.com/tfs/TB19WObTNv1gK0jSZFFXXb0sXXa-144-144.png (the icon www.goofish.com declares in its page head, 144x144, scaled to 64x64; checked 2026-11-16) | the brand's own icon, used only to name the engine |
 | amazon | `amazon.png` | https://www.amazon.com/favicon.ico (48x48 frame, converted to PNG; checked 2026-11-13) | the brand's own icon, used only to name the engine |
 | kagi | `kagi.png` | https://kagi.com/apple-touch-icon.png (the apple-touch-icon on https://kagi.com/, 180x180 scaled to 64x64; checked 2026-11-13) | the brand's own icon, used only to name the engine |
 

@@ -36,6 +36,7 @@ export const SOURCE_MARKS: Record<SourceId, { mark: MarkKey }> = {
   taobao: { mark: 'taobao' },
   jd: { mark: 'jd' },
   amazon: { mark: 'amazon' },
+  xianyu: { mark: 'xianyu' },
   zhihu: { mark: 'zhihu' },
   xiaohongshu: { mark: 'xiaohongshu' },
   rednote: { mark: 'xiaohongshu' },

@@ -174,5 +174,10 @@
     "file": "kagi.png",
     "from": "https://kagi.com/apple-touch-icon.png (the apple-touch-icon on https://kagi.com/, 180x180 scaled to 64x64; checked 2026-11-13)",
     "license": "the brand's own icon, used only to name the engine"
+  },
+  "xianyu": {
+    "file": "xianyu.png",
+    "from": "https://img.alicdn.com/tfs/TB19WObTNv1gK0jSZFFXXb0sXXa-144-144.png (the icon www.goofish.com declares in its page head, 144x144, scaled to 64x64; checked 2026-11-16)",
+    "license": "the brand's own icon, used only to name the engine"
   }
 }

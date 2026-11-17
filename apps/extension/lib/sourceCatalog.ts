@@ -46,6 +46,7 @@ export const SOURCE_INFO: Record<SourceId, SourceInfo> = {
   searxng: { group: 'web', baseUrl: true, key: 'optional' },
   taobao: { group: 'shopping', login: true, loginUrl: 'https://www.taobao.com' },
   jd: { group: 'shopping', login: true, loginUrl: 'https://www.jd.com' },
+  xianyu: { group: 'shopping', login: true, loginUrl: 'https://www.goofish.com' },
   amazon: { group: 'shopping', loginUrl: 'https://www.amazon.com' },
   scholar: { group: 'academic' },
   openalex: { group: 'academic', key: 'optional', keyUrl: 'https://openalex.org/settings/api' },

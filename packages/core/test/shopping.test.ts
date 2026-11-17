@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { Window } from 'happy-dom';
 import { describe, expect, it } from 'vitest';
-import { amazon, jd, taobao } from '../src/engines/shopping';
+import { amazon, jd, taobao, xianyu } from '../src/engines/shopping';
 
 const dom = (html: string): ParentNode => {
   const window = new Window({ settings: { disableJavaScriptEvaluation: true, disableJavaScriptFileLoading: true, disableCSSFileLoading: true, navigation: { disableChildFrameNavigation: true } } });
@@ -11,7 +11,7 @@ const dom = (html: string): ParentNode => {
 const fixture = (id: string) => dom(readFileSync(new URL(`./fixtures/${id}.html`, import.meta.url), 'utf8'));
 
 describe('shopping engines', () => {
-  for (const engine of [taobao, jd, amazon]) {
+  for (const engine of [taobao, jd, amazon, xianyu]) {
     it(`${engine.id} searches only shopping and encodes queries`, () => {
       const url = new URL(engine.buildUrl('咖啡 & a+b?#', 12, 'shopping'));
       expect(url.searchParams.get(engine.id === 'amazon' ? 'k' : engine.id === 'jd' ? 'keyword' : 'q')).toBe('咖啡 & a+b?#');
@@ -133,5 +133,78 @@ describe('shopping engines', () => {
     const jdCard = (href: string) => `<li class="gl-item"><div class="p-name"><a href="${href}"><em>Product</em></a></div></li>`;
     const j = jd.extract(dom('<div id="J_goodsList">'+['https://item.jd.com/12.html?tracking=1','https://item.jd.com/12.html','https://item.jd.com.evil.test/13.html','https://mall.jd.com/14.html','javascript:bad','https://item.jd.com/a.html'].map(jdCard).join('')+'</div>'), 'https://search.jd.com/Search', 'shopping');
     expect(j.map((h) => h.url)).toEqual(['https://item.jd.com/12.html']);
+  });
+
+  describe('Xianyu', () => {
+    const id = (n: number) => `https://www.goofish.com/item?id=${'9' + '0'.repeat(17)}${n}`;
+    const read = () => xianyu.extract(fixture('xianyu'), xianyu.buildUrl('相机', 12, 'shopping'), 'shopping');
+
+    it('reads the cards the site\'s own component draws (hand-written fixture, see its first line)', () => {
+      const hits = read();
+      expect(hits.map((hit) => hit.url)).toEqual([id(1), id(2), id(3), id(4), id(8)]);
+      expect(hits.map((hit) => hit.rank)).toEqual([1, 2, 3, 4, 5]);
+      expect(hits[0]).toMatchObject({
+        host: 'www.goofish.com', title: '示例相机 微单 套机 九成新', snippet: '示例品牌 · 24MP',
+        product: { price: '¥1810', shop: '示例卖家甲', sales: '2人想要', thumbnail: 'https://img.alicdn.com/bao/uploaded/i1/900000000001-example.jpg_450x450.jpg' },
+      });
+    });
+
+    it('writes the price as the page does: cents with or without the point, ten thousands, words instead of an amount', () => {
+      const [, cents, tenThousand, words] = read();
+      expect(cents.product).toMatchObject({ price: '¥99.50' });
+      expect(tenThousand.product).toMatchObject({ price: '¥1.2万', sales: '15人想要 · 包邮' });
+      expect(words.product?.price).toBe('面议');
+    });
+
+    it('keeps the item id of the address and drops the category the page adds, and one result per item', () => {
+      const hits = read();
+      expect(hits.every((hit) => !hit.url.includes('categoryId'))).toBe(true);
+      expect(hits.filter((hit) => hit.url === id(3))).toHaveLength(1);
+      expect(hits[2].product?.shop).toBe('示例卖家丙');
+    });
+
+    it('takes the product\'s photo and never one of the site\'s placeholders', () => {
+      const hits = read();
+      expect(hits[1].product?.thumbnail).toBe('https://img.alicdn.com/bao/uploaded/i2/900000000002-example.jpg');
+      // Never on screen (only the loading picture) and failed to load (only the error picture): no photo, not a wrong one.
+      expect(hits[3].product?.thumbnail).toBeUndefined();
+      expect(hits[4].product?.thumbnail).toBeUndefined();
+    });
+
+    it('leaves out what is not a result: another host, an id too short, no title, a link that is not a card', () => {
+      const urls = read().map((hit) => hit.url);
+      for (const n of [5, 6, 7]) expect(urls).not.toContain(id(n));
+      expect(urls.some((url) => url.endsWith('id=12') || url.includes('evil.example'))).toBe(false);
+    });
+
+    it('is ready when cards are drawn, and neither waiting for a sign-in nor for a slider on that page', () => {
+      const doc = fixture('xianyu');
+      expect(doc.querySelector(xianyu.readySelector)).not.toBeNull();
+      expect(doc.querySelector(xianyu.loginSelector!)).toBeNull();
+      expect(doc.querySelector(xianyu.blockedSelector)).toBeNull();
+    });
+
+    it('fails at once on the refusal a headless browser was shown (real capture), and not on a page of results', () => {
+      const text = (name: string) => (fixture(name) as unknown as Document).body.textContent ?? '';
+      expect(text('xianyu-refused')).toMatch(xianyu.refusedPattern!);
+      expect(text('xianyu')).not.toMatch(xianyu.refusedPattern!);
+      // A listing whose title happens to say the same words is not a refusal.
+      expect('非法访问 示例商品 为了保障您的体验').not.toMatch(xianyu.refusedPattern!);
+      expect(fixture('xianyu-refused').querySelector(xianyu.readySelector)).toBeNull();
+    });
+
+    it('knows the site\'s own login and punish addresses, and no others', () => {
+      expect(xianyu.isLoginUrl!('https://www.goofish.com/login?spm=a21ybx&redirectURL=x')).toBe(true);
+      expect(xianyu.isLoginUrl!('https://passport.goofish.com/mini_login.htm?appName=xianyu')).toBe(true);
+      expect(xianyu.isLoginUrl!('https://www.goofish.com/search?q=login')).toBe(false);
+      expect(xianyu.isLoginUrl!('https://example.com/login')).toBe(false);
+      expect(xianyu.isBlockedUrl!('https://www.goofish.com/_____tmd_____/punish?x=1')).toBe(true);
+      expect(xianyu.isBlockedUrl!('https://www.goofish.com/search?q=a')).toBe(false);
+    });
+
+    it('is paced and timed for a strict site: a longer gap between visits and a longer working allowance', () => {
+      expect(xianyu.minIntervalMs).toBe(10_000);
+      expect(xianyu.minTimeoutMs).toBe(30_000);
+    });
   });
 });

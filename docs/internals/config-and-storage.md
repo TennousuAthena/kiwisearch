@@ -48,6 +48,6 @@ Storage exports include API keys and pairing credentials. Store them outside the
 
 ## Shopping sources
 
-Taobao (`taobao`), JD (`jd`) and Amazon US (`amazon`) have explicit enabled defaults. They are available only in `shopping`, so enabling them does not add requests to web searches. Existing configs gain these defaults when merged in memory; saved settings, keys and explicit per-source choices are preserved. No config version bump or migration is required.
+Taobao (`taobao`), JD (`jd`) and Amazon (`amazon`) have explicit enabled defaults, and Xianyu (`xianyu`, 2026-11-16) an explicit disabled one (`DEFAULT_CONFIG.sources` is `Partial`: an entry left out would also mean disabled, but silently). They are available only in `shopping`, so enabling them does not add requests to web searches. A source added later as enabled would switch itself on for every user whose saved settings predate it; Xianyu is off for that reason as well as for its strictness. Existing configs gain these defaults when merged in memory; saved settings, keys and explicit per-source choices are preserved. No config version bump or migration is required.
 
 Checked on 2026-11-13 for shopping activation: the original profile/extension ID/path were retained and saved config, keys, bridge and sync storage matched the protected pre-update snapshot. Only source-status records and favicon cache entries changed during live checks; cache pruning is the existing favicon service behavior. See [shopping.md](shopping.md).
