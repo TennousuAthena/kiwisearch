@@ -1,4 +1,4 @@
-import { createSourceCache, llmUsable, runSearch, summarizeSnapshot, usableSources, type Env, type SourceId } from '@kiwi-search/core';
+import { createSourceCache, llmUsable, runSearch, summarizeSnapshot, usableSources, withGatewayHeaders, type Env, type SourceId } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
 import { ensureBridge } from '@/lib/bridge';
 import { handleBlocklistMessage, loadBlocklistRules, refreshDueBlocklists } from '@/lib/blocklistService';
@@ -59,7 +59,8 @@ export default defineBackground(() => {
     ? createRedirectTarget({ onBeforeRedirect: browser.webRequest.onBeforeRedirect as unknown as RedirectEvents, fetch: (input, init) => fetch(input, init) })
     : undefined;
   const makeEnv = (): Env => ({
-    fetch: (input, init) => fetch(input, init),
+    // One Env is one search (or one overview, or one MCP request): to a model gateway that asks for a session id, one conversation.
+    fetch: withGatewayHeaders((input, init) => fetch(input, init)),
     redirectTarget,
     runBrowserEngine,
     cache,
