@@ -1,4 +1,4 @@
-import { chat, llmUsable, postSystemOne, systemOneUsable, type FusionConfig, type LlmSettings, type SystemOneResponse } from '@kiwi-search/core';
+import { chat, llmUsable, postSystemOne, systemOneUsable, withGatewayHeaders, type FusionConfig, type LlmSettings, type SystemOneResponse } from '@kiwi-search/core';
 import { t } from '@kiwi-search/app/i18n';
 
 export interface LlmTestReply {
@@ -17,7 +17,7 @@ export async function handleLlmTest(message: unknown): Promise<LlmTestReply> {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   const started = Date.now();
   try {
-    await chat((input, init) => fetch(input, init), llm, [{ role: 'user', content: 'Reply with one word: ok' }], { signal: controller.signal });
+    await chat(withGatewayHeaders((input, init) => fetch(input, init)), llm, [{ role: 'user', content: 'Reply with one word: ok' }], { signal: controller.signal });
     return { ok: true, ms: Date.now() - started };
   } catch (error) {
     return { ok: false, error: controller.signal.aborted ? t('options.test.timeout', { seconds: TIMEOUT_MS / 1000 }) : error instanceof Error ? error.message : String(error) };

@@ -102,7 +102,7 @@ OpenAlex、Crossref、arXiv、PubMed、Europe PMC、DBLP、Openverse、Exa、Dee
 
 ## AI 功能
 
-**AI 概览**：默认使用 OpenAI 兼容 API，DeepSeek 预设使用 `https://api.deepseek.com/v1` 和 `deepseek-flash`。也可在设置里选择 OpenAI、OpenRouter、Ollama 或 Chrome 内置模型。内置模型只在支持 Prompt API 的浏览器新标签页上下文中生成；MCP `answer` 工具需要 API 摘要提供方。
+**AI 概览**：默认使用 OpenAI 兼容 API（OpenCode Go 要求每个会话带一个会话号，Kiwi 会自动带上），DeepSeek 预设使用 `https://api.deepseek.com/v1` 和 `deepseek-flash`。也可在设置里选择 OpenAI、OpenRouter、Ollama 或 Chrome 内置模型。内置模型只在支持 Prompt API 的浏览器新标签页上下文中生成；MCP `answer` 工具需要 API 摘要提供方。
 
 **概览语言**（设置 → AI 功能 → AI 概览 → “概览语言”）：
 - **跟随浏览器**（默认）：用浏览器语言设置里排第一的语言写，不管你搜什么。注意这是浏览器的首选语言，不是你搜索词的语言：浏览器是英语、搜中文，概览也是英语。
