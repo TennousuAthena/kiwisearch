@@ -1,0 +1,81 @@
+{
+  "at": "2026-11-17T12:36:19.207Z",
+  "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "activeGroupCount": 1,
+  "groups": [
+    {
+      "collapsed": false,
+      "color": "blue",
+      "id": 1645804127,
+      "shared": false,
+      "title": "Kiwi Search",
+      "windowId": 797942732
+    }
+  ],
+  "tabs": [
+    {
+      "id": 797942733,
+      "windowId": 797942732,
+      "groupId": 1645804127,
+      "pinned": false,
+      "title": "Issue 9 preserved user tab",
+      "url": "chrome-extension://helhmldjageofhnjldofpnlcinbklfnh/fixture.html"
+    },
+    {
+      "id": 797942734,
+      "windowId": 797942732,
+      "groupId": -1,
+      "pinned": false,
+      "title": "Kiwi lifecycle observer — read only",
+      "url": "chrome-extension://helhmldjageofhnjldofpnlcinbklfnh/observer.html"
+    },
+    {
+      "id": 797942735,
+      "windowId": 797942732,
+      "groupId": -1,
+      "pinned": false,
+      "title": "CSS Flexbox MDN - Kiwi Search",
+      "url": "https://kiwi.moe/"
+    },
+    {
+      "id": 797942745,
+      "windowId": 797942732,
+      "groupId": -1,
+      "pinned": false,
+      "title": "Extensions - Kiwi Search",
+      "url": "chrome://extensions/"
+    },
+    {
+      "id": 797942756,
+      "windowId": 797942755,
+      "groupId": -1,
+      "pinned": false,
+      "title": "https://www.google.com/search",
+      "url": "https://www.google.com/sorry/index"
+    },
+    {
+      "id": 797942757,
+      "windowId": 797942755,
+      "groupId": -1,
+      "pinned": false,
+      "title": "CSS Flexbox MDN - Search",
+      "url": "https://cn.bing.com/search"
+    },
+    {
+      "id": 797942758,
+      "windowId": 797942755,
+      "groupId": -1,
+      "pinned": false,
+      "title": "CSS Flexbox MDN at DuckDuckGo",
+      "url": "https://duckduckgo.com/"
+    },
+    {
+      "id": 797942759,
+      "windowId": 797942755,
+      "groupId": -1,
+      "pinned": false,
+      "title": "CSS Flexbox MDN - Brave Search",
+      "url": "https://search.brave.com/search"
+    }
+  ]
+}

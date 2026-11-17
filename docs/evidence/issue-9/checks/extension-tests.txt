@@ -1,0 +1,36 @@
+> @kiwi-search/extension@0.1.0 test /Users/takuenn/Workspace/KiwiSearch/.cindy-worktrees/silly-hawking/apps/extension
+> vitest run
+
+
+ RUN  v3.2.7 /Users/takuenn/Workspace/KiwiSearch/.cindy-worktrees/silly-hawking/apps/extension
+
+ ✓ test/autosaveQueue.test.ts (9 tests) 5ms
+ ✓ test/summaryRequest.test.ts (1 test) 2ms
+ ✓ test/siteFallback.test.ts (5 tests) 3ms
+ ✓ test/tabRenderer.test.ts (16 tests) 109ms
+ ✓ test/webEvidence.test.ts (12 tests) 6ms
+ ✓ test/extensionHost.test.ts (7 tests) 194ms
+ ✓ test/uiPreferences.test.ts (8 tests) 222ms
+ ✓ test/favicon.test.ts (11 tests) 5ms
+ ✓ test/noHardcodedText.test.ts (1 test) 161ms
+ ✓ test/engineContent.test.ts (5 tests) 5ms
+ ✓ test/webBridge.test.ts (17 tests) 8ms
+ ✓ test/llmTest.test.ts (2 tests) 5ms
+ ✓ test/rendererState.test.ts (13 tests) 2ms
+ ✓ test/language.test.ts (6 tests) 13ms
+ ✓ test/redirectTarget.test.ts (9 tests) 4ms
+ ✓ test/blocklistState.test.ts (13 tests) 35ms
+ ✓ test/onboarding.test.ts (16 tests) 37ms
+ ✓ test/settingsLib.test.ts (7 tests) 3ms
+ ✓ test/configUpdates.test.ts (13 tests) 164ms
+ ✓ test/searchRedirect.test.ts (6 tests) 2ms
+ ✓ test/bridgeLifecycle.test.ts (3 tests) 2ms
+ ✓ test/searchConfig.test.ts (3 tests) 2ms
+ ✓ test/coreMessages.test.ts (2 tests) 2ms
+ ✓ test/configReset.test.ts (3 tests) 2ms
+ ✓ test/sourceControls.test.ts (4 tests) 3ms
+
+ Test Files  25 passed (25)
+      Tests  192 passed (192)
+   Start at  20:03:36
+   Duration  954ms (transform 1.02s, setup 0ms, collect 3.27s, tests 995ms, environment 2ms, prepare 880ms)

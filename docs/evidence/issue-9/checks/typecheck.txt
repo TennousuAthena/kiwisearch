@@ -1,0 +1,21 @@
+> kiwi-search@ typecheck /Users/takuenn/Workspace/KiwiSearch/.cindy-worktrees/silly-hawking
+> pnpm -r typecheck
+
+Scope: 7 of 8 workspace projects
+packages/core typecheck$ tsc -p .
+packages/mcp typecheck$ tsc -p .
+packages/mcp typecheck: Done
+packages/core typecheck: Done
+packages/protocol typecheck$ tsc -p .
+packages/experiments typecheck$ tsc -p .
+packages/experiments typecheck: Done
+packages/protocol typecheck: Done
+packages/app typecheck$ tsc -p .
+packages/app typecheck: Done
+apps/extension typecheck$ wxt prepare && tsc --noEmit
+apps/web typecheck$ tsc -p .
+apps/extension typecheck: WXT 0.20.27
+apps/extension typecheck: ℹ Generating types...
+apps/extension typecheck: ✔ Finished in 293 ms
+apps/web typecheck: Done
+apps/extension typecheck: Done

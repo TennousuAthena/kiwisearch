@@ -1,0 +1,10 @@
+> @kiwi-search/mcp@0.1.0 build /Users/takuenn/Workspace/KiwiSearch/.cindy-worktrees/silly-hawking/packages/mcp
+> tsup src/index.ts --format esm --target node20 --platform node --out-dir dist
+
+CLI Building entry: src/index.ts
+CLI Using tsconfig: tsconfig.json
+CLI tsup v8.5.1
+CLI Target: node20
+ESM Build start
+ESM dist/index.js 30.98 KB
+ESM ⚡️ Build success in 335ms

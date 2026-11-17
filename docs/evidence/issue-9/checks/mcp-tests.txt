@@ -1,0 +1,14 @@
+> @kiwi-search/mcp@0.1.0 test /Users/takuenn/Workspace/KiwiSearch/.cindy-worktrees/silly-hawking/packages/mcp
+> vitest run
+
+
+ RUN  v3.2.7 /Users/takuenn/Workspace/KiwiSearch/.cindy-worktrees/silly-hawking/packages/mcp
+
+ ✓ test/bridge.test.ts (6 tests) 17ms
+ ✓ test/server.test.ts (6 tests) 36ms
+ ✓ test/session.test.ts (6 tests) 47ms
+
+ Test Files  3 passed (3)
+      Tests  18 passed (18)
+   Start at  20:01:09
+   Duration  438ms (transform 92ms, setup 0ms, collect 297ms, tests 99ms, environment 0ms, prepare 129ms)

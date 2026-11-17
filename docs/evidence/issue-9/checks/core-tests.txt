@@ -1,0 +1,60 @@
+> @kiwi-search/core@0.1.0 test /Users/takuenn/Workspace/KiwiSearch/.cindy-worktrees/silly-hawking/packages/core
+> vitest run
+
+
+ RUN  v3.2.7 /Users/takuenn/Workspace/KiwiSearch/.cindy-worktrees/silly-hawking/packages/core
+
+ ✓ test/bravesearch.test.ts (8 tests) 114ms
+ ✓ test/shopping.test.ts (25 tests) 153ms
+ ✓ test/social.test.ts (19 tests) 67ms
+ ✓ test/markdown.test.ts (19 tests) 384ms
+   ✓ markdownSnippet > is not slowed down by a very large page  367ms
+ ✓ test/parsers.test.ts (29 tests) 169ms
+ ✓ test/llm-hedge.test.ts (11 tests) 651ms
+ ✓ test/academic.test.ts (15 tests) 205ms
+ ✓ test/decision.test.ts (40 tests) 601ms
+   ✓ when the dedicated model refuses, the chat model decides > does not fall back on a rate limit, a server error or a timeout: asking another model would not be faster  503ms
+ ✓ test/modes.test.ts (24 tests) 92ms
+ ✓ test/douyin.test.ts (5 tests) 273ms
+ ✓ test/judge.test.ts (31 tests) 697ms
+   ✓ judgeResults > retries once on 429 and then succeeds  502ms
+ ✓ test/kagi.test.ts (18 tests) 81ms
+ ✓ test/sogou.test.ts (12 tests) 99ms
+ ✓ test/intent.test.ts (18 tests) 763ms
+   ✓ a general search with routing > waits past the soft deadline for a slow decision model, and what its verdict starts merges in late  402ms
+ ✓ test/links.test.ts (8 tests) 4ms
+ ✓ test/news-engines.test.ts (8 tests) 144ms
+ ✓ test/academic-sources.test.ts (18 tests) 58ms
+ ✓ test/news-pipeline.test.ts (5 tests) 46ms
+ ✓ test/duckduckgo.test.ts (2 tests) 61ms
+ ✓ test/language.test.ts (21 tests) 27ms
+ ✓ test/google.test.ts (21 tests) 51ms
+ ✓ test/academic-engines.test.ts (15 tests) 93ms
+ ✓ test/academic-language.test.ts (18 tests) 16ms
+ ✓ test/early-overview.test.ts (16 tests) 1307ms
+ ✓ test/x.test.ts (8 tests) 107ms
+ ✓ test/video.test.ts (18 tests) 33ms
+ ✓ test/api-sources.test.ts (7 tests) 20ms
+ ✓ test/blocklist.test.ts (24 tests) 16ms
+ ✓ test/news.test.ts (10 tests) 29ms
+ ✓ test/fusion.test.ts (22 tests) 18ms
+ ✓ test/gateway.test.ts (7 tests) 8ms
+ ✓ test/yuanbao.test.ts (3 tests) 33ms
+ ✓ test/wikipedia.test.ts (37 tests) 21ms
+ ✓ test/summary.test.ts (6 tests) 10ms
+ ✓ test/shopping-timeout.test.ts (5 tests) 12ms
+ ✓ test/reprints.test.ts (7 tests) 11ms
+ ✓ test/summary-snapshot.test.ts (6 tests) 8ms
+ ✓ test/news-sources.test.ts (7 tests) 10ms
+ ✓ test/content.test.ts (2 tests) 5ms
+ ✓ test/llm.test.ts (1 test) 3ms
+ ✓ test/shopping-pipeline.test.ts (4 tests) 7ms
+ ✓ test/config.test.ts (19 tests) 7ms
+ ✓ test/cache.test.ts (3 tests) 2ms
+ ✓ test/pipeline.test.ts (30 tests) 4227ms
+   ✓ runSearch > Google links that were not unwrapped > go to the hidden results, with their reason, when enough other results stay  2334ms
+
+ Test Files  44 passed (44)
+      Tests  632 passed (632)
+   Start at  20:01:12
+   Duration  4.85s (transform 735ms, setup 0ms, collect 7.39s, tests 10.74s, environment 4ms, prepare 1.87s)

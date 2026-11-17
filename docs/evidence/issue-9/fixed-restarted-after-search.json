@@ -1,0 +1,49 @@
+{
+  "at": "2026-11-17T12:48:23.940Z",
+  "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "activeGroupCount": 1,
+  "groups": [
+    {
+      "collapsed": false,
+      "color": "blue",
+      "id": 524952318,
+      "shared": false,
+      "title": "Kiwi Search",
+      "windowId": 797942834
+    }
+  ],
+  "tabs": [
+    {
+      "id": 797942835,
+      "windowId": 797942834,
+      "groupId": -1,
+      "pinned": false,
+      "title": "HTML dialog MDN - Kiwi Search",
+      "url": "https://kiwi.moe/"
+    },
+    {
+      "id": 797942861,
+      "windowId": 797942834,
+      "groupId": -1,
+      "pinned": false,
+      "title": "Kiwi lifecycle observer — read only",
+      "url": "chrome-extension://helhmldjageofhnjldofpnlcinbklfnh/observer.html"
+    },
+    {
+      "id": 797942862,
+      "windowId": 797942834,
+      "groupId": -1,
+      "pinned": false,
+      "title": "Kiwi Search 设置",
+      "url": "chrome-extension://kjagbgdmpfcijicdbnehcconnldbgmdd/options.html"
+    },
+    {
+      "id": 797942863,
+      "windowId": 797942834,
+      "groupId": 524952318,
+      "pinned": false,
+      "title": "Issue 9 preserved user tab",
+      "url": "chrome-extension://helhmldjageofhnjldofpnlcinbklfnh/fixture.html"
+    }
+  ]
+}
