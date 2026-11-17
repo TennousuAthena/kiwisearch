@@ -20,6 +20,7 @@ import { sessionEvidenceStorage } from '@/lib/webEvidenceStorage';
 import { WEB_SITES } from '@/lib/webOrigins';
 import { browserLanguage } from '@/lib/language';
 import { loadConfig } from '@/lib/settings';
+import { configForPage } from '@/lib/searchConfig';
 import { handleFaviconMessage } from '@/lib/faviconService';
 import { handleDecisionTest, handleLlmTest } from '@/lib/llmTest';
 import { createRedirectTarget, type RedirectEvents } from '@/lib/redirectTarget';
@@ -277,7 +278,7 @@ export default defineBackground(() => {
         if (current.signal.aborted) return;
         const sources = usableSources(config, true, req.mode ?? 'web').filter((source) => source.modes.includes(req.mode ?? 'web') && (!req.sources || req.sources.includes(source.id)));
         post({ type: 'readiness', enabled: sources.filter((source) => source.reason !== 'disabled').length, ready: sources.filter((source) => !source.reason).length });
-        await runSearch(req.query, config, makeEnv(), {
+        await runSearch(req.query, configForPage(config, req.phases), makeEnv(), {
           mode: req.mode,
           language: req.language,
           news: req.news,

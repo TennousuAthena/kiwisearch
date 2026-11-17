@@ -421,6 +421,25 @@ export interface FusionConfig {
     language: string;
     /** The language written by the user, when `language` is `custom`. */
     languageCustom: string;
+    /**
+     * When the overview model has sent nothing this long after the request, send a second identical one and use whichever answers
+     * first (`chatStreamHedged`). 0 turns it off. Never for a model on this machine.
+     */
+    hedgeMs: number;
+    /** An early overview from the first results, while the rest arrive (only where the caller sets a soft deadline: the search page). */
+    early: {
+      enabled: boolean;
+      /** Start once this many sources have returned results with text… */
+      minSources: number;
+      /** …or once this long has passed and at least one has. */
+      waitMs: number;
+      /** Ask the decision model whether it stands once it is written and at least this long after the search started. */
+      decideMs: number;
+      /** Probability at or above which the decision model's verdict keeps it, so no final overview is written. */
+      keepThreshold: number;
+      /** The early overview asks the model not to think first (`off`: a draft should be quick). The final overview is always asked the plain way. */
+      thinking: 'off' | 'default';
+    };
   };
 }
 
@@ -533,13 +552,27 @@ export type PipelineEvent =
   | { type: 'academic_plan'; plan?: AcademicPlan; /** In the order the model gave them, most canonical first. */ landmarks: VerifiedLandmark[]; /** Set when no plan could be had. */ error?: string }
   | { type: 'routed'; routes: Route[]; scores: Partial<Record<IntentKey, number>>; suggest?: IntentSuggestion; /** Set when no verdict could be had. */ error?: string }
   | { type: 'judged'; results: FusedResult[]; /** Set when some or all judgments failed. */ error?: string }
-  | { type: 'summary_start'; citations: Citation[] }
-  | { type: 'summary_prompt'; citations: Citation[]; messages: import('./llm').ChatMessage[] }
-  | { type: 'summary_delta'; text: string }
-  | { type: 'summary_done'; text: string }
-  | { type: 'summary_error'; error: string }
-  | { type: 'summary_stopped' }
+  | { type: 'summary_start'; citations: Citation[]; phase?: SummaryPhase }
+  | { type: 'summary_prompt'; citations: Citation[]; messages: import('./llm').ChatMessage[]; phase?: SummaryPhase }
+  | { type: 'summary_delta'; text: string; phase?: SummaryPhase }
+  | { type: 'summary_done'; text: string; phase?: SummaryPhase }
+  | { type: 'summary_error'; error: string; phase?: SummaryPhase }
+  | { type: 'summary_stopped'; phase?: SummaryPhase }
+  /** Whether the early overview stands: `keep` means no final one follows. `score` is the decision model's, when it was asked. */
+  | { type: 'summary_checked'; keep: boolean; reason: SummaryCheckReason; score?: number; error?: string }
   | { type: 'done'; result: PipelineResult };
+
+/**
+ * `preliminary`: written from the first sources' excerpts while the search goes on. `final`: written from all the results.
+ * Events without a phase belong to a final overview (MCP, an explicit generation).
+ */
+export type SummaryPhase = 'preliminary' | 'final';
+
+/**
+ * Why the early overview was kept or replaced: the decision model found it `sufficient` or `insufficient`; it could not be asked
+ * (`no-model`) or did not answer (`error`); a result it cites was hidden after judging (`hidden`); or it did not finish (`unfinished`).
+ */
+export type SummaryCheckReason = 'sufficient' | 'insufficient' | 'no-model' | 'error' | 'hidden' | 'unfinished';
 
 export interface Citation {
   n: number;

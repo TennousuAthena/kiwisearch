@@ -93,7 +93,12 @@ export const DEFAULT_CONFIG: FusionConfig = {
   rerank: { provider: 'none', candidates: 30 },
   llm: { baseUrl: 'https://api.deepseek.com/v1', apiKey: '', model: 'deepseek-flash' },
   // The overview is written in the browser's language; `auto` follows the language of each query instead.
-  summary: { enabled: true, provider: 'api', maxSources: 8, contentFetcher: 'direct', maxCharsPerSource: 3000, language: 'browser', languageCustom: '' },
+  // The early overview: from the first 3 sources with text or after 3 s, checked by the decision model at 5 s (see `earlyOverview.ts`).
+  summary: {
+    enabled: true, provider: 'api', maxSources: 8, contentFetcher: 'direct', maxCharsPerSource: 3000, language: 'browser', languageCustom: '',
+    hedgeMs: 3000,
+    early: { enabled: true, minSources: 3, waitMs: 3000, decideMs: 5000, keepThreshold: 0.7, thinking: 'off' },
+  },
 };
 
 type Migration = (stored: Record<string, unknown>) => Record<string, unknown>;
@@ -155,7 +160,7 @@ export function mergeConfig(base: FusionConfig, patch: DeepPartial<FusionConfig>
     rerank: { ...base.rerank, ...stripUndefined(patch.rerank) },
     renderer: { ...base.renderer, ...stripUndefined(patch.renderer) },
     llm: { ...base.llm, ...stripUndefined(patch.llm) },
-    summary: { ...base.summary, ...stripUndefined(patch.summary) },
+    summary: { ...base.summary, ...stripUndefined(patch.summary), early: { ...base.summary.early, ...stripUndefined(patch.summary?.early) } },
     version: CONFIG_VERSION,
   } as FusionConfig;
 }

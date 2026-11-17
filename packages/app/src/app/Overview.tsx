@@ -24,11 +24,13 @@ interface Props {
   onGenerate?: () => void;
   onStop?: () => void;
   onRetry?: () => void;
+  /** Write a new overview from all the current results, offered while the early overview is on screen. */
+  onRefresh?: () => void;
 }
 
 /** The same bounded viewport is present from loading onward, including partial and stopped answers. */
 export function Overview({ state, text, summaryMarkdown, hide, controlsOnly = false, onHoverCite, expanded: controlledExpanded,
-  onExpandedChange, summaryMode = 'auto', onGenerate, onStop, onRetry }: Props) {
+  onExpandedChange, summaryMode = 'auto', onGenerate, onStop, onRetry, onRefresh }: Props) {
   const id = useId();
   const bodyRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -40,7 +42,16 @@ export function Overview({ state, text, summaryMarkdown, hide, controlsOnly = fa
   const markdown = summaryMarkdown ?? text ?? state.summary;
   const html = useMemo(() => markdown ? renderSummary(markdown, state.citations) : '', [markdown, state.citations]);
   const status = state.summaryStatus;
-  const busy = status === 'loading' || status === 'starting' || status === 'streaming';
+  const writing = status === 'loading' || status === 'starting' || status === 'streaming';
+  const updating = !!state.summaryUpdate;
+  const busy = writing || updating;
+  const early = state.summaryPhase === 'preliminary' || state.summaryPhase === 'kept';
+  // What the early overview is: written from the first results, kept after checking, being replaced, or left after a failed update.
+  const phaseNote = updating ? t('resultUx.overview.updating')
+    : state.summaryUpdateError ? t('resultUx.overview.updateFailed', { error: state.summaryUpdateError })
+    : state.summaryPhase === 'kept' ? t('resultUx.overview.kept')
+    : state.summaryPhase === 'preliminary' && (status === 'streaming' || status === 'done') ? t(state.stage === 'done' ? 'resultUx.overview.preliminaryDone' : 'resultUx.overview.preliminary')
+    : null;
   const citations = state.citations.filter((citation) => { try { return /^https?:$/.test(new URL(citation.url).protocol); } catch { return false; } });
   const canGenerate = state.stage === 'done' && state.results.some((result) => !result.hidden);
 
@@ -89,6 +100,7 @@ export function Overview({ state, text, summaryMarkdown, hide, controlsOnly = fa
           onFocus={(event) => highlight(event.target)} onBlur={() => onHoverCite(null)}
           dangerouslySetInnerHTML={{ __html: html }} />}
       </div>}
+      {phaseNote && <p className="overview-status overview-phase" role="status">{phaseNote}</p>}
       {status === 'stopped' && <p className="overview-status" role="status">{t(html ? 'resultUx.overview.stopped' : 'resultUx.overview.stoppedEmpty')}</p>}
       {status === 'error' && <div className="alert overview-error" role="alert"><CircleAlertIcon /><div className="alert-body">
         <p>{state.summaryError}</p><OptionsLink>{t('newtab.overview.openSettings')}</OptionsLink>
@@ -98,7 +110,8 @@ export function Overview({ state, text, summaryMarkdown, hide, controlsOnly = fa
           {t(expanded ? 'newtab.overview.collapse' : 'newtab.overview.expand')}<ChevronDownIcon className={expanded ? 'flip' : ''} />
         </button>}
         {busy && onStop && <button type="button" className="result-ux-button" onClick={onStop}>{t('resultUx.overview.stop')}</button>}
-        {!busy && (onRetry || onGenerate) && <button type="button" className="result-ux-button" onClick={onRetry ?? onGenerate}>{t('resultUx.overview.retry')}</button>}
+        {!busy && early && onRefresh && state.stage === 'done' && <button type="button" className="result-ux-button" onClick={onRefresh}>{t('resultUx.overview.refresh')}</button>}
+        {!busy && !early && (onRetry || onGenerate) && <button type="button" className="result-ux-button" onClick={onRetry ?? onGenerate}>{t('resultUx.overview.retry')}</button>}
         {html && <button type="button" className="result-ux-button" onClick={() => void copy()}><CopyIcon />{t('resultUx.overview.copy')}</button>}
         {!!citations.length && <ResultPopover label={t('resultUx.overview.sources')} trigger={t('resultUx.overview.sources')}>
           {() => <>

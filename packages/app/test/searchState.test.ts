@@ -87,6 +87,55 @@ describe('search state reducer', () => {
     expect(run([{ type: 'summary_error', error: 'boom' }], state)).toMatchObject({ summaryStatus: 'error', summaryError: 'boom' });
   });
 
+  describe('the early overview and the final one', () => {
+    const early = (): SearchState => run([
+      { type: 'fused', results: [result('a'), result('b')], partial: true },
+      { type: 'summary_start', citations: [{ n: 1, url: 'https://example.com/a', title: 'a' }], phase: 'preliminary' },
+      { type: 'summary_delta', text: 'Early [1]', phase: 'preliminary' },
+      { type: 'summary_done', text: 'Early [1]', phase: 'preliminary' },
+    ]);
+
+    it('keeps the early overview on screen while the final one is written, then swaps it in whole', () => {
+      const writing = run([
+        { type: 'summary_checked', keep: false, reason: 'insufficient', score: 0.2 },
+        { type: 'summary_start', citations: [{ n: 1, url: 'https://example.com/b', title: 'b' }], phase: 'final' },
+        { type: 'summary_delta', text: 'Final ', phase: 'final' },
+        { type: 'summary_delta', text: '[1]', phase: 'final' },
+      ], early());
+      expect(writing).toMatchObject({ summary: 'Early [1]', summaryPhase: 'preliminary', summaryStatus: 'done', citations: [{ url: 'https://example.com/a' }] });
+      expect(writing.summaryUpdate).toMatchObject({ text: 'Final [1]', citations: [{ url: 'https://example.com/b' }] });
+      const swapped = run([{ type: 'summary_done', text: 'Final [1]', phase: 'final' }], writing);
+      expect(swapped).toMatchObject({ summary: 'Final [1]', summaryPhase: 'final', summaryStatus: 'done', citations: [{ url: 'https://example.com/b' }], summaryResults: [{ title: 'b' }] });
+      expect(swapped.summaryUpdate).toBeUndefined();
+    });
+
+    it('leaves the early overview when the final one fails or stops, and marks a kept one', () => {
+      const writing = run([{ type: 'summary_start', citations: [], phase: 'final' }], early());
+      expect(run([{ type: 'summary_error', error: 'HTTP 500', phase: 'final' }], writing)).toMatchObject({ summary: 'Early [1]', summaryStatus: 'done', summaryUpdateError: 'HTTP 500', summaryUpdate: undefined });
+      expect(run([{ type: 'summary_stopped', phase: 'final' }], writing)).toMatchObject({ summary: 'Early [1]', summaryUpdate: undefined, summaryUpdateError: undefined });
+      expect(run([{ type: 'summary_checked', keep: true, reason: 'sufficient', score: 0.9 }], early())).toMatchObject({ summaryPhase: 'kept', summary: 'Early [1]' });
+    });
+
+    it('streams the final one in place when no early text is on screen', () => {
+      const failed = run([{ type: 'summary_start', citations: [], phase: 'preliminary' }, { type: 'summary_error', error: 'boom', phase: 'preliminary' }]);
+      const final = run([{ type: 'summary_start', citations: [], phase: 'final' }, { type: 'summary_delta', text: 'Final', phase: 'final' }], failed);
+      expect(final).toMatchObject({ summary: 'Final', summaryStatus: 'streaming', summaryPhase: 'final' });
+      expect(final.summaryUpdate).toBeUndefined();
+    });
+
+    it('ignores a late early-overview event once the final one is under way', () => {
+      const writing = run([{ type: 'summary_start', citations: [], phase: 'final' }], early());
+      expect(run([{ type: 'summary_delta', text: ' stray', phase: 'preliminary' }], writing).summary).toBe('Early [1]');
+    });
+  });
+
+  it('leaves the state alone for an event it does not know, so an extension newer than the page cannot wipe the search', () => {
+    const before = run([{ type: 'fused', results: [result('a')], partial: true }, { type: 'summary_start', citations: [] }, { type: 'summary_delta', text: 'Hello' }]);
+    const future = { type: 'something_added_later', detail: 1 } as unknown as PipelineEvent;
+    expect(reduce(before, future, 5000)).toBe(before);
+    expect(run([future, { type: 'summary_delta', text: '!' }], before).summary).toBe('Hello!');
+  });
+
   it('stamps the finish time and falls back to the final result list', () => {
     const state = run([done([result('only')])]);
     expect(state).toMatchObject({ stage: 'done', finishedAt: 5000 });

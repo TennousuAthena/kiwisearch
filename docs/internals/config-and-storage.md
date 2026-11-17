@@ -51,3 +51,5 @@ Storage exports include API keys and pairing credentials. Store them outside the
 Taobao (`taobao`), JD (`jd`) and Amazon US (`amazon`) have explicit enabled defaults. They are available only in `shopping`, so enabling them does not add requests to web searches. Existing configs gain these defaults when merged in memory; saved settings, keys and explicit per-source choices are preserved. No config version bump or migration is required.
 
 Checked on 2026-11-13 for shopping activation: the original profile/extension ID/path were retained and saved config, keys, bridge and sync storage matched the protected pre-update snapshot. Only source-status records and favicon cache entries changed during live checks; cache pruning is the existing favicon service behavior. See [shopping.md](shopping.md).
+
+`summary.hedgeMs` (3000) and `summary.early.thinking` (`'off'`) (2026-11-16) are scalars inside the existing `summary` object, so `mergeConfig` fills them into configs saved before they existed; `CONFIG_VERSION` stays 5 and there is no migration. What `chatStream` learns about an endpoint's thinking switch is kept in the worker's memory only.

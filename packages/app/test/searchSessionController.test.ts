@@ -65,6 +65,20 @@ describe('search session lifecycle', () => {
     expect(controller.getState()).toMatchObject({ outcome: 'complete', results: [hit('a')] });
   });
 
+  it('tells the extension it understands the early and final overviews', () => {
+    const { controller, ports } = setup(); controller.search('q', 'web');
+    expect(ports[0].messages[0]).toMatchObject({ type: 'search', query: 'q', phases: true });
+  });
+
+  it('keeps the search when the extension sends an event this page does not know', () => {
+    const { controller, ports } = setup(); controller.search('q', 'web');
+    ports[0].event({ type: 'fused', results: [hit('a')], partial: true });
+    ports[0].event({ type: 'summary_added_later', detail: 1 } as unknown as PipelineEvent);
+    expect(controller.getState()).toMatchObject({ query: 'q', outcome: 'active', results: [hit('a')] });
+    ports[0].event(done([hit('a')]));
+    expect(controller.getState()).toMatchObject({ outcome: 'complete', results: [hit('a')] });
+  });
+
   it('retains source errors and readiness while partial results stay usable', () => {
     const { controller, ports } = setup(); controller.search('q', 'web');
     ports[0].raw({ type: 'readiness', enabled: 2, ready: 1 });
@@ -107,6 +121,55 @@ describe('summary-only controls', () => {
     ports[0].event({ type: 'summary_prompt', citations: [], messages: [{ role: 'user', content: 'Evidence' }] });
     stream?.('first'); controller.stopSummary(); stream?.('late');
     expect(signal?.aborted).toBe(true); expect(controller.getState()).toMatchObject({ summary: 'first', summaryStatus: 'stopped' }); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('keeps the early overview when the user stops the final one, and offers the final evidence only once it is on screen', () => {
+    const { controller, ports } = setup(); controller.search('q', 'web');
+    ports[0].event({ type: 'fused', results: [hit('a'), hit('b')], partial: true });
+    ports[0].event({ type: 'summary_start', citations: [{ n: 1, url: hit('a').url, title: 'a' }], phase: 'preliminary' });
+    ports[0].raw({ type: 'summary-snapshot', results: [hit('a')], summaryAt: '2026-11-15T00:00:01.000Z' });
+    ports[0].event({ type: 'summary_delta', text: 'Early', phase: 'preliminary' }); ports[0].event({ type: 'summary_done', text: 'Early', phase: 'preliminary' });
+    ports[0].event({ type: 'summary_start', citations: [{ n: 1, url: hit('b').url, title: 'b' }], phase: 'final' });
+    ports[0].raw({ type: 'summary-snapshot', results: [hit('b')], summaryAt: '2026-11-15T00:00:07.000Z' });
+    expect(controller.getState()).toMatchObject({ summary: 'Early', summaryResults: [{ key: 'a' }], summaryAt: '2026-11-15T00:00:01.000Z', summaryUpdate: { results: [{ key: 'b' }] } });
+    ports[0].event(done([hit('a'), hit('b')]));
+    // Still waiting for the final overview, so the connection is expected to stay.
+    expect(vi.getTimerCount()).toBe(1);
+    controller.stopSummary();
+    expect(ports[0].messages.at(-1)).toEqual({ type: 'stop-summary' });
+    expect(controller.getState()).toMatchObject({ summary: 'Early', summaryStatus: 'done', summaryUpdate: undefined, summaryPhase: 'preliminary' });
+    ports[0].event({ type: 'summary_done', text: 'Final', phase: 'final' });
+    expect(controller.getState()?.summary).toBe('Early');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('runs the built-in model for each phase, ending the early run when the final prompt arrives', () => {
+    const { controller, ports, prompt } = setup();
+    const runs: { stream: (delta: string) => void; signal: AbortSignal; finish: () => void }[] = [];
+    prompt.mockImplementation(((_messages: unknown, onChunk: (text: string) => void, signal: AbortSignal) => new Promise<void>((resolve) => { runs.push({ stream: onChunk, signal, finish: resolve }); })) as never);
+    controller.search('q', 'web');
+    ports[0].event({ type: 'fused', results: [hit('a')], partial: true });
+    ports[0].event({ type: 'summary_start', citations: [], phase: 'preliminary' });
+    ports[0].event({ type: 'summary_prompt', citations: [], messages: [], phase: 'preliminary' });
+    runs[0].stream('Early');
+    ports[0].event({ type: 'summary_start', citations: [], phase: 'final' });
+    ports[0].event({ type: 'summary_prompt', citations: [], messages: [], phase: 'final' });
+    expect(runs[0].signal.aborted).toBe(true);
+    runs[0].stream(' stray'); runs[1].stream('Final');
+    expect(controller.getState()).toMatchObject({ summary: 'Early', summaryUpdate: { text: 'Final' } });
+  });
+
+  it('swaps in the built-in final overview when it completes', async () => {
+    const { controller, ports, prompt } = setup();
+    let finish!: () => void; let stream!: (delta: string) => void;
+    prompt.mockImplementation(((_m: unknown, onChunk: (text: string) => void) => { stream = onChunk; return new Promise<void>((resolve) => { finish = resolve; }); }) as never);
+    controller.search('q', 'web');
+    ports[0].event({ type: 'summary_start', citations: [], phase: 'preliminary' });
+    ports[0].event({ type: 'summary_delta', text: 'Early', phase: 'preliminary' }); ports[0].event({ type: 'summary_done', text: 'Early', phase: 'preliminary' });
+    ports[0].event({ type: 'summary_start', citations: [], phase: 'final' });
+    ports[0].event({ type: 'summary_prompt', citations: [], messages: [], phase: 'final' });
+    stream('Final'); finish(); await Promise.resolve(); await Promise.resolve();
+    expect(controller.getState()).toMatchObject({ summary: 'Final', summaryPhase: 'final', summaryStatus: 'done', summaryUpdate: undefined });
   });
 
   it('converts summary connection errors into a local error without resetting search results', () => {

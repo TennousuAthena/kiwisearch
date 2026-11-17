@@ -25,4 +25,10 @@ export const resultUx = {
   'resultUx.overview.sources': '查看引用来源',
   'resultUx.overview.sourceList': '引用来源',
   'resultUx.overview.source': '来源 {number}：{title}',
+  'resultUx.overview.preliminary': '初步概览：根据最先返回的结果写成，正在等待全部结果。',
+  'resultUx.overview.preliminaryDone': '初步概览：根据最先返回的结果写成。',
+  'resultUx.overview.updating': '正在根据全部结果更新概览…',
+  'resultUx.overview.kept': '已对照全部结果核对，无需更新。',
+  'resultUx.overview.updateFailed': '未能根据全部结果更新，仍显示初步概览：{error}',
+  'resultUx.overview.refresh': '用全部结果重新生成',
 } as const;

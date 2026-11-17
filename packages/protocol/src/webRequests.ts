@@ -80,6 +80,7 @@ export function parseSearchStreamMessage(raw: unknown): SearchRequest | null {
   if (raw.language !== undefined) { if (raw.language !== 'any' && raw.language !== 'en') return null; request.language = raw.language; }
   if (raw.refresh !== undefined) { if (typeof raw.refresh !== 'boolean') return null; request.refresh = raw.refresh; }
   if (raw.summarize !== undefined) { if (typeof raw.summarize !== 'boolean') return null; request.summarize = raw.summarize; }
+  if (raw.phases !== undefined) { if (typeof raw.phases !== 'boolean') return null; request.phases = raw.phases; }
   if (raw.sources !== undefined) {
     if (!Array.isArray(raw.sources) || raw.sources.length > 60 || !raw.sources.every((id) => typeof id === 'string' && SOURCE_ID.test(id))) return null;
     request.sources = raw.sources as SourceId[];
