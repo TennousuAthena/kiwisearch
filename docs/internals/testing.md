@@ -128,3 +128,48 @@ Checked on 2026-11-13 with Firefox 160 on macOS, using a fresh profile and no mo
 - In a throwaway Chrome profile, the MV3 build still shows the Chrome settings button and keeps `favicon`.
 
 Not checked: AI overview and quick answer, successful results from login- or captcha-gated platforms (Zhihu, RedNote, X, Taobao, JD, Google Scholar), whether the Openverse 504, Bilibili refusal and X timeout also happen in Chrome, the user's own Chromium profile, and AMO signing.
+
+## Early overview: activation and live timing (2026-11-15)
+
+Built from `feat/early-overview` (based on `origin/master` a3afab7). Before activating, the loaded build was compared with a clean build of `origin/master`: `background.js` and every chunk were equal except the page style sheet, which lacked PR #8's `isolation: isolate`, so the loaded build was master as of PR #7 and nothing uncommitted was replaced. Activated twice by the steps above (the second time for a button fix), at the same profile (`~/.kiwi-search/dev-profile`), path (`/private/tmp/kiwi-probe/ext-live-1794502531`) and ID (`kjmchkfoghalbmpfnlehklgfbophhgmp`). Backups: `~/.kiwi-search/backups/<UTC>-early-overview/` and `…-early-overview-2/` (`0700`, files `0600`). Both times the executing `background.js` hash equalled the build and every local key was unchanged (432, then 504 after the test searches added cache entries); `config` and `bridge` were unchanged. No Kiwi page was open, so none was closed.
+
+Live searches on the extension's own page (`app.html?q=…`) in a background tab, with the user's settings (API overview model `deepseek-flash` through the user's own endpoint, Jev as decision model, intent routing off). The page's port events were recorded by a script added to the page, and the DOM was read every 100 ms. Times are from navigation:
+
+| Query | Early overview text | Decision | Search and overview done |
+|---|---|---|---|
+| 香港有多少个区 | 5.3 s | replaced (reason not recorded on this first run) | 31.6 s |
+| 深圳市的人口是多少 | 18.8 s | kept, 0.9 | 19.0 s |
+| 深圳旅游攻略 | 10.1 s | replaced, `insufficient` 0.69 | 41.3 s |
+| 香港有多少个区 (sources from cache) | 13.5 s | replaced, `hidden` (0.95, but judging hid a cited result) | 34.2 s |
+| react useEffect 清理函数什么时候执行 | 9.3 s | kept, 0.88 | 9.7 s |
+
+Before this change the same first two queries took about 22.5 s and 20.5 s to a finished overview (2026-11-13, quick-answer record). The early overview starts 0.1–2.5 s after navigation; what dominates is the model: from request to finished preliminary text took 5–17 s even with no page reads, and in the second run of the Hong Kong query the sources were cached and the text still took 13.4 s. A replaced overview costs a second request that took 20–26 s (it reads pages). The screenshots and event logs are in `/tmp/kiwi-early-overview-live/`. Checked visually: the kept state (quick answer, "已对照全部结果核对，无需更新。", the regenerate-from-all button). Not checked live: the built-in model, a decision-model failure, stopping during the update, narrow and dark layouts, and the website.
+
+## Early overview: hedging, thinking off and page reads (2026-11-16)
+
+Built from `feat/early-overview` (still uncommitted, on `origin/master` a3afab7, which had not moved). Before activating, the loaded `background.js` had the SHA-256 recorded at the 2026-11-15 activation (`d77e82e9…`) and its modification time was that activation's, and no newer backup directory existed: nothing else had been activated in between. Activated at the same profile (`~/.kiwi-search/dev-profile`), path (`/private/tmp/kiwi-probe/ext-live-1794502531`) and ID (`kjmchkfoghalbmpfnlehklgfbophhgmp`). Backup: `~/.kiwi-search/backups/2026-11-16T12-53-01Z-hedge-thinking/` (`0700`, files `0600`). The executing `background.js` equalled the build (`03ab949f…`), `chrome.runtime.id` was unchanged, and all 421 local keys, `config` and `bridge` were equal after the reload. No Kiwi page was open.
+
+**Searches** (extension page `app.html?q=…` in a background tab; the service worker's requests to the overview model were recorded through the DevTools Network domain, keeping only times, whether the body carried the thinking switch, and how each ended: no URLs, keys or bodies). Sources were not cached for the first four rows. "Early text" is the first overview text on the page.
+
+| Query | Early text | `fused` | `judged` | Decision | Final overview | Done |
+|---|---|---|---|---|---|---|
+| 香港有多少个区 | 4.8 s | 6.1 s | 7.3 s | kept, `sufficient` | none | 7.3 s |
+| 深圳旅游攻略 | 5.4 s | 6.1 s | 18.1 s | replaced, `insufficient` | 18.1 to 35.5 s | 35.5 s |
+| 深圳市的人口是多少 | 20.8 s | 6.1 s | 7.4 s | kept, `sufficient` | none | 21.5 s |
+| react useEffect 清理函数什么时候执行 | 3.2 s | 6.2 s | 7.4 s | kept, `sufficient` | none | 7.4 s |
+| 香港有多少个区 (sources cached) | 1.5 s | 0.06 s | 1.2 s | replaced, `hidden` (no decision request) | 2.3 to 7.5 s | 7.5 s |
+| 深圳市的人口是多少 (sources cached) | 1.2 s | 0.06 s | 1.4 s | kept | none | 5.6 s |
+
+On the same four uncached queries the day before the early text appeared at 5.3, 18.8, 10.1 and 9.3 s and the search ended at 31.6, 19.0, 41.3 and 9.7 s. One run each, on a gateway whose speed changes from minute to minute, so these are not a measured improvement of a given size.
+
+What the runs show:
+
+- **The early overview request is a lottery on the gateway.** Four of six early requests had their first byte within 1.1 to 3.4 s. One (深圳市的人口是多少) took 19.4 s; its hedge, sent 3 s later, was silent for another 16 s until it was aborted, so both requests were stuck at the same time. The hedge was started and lost once (深圳旅游攻略, early: the first answered 0.4 s after the hedge was sent) and won once (the final overview of the same search: the first request was silent for at least 4.9 s, the hedge answered 1.2 s after it was sent). The other requests answered before 3 s and were not hedged.
+- **Judging is normally 1.1 to 1.4 s, but once took 12.0 s, which is `judge.timeoutMs`**: some of the 30 per-result requests stalled and the search waited out the deadline. That one stall is most of that search's 35 s.
+- **The first full list waited for the 6 s soft deadline in all three uncached runs** (`fused` at 6.1 to 6.2 s), because one source was slower than that; the same sources had all been in within 2.6 s in an earlier run, so it varies. With judging at 1.2 s, a kept overview then ended the search at about 7.3 s.
+- **Reading the pages beside the early overview helped little here.** It starts when judging ends. In the one run where judging ended before the early overview (the cached 香港有多少个区) the final overview's request went out at 4.4 s instead of about 5.5 s. In the others, judging ended after the early overview had finished, so there was nothing to overlap.
+- In the network records a request that ended normally is listed as `canceled`: `chatStream` returns at `[DONE]` without reading the body to its end, and the hedge wrapper aborts every request when it finishes. It does not mean the request lost.
+
+**The captured request, replayed.** The early request for 深圳市的人口是多少 (5.7 KB, held in a `0600` file under `/tmp` for the replay and deleted afterwards, never in the repository) was sent eight times from the service worker, alternating the request as the extension sends it (thinking switched off) with the same request without the two thinking fields. First byte, as sent against without the fields: 2.2 and 2.2 s; 20.1 and 24.0 s; 1.1 and 2.0 s; 31.5 and 10.4 s. Reasoning text: 0 characters as sent, 337 to 1033 without the fields; the answers were 218 to 241 and 107 to 209 characters. In every round the two requests were about equally fast or equally slow, which fits a gateway that stalls for a while, not a request that is slow for its own reasons. Taken with the 8 requests of the earlier test with a one-sentence prompt (median 2.3 s as sent against 6.1 s without the fields, but equal means, 8.1 and 7.9 s), switching thinking off lowers the typical first byte at most slightly and does not touch the stalls; its measured effect is the reasoning tokens that are no longer produced. The earlier statement that it was "not a way forward" for the overview was wrong (it was tested with the `thinking` field alone, which this gateway ignores; `reasoning_effort: "none"` works), and so was the later impression that it removes the delay.
+
+Not checked: the built-in model path in a real browser; MCP with hedging; the decision model failing; providers other than the user's one gateway (a refusal of the thinking fields is only unit-tested); how often a hedge fires or wins over many searches (6 early and 2 final overviews here); the effect of the extra requests on a provider's rate limit; narrow and dark layouts; the website. These runs say nothing about quality of the early overview written without thinking.

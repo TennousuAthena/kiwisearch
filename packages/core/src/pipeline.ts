@@ -1,5 +1,6 @@
 import { DEFAULT_CONFIG, resultCount, sourcesForRoutes, usableSources } from './config';
 import { applyAcademicLanguage } from './academicLanguage';
+import { citesHidden, judgeSufficiency, type SufficiencyVerdict } from './earlyOverview';
 import { landmarksOf, planAcademicQuery, planSourceIds, searchWithPlan, verifyPapers } from './academic';
 import { loadBlocklist, type Blocklist } from './blocklist';
 import { applyRerank, fuse, mergeLateHits } from './fusion';
@@ -11,10 +12,10 @@ import { hideUnresolvedLinks } from './links';
 import { llmUsable } from './llm';
 import { rerank } from './rerank';
 import { SOURCES } from './sources';
-import { summarizeSnapshot } from './summarySnapshot';
+import { checkedContents, selectEvidence, summarizeSnapshot, type SummaryOutcomeStatus } from './summarySnapshot';
 import { modeHasText } from './types';
 import { foldWikipediaEditions, wikipediaFoldEnabled, wikipediaTarget } from './wikipedia';
-import type { AcademicPlan, BlockReason, Env, FusedResult, FusionConfig, PipelineEvent, PipelineResult, RunOptions, SearchHit, SourceId, VerifiedLandmark } from './types';
+import type { AcademicPlan, BlockReason, Citation, Env, FusedResult, FusionConfig, NewsSearchInfo, PipelineEvent, PipelineResult, RunOptions, SearchHit, SourceId, VerifiedLandmark } from './types';
 
 /** How long a browser source may sit behind other requests for its engine before it counts as stuck. */
 const QUEUE_WAIT_MS = 60_000;
@@ -23,6 +24,27 @@ const BLOCKED_TIMEOUT_MS = 120_000;
 type SourceOutcome =
   | { kind: 'done'; hits: SearchHit[]; ms: number }
   | { kind: 'error'; error: string; ms: number };
+
+interface EarlyOverview {
+  status: SummaryOutcomeStatus;
+  citations: Citation[];
+  /** The cited results, in citation order. */
+  results: FusedResult[];
+  /** Unset when the browser's built-in model writes it in the page. */
+  summary?: string;
+}
+
+/** Resolves after `ms`, or at once when `signal` aborts. */
+const pause = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve) => {
+  if (ms <= 0 || signal?.aborted) return resolve();
+  const timer = setTimeout(done, ms);
+  function done() {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', done);
+    resolve();
+  }
+  signal?.addEventListener('abort', done, { once: true });
+});
 
 interface SourceRun {
   id: SourceId;
@@ -45,6 +67,8 @@ export async function runSearch(
   const mode = opts.mode ?? 'web';
   const requestedAt = new Date();
   const news = mode === 'news' ? normalizeNewsOptions(opts.news) : undefined;
+  // Returned with the result; an overview records `summaryAt` on it when it chooses its citations.
+  const newsInfo: NewsSearchInfo | undefined = news ? { ...news, requestedAt: requestedAt.toISOString() } : undefined;
   // Different shops/variants remain separate offers even when their titles and descriptions match.
   const fusionOptions = news || mode === 'shopping' ? { urlOnly: true } : undefined;
   // Only an academic search can be limited to a language; a source routed in from a general search runs without the limit.
@@ -254,6 +278,50 @@ export async function runSearch(
     resolveFirstText = resolve;
   });
 
+  const summaryWanted =
+    modeHasText(mode) && (opts.summarize ?? config.summary.enabled) && (config.summary.provider === 'chrome-builtin' || llmUsable(config.llm));
+  const summaryEvents = {
+    signal, summarySignal: opts.summarySignal, onEvent: emit,
+    onSnapshot: (snapshot: FusedResult[], summaryAt: string) => {
+      if (newsInfo) newsInfo.summaryAt = summaryAt;
+      opts.onSummarySnapshot?.(snapshot, summaryAt);
+    },
+  };
+  // The early overview: written from the excerpts of the first sources with text while the others still run, then kept if the
+  // decision model finds it sufficient (`earlyOverview.ts`). Only where the caller has a soft deadline (the search page), so an
+  // MCP caller still gets one overview from everything. A cutoff that comes first leaves the single final overview.
+  const early = config.summary.early;
+  const earlyWanted = summaryWanted && !!opts.softDeadlineMs && early.enabled;
+  let textSources = 0;
+  let earlyRun: Promise<EarlyOverview | undefined> | undefined;
+  let earlyVerdict: Promise<SufficiencyVerdict> = Promise.resolve({ keep: false, reason: 'unfinished' });
+  // Stops the decision model's check (and the wait before it) once the early overview is known to be replaced anyway.
+  const checkStop = new AbortController();
+  const checkSignal = signal ? AbortSignal.any([signal, checkStop.signal]) : checkStop.signal;
+  const startEarly = () => {
+    if (!earlyWanted || earlyRun || cutoff || signal?.aborted) return;
+    earlyRun = (async () => {
+      await listsReady;
+      if (cutoff || signal?.aborted) return undefined;
+      const visible = tidy(fuse(collected(), weights, undefined, fusionOptions)).filter((r) => !r.hidden);
+      const outcome = await summarizeSnapshot(query, visible, config, env, {
+        mode, news: newsInfo, excerptsOnly: true, phase: 'preliminary', ...(early.thinking === 'off' ? { thinking: 'off' as const } : {}), ...summaryEvents,
+      });
+      return outcome.status === 'skipped' ? undefined : outcome;
+    })().catch(() => undefined);
+    earlyVerdict = earlyRun.then(async (outcome): Promise<SufficiencyVerdict> => {
+      if (!outcome || (outcome.status !== 'done' && outcome.status !== 'prompted')) return { keep: false, reason: 'unfinished' };
+      await pause(early.decideMs - (Date.now() - requestedAt.getTime()), checkSignal);
+      return judgeSufficiency(query, outcome.summary, outcome.results, config, env, checkSignal);
+    }).catch(() => ({ keep: false, reason: 'error' }));
+  };
+  const earlyTimer = earlyWanted
+    ? setTimeout(() => {
+        if (textSeen) startEarly();
+        else void firstText.then(startEarly);
+      }, early.waitMs)
+    : undefined;
+
   const settle = async (run: SourceRun): Promise<void> => {
     const raced = await Promise.race([
       run.task.then((outcome) => ({ kind: 'finished' as const, outcome })),
@@ -289,6 +357,8 @@ export async function runSearch(
     if (hasText) {
       textSeen = true;
       resolveFirstText();
+      textSources += 1;
+      if (textSources >= early.minSources) startEarly();
     }
     if (pending > 0 || intentPending || planPending) {
       await listsReady;
@@ -364,9 +434,7 @@ export async function runSearch(
     await Promise.all([intentDone, planDone]);
     await Promise.all(settles);
   })();
-  // The overview is written from what has arrived when the soft deadline passes; a source that reports later never starts one.
-  const summaryWanted =
-    modeHasText(mode) && (opts.summarize ?? config.summary.enabled) && (config.summary.provider === 'chrome-builtin' || llmUsable(config.llm));
+  // The final overview is written from what has arrived when the soft deadline passes; a source that reports later never starts one.
   if (opts.softDeadlineMs) {
     let deadline: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([
@@ -388,6 +456,7 @@ export async function runSearch(
     await settledAll;
   }
   cutoff = true;
+  clearTimeout(earlyTimer);
   for (const run of runs) {
     if (!settled.has(run.id)) recordStat({ source: run.id, count: 0, ms: Date.now() - run.started, status: 'late' });
   }
@@ -433,20 +502,44 @@ export async function runSearch(
 
   const visible = results.filter((r) => !r.hidden);
   const limited = opts.limit ? [...visible.slice(0, opts.limit), ...results.filter((r) => r.hidden)] : results;
-  const result: PipelineResult = { query, mode, results: limited, citations: [], sourceStats, ...(news ? { news: { ...news, requestedAt: requestedAt.toISOString() } } : {}), ...(academicPlan ? { plan: academicPlan, landmarks } : {}) };
+  const result: PipelineResult = { query, mode, results: limited, citations: [], sourceStats, ...(newsInfo ? { news: newsInfo } : {}), ...(academicPlan ? { plan: academicPlan, landmarks } : {}) };
 
   const wantSummary = textual && (opts.summarize ?? config.summary.enabled);
-  if (wantSummary) {
-    const summary = await summarizeSnapshot(query, visible, config, env, {
-      mode, news: result.news, signal, summarySignal: opts.summarySignal, onEvent: emit,
-      onSnapshot: (snapshot, summaryAt) => {
-        if (result.news) result.news.summaryAt = summaryAt;
-        opts.onSummarySnapshot?.(snapshot, summaryAt);
-      },
-    });
-    result.citations = summary.citations;
-    if (summary.summary !== undefined) result.summary = summary.summary;
+  // With an early overview in flight, the final overview's pages are read now, beside it and the decision model's check, instead of
+  // after them. If the early overview then stands, the reads are stopped.
+  const prefetchStop = new AbortController();
+  let prepared: Promise<Map<string, string>> | undefined;
+  if (wantSummary && earlyRun && !opts.summarySignal?.aborted) {
+    prepared = checkedContents(query, selectEvidence(visible, config), config, env, signal ? AbortSignal.any([signal, prefetchStop.signal]) : prefetchStop.signal);
+    prepared.catch(() => {});
   }
+  if (wantSummary) {
+    // An early overview stands when the decision model kept it and judging hid none of what it cites; otherwise the final one replaces it.
+    const preliminary = earlyRun ? await earlyRun : undefined;
+    signal?.throwIfAborted();
+    let verdict: SufficiencyVerdict | undefined;
+    if (preliminary && !opts.summarySignal?.aborted) {
+      if (citesHidden(preliminary.citations, results)) {
+        // Settled already: it stands on a result judging hid, so there is nothing to wait for or to ask.
+        checkStop.abort();
+        verdict = { keep: false, reason: 'hidden' };
+      } else {
+        verdict = await earlyVerdict;
+        signal?.throwIfAborted();
+      }
+      emit({ type: 'summary_checked', ...verdict });
+    }
+    if (preliminary && verdict?.keep) {
+      result.citations = preliminary.citations;
+      if (preliminary.summary !== undefined) result.summary = preliminary.summary;
+    } else if (!preliminary || !opts.summarySignal?.aborted) {
+      const summary = await summarizeSnapshot(query, visible, config, env, { mode, news: newsInfo, ...(preliminary ? { phase: 'final' as const } : {}), ...(prepared ? { prepared } : {}), ...summaryEvents });
+      result.citations = summary.citations;
+      if (summary.summary !== undefined) result.summary = summary.summary;
+    }
+  }
+  prefetchStop.abort();
+  checkStop.abort();
 
   signal?.throwIfAborted();
   currentResults = results;

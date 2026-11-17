@@ -8,7 +8,7 @@ import { CloseIcon } from '../lib/icons';
 import type { DomainPreferenceUndo } from '@kiwi-search/protocol';
 import { captureReadingPosition, createSnapshotCache, rememberQuery, restoreReadingPosition, type ReadingPosition } from '../lib/searchHistory';
 import { getUiPreferences, initializeUiPreferences, useUiPreferences } from '../lib/uiPreferences';
-import { summaryBusy, type SearchState } from '../lib/searchState';
+import { summaryWorking, type SearchState } from '../lib/searchState';
 import { KiwiLogo } from '../lib/KiwiLogo';
 import { formatNewsDate, parseNewsOptions } from '../lib/news';
 import { extractQuickAnswer } from '../lib/quickAnswer';
@@ -354,14 +354,14 @@ export default function App() {
           <div className={showOverview ? 'body with-rail' : 'body'}>
             {showOverview && (
               <div className="rail">
-                <Overview key={`${state.query}|${state.mode}|${state.startedAt}`} state={state} text={quickAnswer?.remainder} onHoverCite={setHoverCite} expanded={overviewExpanded} onExpandedChange={setOverviewExpanded} summaryMode={preferences.summaryMode} onGenerate={() => summarize()} onRetry={() => summarize()} onStop={stopSummary} />
+                <Overview key={`${state.query}|${state.mode}|${state.startedAt}`} state={state} text={quickAnswer?.remainder} onHoverCite={setHoverCite} expanded={overviewExpanded} onExpandedChange={setOverviewExpanded} summaryMode={preferences.summaryMode} onGenerate={() => summarize()} onRetry={() => summarize()} onRefresh={() => summarize({ fresh: true })} onStop={stopSummary} />
                 {state.mode === 'news' && state.summary && state.news?.summaryAt && (
                   <p className="overview-note">{t('newtab.news.summaryAt', { time: formatNewsDate(state.news.summaryAt) ?? state.news.summaryAt })}</p>
                 )}
                 {state.mode === 'news' && state.summaryStale && state.summaryStatus !== 'error' && (
                   <p className="overview-note news-stale" role="status">
                     {t('newtab.news.summaryStale')}
-                    <button type="button" onClick={() => summarize({ fresh: true })} disabled={summaryBusy(state.summaryStatus)}>{t('ux.summary.refresh')}</button>
+                    <button type="button" onClick={() => summarize({ fresh: true })} disabled={summaryWorking(state)}>{t('ux.summary.refresh')}</button>
                   </p>
                 )}
               </div>
@@ -370,7 +370,7 @@ export default function App() {
               {siteFilter && <div className="active-filter"><span>{t(siteFilter.kind === 'only' ? 'ux.site.only' : 'ux.site.exclude', { domain: siteFilter.domain })}</span><button type="button" onClick={() => setSiteFilter(null)}>{t('ux.site.clear')}</button></div>}
               {quickAnswer && preferences.summaryMode !== 'off' && <>
                 <QuickAnswer answer={quickAnswer} citations={state.citations} onHoverCite={setHoverCite} />
-                {!quickAnswer.remainder && <Overview state={state} controlsOnly onHoverCite={setHoverCite} summaryMode={preferences.summaryMode} onRetry={() => summarize()} onStop={stopSummary} />}
+                {!quickAnswer.remainder && <Overview state={state} controlsOnly onHoverCite={setHoverCite} summaryMode={preferences.summaryMode} onRetry={() => summarize()} onRefresh={() => summarize({ fresh: true })} onStop={stopSummary} />}
               </>}
               {state.mode === 'news' && <NewsToolbar value={newsOptions} onChange={changeNews} onRefresh={refreshNews} busy={searching} />}
               {state.mode === 'academic' && state.plan && <PlanLine plan={state.plan} />}

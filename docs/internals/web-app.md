@@ -40,6 +40,8 @@ How the pieces behave:
 - **Before the handshake** a page can only ask for `openLocal` (so it can send the user to the extension's own interface when the two sides share no protocol number); every other request is answered `not_ready`.
 - **The relay's limits:** 4 streams and 16 requests in flight per page, and a page that sends 50 malformed or out-of-turn messages is cut off. Errors that reach a page are a short code and a fixed message; nothing from inside the extension.
 
+The versioning rule above says unknown events are ignored, but the page's reducer did not do it (2026-11-16): a newer extension met a page deployed before it, and a new event cleared the page's search; see [pipeline.md](pipeline.md#pages-that-do-not-know-the-early-overview-2026-11-16). The reducer now ignores them, and an addition that a page has to handle is sent only to pages that declare it in their request (`phases` for the early overview). The same paragraph says that fixtures of each version's message stream are replayed in CI; no such test exists for the pipeline events (checked 2026-11-16), which is how this got through. The unknown-event tests added now are not that replay.
+
 ## Interface source (phase 4)
 
 Two settings in `storage.local`, written by the settings page and read by the service worker: `uiSource` (`site`, the default, or `local`) and `uiFallback` (a boolean, off by default). Not part of `config`.

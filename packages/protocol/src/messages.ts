@@ -1,7 +1,11 @@
 import type { AcademicLanguage, FusedResult, NewsOptions, NewsSearchInfo, PipelineEvent, SearchMode, SourceId } from '@kiwi-search/core';
 
 export type SearchRequest =
-  | { type: 'search'; query: string; mode?: SearchMode; language?: AcademicLanguage; news?: Partial<NewsOptions>; refresh?: boolean; sources?: SourceId[]; summarize?: boolean }
+  | {
+    type: 'search'; query: string; mode?: SearchMode; language?: AcademicLanguage; news?: Partial<NewsOptions>; refresh?: boolean; sources?: SourceId[]; summarize?: boolean;
+    /** The page understands the early and final overview (a `phase` on overview events, and `summary_checked`). Without it the extension writes one overview, as before. */
+    phases?: boolean;
+  }
   | { type: 'stop-summary' }
   | { type: 'keepalive' };
 

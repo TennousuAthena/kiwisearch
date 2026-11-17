@@ -6,7 +6,7 @@ import { summarizeSnapshot } from '../src/summarySnapshot';
 const mocks = vi.hoisted(() => ({ contents: vi.fn(), flag: vi.fn(), stream: vi.fn() }));
 vi.mock('../src/content', () => ({ fetchContents: mocks.contents }));
 vi.mock('../src/judge', () => ({ judgeEnabled: () => true, flagInjectedContents: mocks.flag }));
-vi.mock('../src/llm', async (original) => ({ ...(await original<typeof import('../src/llm')>()), chatStream: mocks.stream }));
+vi.mock('../src/llm', async (original) => ({ ...(await original<typeof import('../src/llm')>()), chatStreamHedged: mocks.stream }));
 const hit = (key: string): FusedResult => ({ key, url: `https://example.com/${key}`, title: key, snippet: `Excerpt ${key}`, sources: [], rrfScore: 1, score: 1, meta: {} });
 const env = { fetch: vi.fn(() => { throw new Error('Unexpected search network request'); }), runBrowserEngine: vi.fn(() => { throw new Error('Must not search'); }) } as unknown as Env;
 const config = () => ({ ...structuredClone(DEFAULT_CONFIG), llm: { ...DEFAULT_CONFIG.llm, apiKey: 'test' } });
@@ -23,6 +23,8 @@ describe('summary from existing evidence', () => {
       mode: 'web', onEvent: (event) => events.push(event), onSnapshot: (results) => snapshots.push(structuredClone(results)),
     });
     expect(first.summary).toBe('Answer [1]'); expect(first.citations).toEqual([{ n: 1, url: hit('a').url, title: 'a' }]);
+    // The overview model is asked through the hedged stream, with the configured wait and the plain (thinking) request.
+    expect(mocks.stream.mock.calls[0][3]).toEqual({ signal: undefined, hedgeAfterMs: DEFAULT_CONFIG.summary.hedgeMs });
     expect(events.map((e) => e.type)).toEqual(['summary_start', 'summary_delta', 'summary_delta', 'summary_done']);
     expect(snapshots.at(-1)?.[0].content).toBe('Checked page body');
     expect(env.runBrowserEngine).not.toHaveBeenCalled(); expect(env.fetch).not.toHaveBeenCalled();

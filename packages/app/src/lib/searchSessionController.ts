@@ -1,8 +1,8 @@
-import type { AcademicLanguage, FusedResult, NewsOptions, SearchMode, SourceId } from '@kiwi-search/core';
+import type { AcademicLanguage, FusedResult, NewsOptions, SearchMode, SourceId, SummaryPhase } from '@kiwi-search/core';
 import type { PortMessage, SummaryRequest } from '@kiwi-search/protocol';
 import { t } from '../i18n';
 import { newsEvidence } from './news';
-import { emptyState, endSession, lateSourcesAfterDone, reduce, restoreSnapshot, summaryBusy, type SearchState } from './searchState';
+import { emptyState, endSession, lateSourcesAfterDone, reduce, restoreSnapshot, summaryBusy, summaryWorking, type SearchState } from './searchState';
 import type { promptWithBuiltinModel } from './builtinModel';
 
 export interface SessionPort {
@@ -45,23 +45,25 @@ export function createSearchSessionController(deps: {
   const teardown = () => { close(main); close(summary); main = null; summary = null; };
   const settle = (lane: Lane) => {
     if (!current(lane)) return;
-    const waitingForSummary = lane.acceptSummary && !!state && summaryBusy(state.summaryStatus);
+    const waitingForSummary = lane.acceptSummary && !!state && summaryWorking(state);
     if (lane.done && lane.deferred.size === 0 && !waitingForSummary && lane.timer) {
       clearInterval(lane.timer); lane.timer = undefined;
     }
   };
   const disconnected = (lane: Lane) => {
     if (!current(lane)) return;
-    const expected = !lane.done || lane.deferred.size > 0 || (lane.acceptSummary && !!state && summaryBusy(state.summaryStatus));
+    const expected = !lane.done || lane.deferred.size > 0 || (lane.acceptSummary && !!state && summaryWorking(state));
     close(lane);
     if (!expected) return;
     if (lane.kind === 'summary') change((s) => ({ ...s, summaryStatus: 'error', summaryError: t('newtab.session.summaryInterrupted') }));
+    else if (state?.summaryUpdate && lane.done && lane.deferred.size === 0) change((s) => reduce(s, { type: 'summary_error', error: t('newtab.session.summaryInterrupted'), phase: 'final' }));
     else {
       close(summary); summary = null;
       change((s) => endSession(s, 'interrupted', t('newtab.session.interrupted')));
     }
   };
-  const runBuiltin = (lane: Lane, messages: Parameters<typeof promptWithBuiltinModel>[0]) => {
+  // The page's built-in model reports through the same reducer events as the API model, so an early overview's phase is kept.
+  const runBuiltin = (lane: Lane, messages: Parameters<typeof promptWithBuiltinModel>[0], phase?: SummaryPhase) => {
     abortBuiltin(lane);
     const controller = new AbortController(); lane.builtin = controller;
     const valid = () => current(lane) && lane.acceptSummary && lane.builtin === controller;
@@ -70,7 +72,7 @@ export function createSearchSessionController(deps: {
       lane.builtinTimer = setTimeout(() => {
         if (!valid()) return;
         abortBuiltin(lane);
-        change((s) => ({ ...s, summaryStatus: 'error', summaryError: t('newtab.session.builtinModelTimeout') }));
+        change((s) => reduce(s, { type: 'summary_error', error: t('newtab.session.builtinModelTimeout'), phase }));
         settle(lane);
       }, 60000);
     };
@@ -78,11 +80,11 @@ export function createSearchSessionController(deps: {
     void deps.prompt(messages, (delta) => {
       if (!valid()) return;
       armTimeout();
-      change((s) => ({ ...s, summary: s.summary + delta, summaryStatus: 'streaming' }));
+      change((s) => reduce(s, { type: 'summary_delta', text: delta, phase }));
     }, controller.signal).then(() => {
-      if (valid()) change((s) => ({ ...s, summaryStatus: 'done' }));
+      if (valid()) change((s) => reduce(s, { type: 'summary_done', text: '', phase }));
     }).catch((error: unknown) => {
-      if (valid()) change((s) => ({ ...s, summaryStatus: 'error', summaryError: t('newtab.session.builtinModelFailed', { detail: error instanceof Error ? error.message : String(error) }) }));
+      if (valid()) change((s) => reduce(s, { type: 'summary_error', error: t('newtab.session.builtinModelFailed', { detail: error instanceof Error ? error.message : String(error) }), phase }));
     }).finally(() => {
       if (lane.builtin === controller) { abortBuiltin(lane); settle(lane); }
     });
@@ -101,8 +103,9 @@ export function createSearchSessionController(deps: {
       if (msg.type === 'readiness') { change((s) => ({ ...s, readiness: { enabled: msg.enabled, ready: msg.ready } })); return; }
       if (msg.type === 'summary-snapshot') {
         if (!lane.acceptSummary) return;
-        change((s) => ({ ...s, summaryResults: structuredClone(msg.results), summaryAt: msg.summaryAt,
-          news: s.news ? { ...s.news, summaryAt: msg.summaryAt } : s.news }));
+        // The final overview's evidence waits with it until it replaces the early one on screen.
+        change((s) => s.summaryUpdate ? { ...s, summaryUpdate: { ...s.summaryUpdate, results: structuredClone(msg.results), summaryAt: msg.summaryAt } }
+          : { ...s, summaryResults: structuredClone(msg.results), summaryAt: msg.summaryAt, news: s.news ? { ...s.news, summaryAt: msg.summaryAt } : s.news });
         return;
       }
       if (msg.type === 'fatal') {
@@ -132,7 +135,7 @@ export function createSearchSessionController(deps: {
         return next;
       });
       if (event.type === 'done') { lane.done = true; for (const id of lateSourcesAfterDone(event)) lane.deferred.add(id); }
-      if (event.type === 'summary_prompt') runBuiltin(lane, event.messages);
+      if (event.type === 'summary_prompt') runBuiltin(lane, event.messages, event.phase);
       settle(lane);
     });
     return lane;
@@ -143,7 +146,8 @@ export function createSearchSessionController(deps: {
       try { main.port.postMessage({ type: 'stop-summary' }); } catch { disconnected(main); }
     }
     close(summary); summary = null;
-    change((s) => summaryBusy(s.summaryStatus) ? { ...s, summaryStatus: 'stopped', summaryError: undefined } : s);
+    // Stopping the final overview leaves the early one on screen as it was.
+    change((s) => s.summaryUpdate ? { ...s, summaryUpdate: undefined } : summaryBusy(s.summaryStatus) ? { ...s, summaryStatus: 'stopped', summaryError: undefined } : s);
     if (main) settle(main);
   };
   return {
@@ -155,7 +159,8 @@ export function createSearchSessionController(deps: {
       set(initial);
       try {
         const lane = open('search');
-        lane.port.postMessage({ type: 'search', query, mode, ...(language ? { language } : {}), ...(news ? { news } : {}),
+        // `phases`: this page shows the early overview and its replacement; without it the extension writes one overview.
+        lane.port.postMessage({ type: 'search', query, mode, phases: true, ...(language ? { language } : {}), ...(news ? { news } : {}),
           ...(refresh ? { refresh: true } : {}), ...(options.summarize !== undefined ? { summarize: options.summarize } : {}) });
       } catch { if (main) disconnected(main); else change((s) => endSession(s, 'interrupted', t('newtab.session.interrupted'))); }
     },

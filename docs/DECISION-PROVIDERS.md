@@ -59,6 +59,7 @@ Authorization: Bearer <Key>        （没填 Key 就不带这个头；本机上�
 | 判断一条结果 | `{ query, result: { title, address, snippet, published?, excerpt? } }` | `relevance`（`score`，4 级：0 无关，1 只沾边，2 部分满足，3 直接满足）；`junk`（`noul`，是不是内容农场、搬运或满页广告）；用户写了过滤规则时每条一个 `rule_0`、`rule_1`…（`noul`） |
 | 判断用户想搜什么 | `{ query }` | `academic`、`zhihu`、`xiaohongshu`、`wechat`、`images`、`video`，都是 `noul`（“要不要也搜这一类 / 是不是想找这一类”） |
 | 检查网页正文有没有在向 AI 下指令 | `{ query, page_text }` | `injection`（`noul`） |
+| 初步概览是否已经够用（2026-11-15 起） | `{ query, overview?, evidence: [{ n, title, url, excerpt }] }`（用浏览器内置模型时没有 `overview`） | `sufficient`（`noul`，是否已经切题、有依据、再多结果也不会明显改变） |
 
 说明文字（`instructions`、`criteria`）是英文，任何语言的搜索词和结果都会出现。
 

@@ -59,6 +59,9 @@ describe('what a website may send on a search stream', () => {
   it('copies the known fields of a search and drops the rest', () => {
     expect(parseSearchStreamMessage({ type: 'search', query: 'q', mode: 'news', news: { range: '7d', sort: 'date' }, sources: ['google', 'bing'], summarize: true, refresh: false, language: 'en', evil: 1 }))
       .toEqual({ type: 'search', query: 'q', mode: 'news', news: { range: '7d', sort: 'date' }, sources: ['google', 'bing'], summarize: true, refresh: false, language: 'en' });
+    // A page that understands the early and final overview says so; one that does not say it (the website before it did) is unchanged.
+    expect(parseSearchStreamMessage({ type: 'search', query: 'q', phases: true })).toEqual({ type: 'search', query: 'q', phases: true });
+    expect(parseSearchStreamMessage({ type: 'search', query: 'q' })).toEqual({ type: 'search', query: 'q' });
     expect(parseSearchStreamMessage({ type: 'keepalive', x: 1 })).toEqual({ type: 'keepalive' });
     expect(parseSearchStreamMessage({ type: 'stop-summary' })).toEqual({ type: 'stop-summary' });
   });
@@ -66,7 +69,7 @@ describe('what a website may send on a search stream', () => {
   it('refuses a search that is empty, too long, or has fields of the wrong kind', () => {
     for (const bad of [{ type: 'search', query: '  ' }, { type: 'search', query: 'x'.repeat(4097) }, { type: 'search', query: 'q', mode: 'admin' }, { type: 'search', query: 'q', sources: 'google' },
       { type: 'search', query: 'q', sources: Array.from({ length: 61 }, () => 'a') }, { type: 'search', query: 'q', sources: ['../x'] }, { type: 'search', query: 'q', news: { range: '7d', sort: 'date', since: 1 } },
-      { type: 'search', query: 'q', news: { range: 'x'.repeat(25) } }, { type: 'search', query: 'q', summarize: 'yes' }, { type: 'search', query: 'q', language: 'fr' }, { type: 'other' }, null, 'search']) {
+      { type: 'search', query: 'q', news: { range: 'x'.repeat(25) } }, { type: 'search', query: 'q', summarize: 'yes' }, { type: 'search', query: 'q', phases: 'yes' }, { type: 'search', query: 'q', language: 'fr' }, { type: 'other' }, null, 'search']) {
       expect(parseSearchStreamMessage(bad), JSON.stringify(bad)).toBeNull();
     }
   });
