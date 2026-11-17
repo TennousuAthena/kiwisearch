@@ -1,0 +1,99 @@
+/* The onboarding page: one narrow column, one primary action per step. Controls, cards and fields come from the settings page's style sheet. */
+.onboarding { min-height: 100vh; }
+.ob-bar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 0.75rem; max-width: 46rem; margin: 0 auto; padding: 0.75rem 1.5rem; background: var(--bg); }
+.ob-brand { color: var(--accent); font-size: 1.125rem; font-weight: 700; }
+.ob-bar .save-state { margin-left: auto; }
+.ob-skip { margin-left: auto; color: var(--fg-3); font-size: 0.8125rem; }
+.ob-bar .save-state + .ob-skip, .ob-bar .btn + .ob-skip { margin-left: 0.5rem; }
+.ob-main { max-width: 46rem; margin: 0 auto; padding: 1rem 1.5rem 5rem; }
+.ob-main h1 { font-size: 1.5rem; font-weight: 650; line-height: 1.35; letter-spacing: -0.01em; }
+.ob-main h1:focus { outline: none; }
+.ob-main section > * + * { margin-top: 1rem; }
+.ob-lead { max-width: 40rem; color: var(--fg-2); font-size: 0.9375rem; line-height: 1.7; text-wrap: pretty; }
+.ob-main section > h1 + .ob-lead { margin-top: 0.5rem; }
+
+/* Welcome */
+.ob-welcome { padding-top: 8vh; }
+.ob-welcome h1 { font-size: clamp(1.625rem, 4.5vw, 2.25rem); }
+.ob-points { display: grid; gap: 1.25rem; margin: 2rem 0 1.5rem; padding: 0; list-style: none; }
+.ob-points li { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: 0.875rem; align-items: start; }
+.ob-points svg { width: 2.5rem; height: 2.5rem; padding: 0.55rem; border-radius: var(--radius-md, 10px); background: var(--accent-soft); color: var(--accent); }
+.ob-points strong { display: block; font-size: 0.9375rem; font-weight: 600; }
+.ob-points p { margin-top: 0.2rem; color: var(--fg-2); font-size: 0.875rem; line-height: 1.65; text-wrap: pretty; }
+.ob-start { display: grid; gap: 0.75rem; justify-items: start; margin-top: 2rem !important; }
+.ob-big { min-height: 2.75rem; padding: 0 1.5rem; font-size: 1rem; }
+.btn svg { width: 1em; height: 1em; }
+
+/* Progress */
+.ob-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; margin: 0.5rem 0 0; padding: 0; list-style: none; }
+.ob-progress button { display: flex; align-items: center; gap: 0.5rem; width: 100%; padding: 0.5rem 0 0; border: 0; border-top: 3px solid var(--border); background: none; color: var(--fg-3); font: inherit; font-size: 0.8125rem; text-align: left; cursor: pointer; }
+.ob-progress .done button { border-top-color: var(--accent); color: var(--fg-2); }
+.ob-progress .current button { border-top-color: var(--accent); color: var(--accent); font-weight: 600; }
+.ob-progress button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ob-progress-mark { display: grid; place-items: center; flex: none; width: 1.25rem; height: 1.25rem; border-radius: 50%; background: var(--surface-2); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
+.ob-progress .done .ob-progress-mark, .ob-progress .current .ob-progress-mark { background: var(--accent-solid); color: var(--on-accent); }
+.ob-progress-mark svg { width: 0.75rem; height: 0.75rem; }
+.ob-step-count { margin: 1.75rem 0 0.25rem; color: var(--fg-3); font-size: 0.75rem; }
+
+/* Network check */
+.ob-probe { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0.75rem; padding: 0.875rem 1rem; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+.ob-probe > p { display: flex; align-items: center; gap: 0.5rem; color: var(--fg-2); font-size: 0.875rem; }
+.ob-summary { display: grid; gap: 0.5rem; min-width: 0; flex: 1 1 18rem; color: var(--fg-2); font-size: 0.875rem; line-height: 1.6; }
+.ob-warn { color: var(--warn); }
+.ob-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.ob-suggest .btn, .ob-probe .btn { display: inline-flex; align-items: center; gap: 0.35rem; }
+.ob-spinner { flex: none; display: inline-block; width: 0.75rem; height: 0.75rem; border: 2px solid var(--border-ctl); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+
+.ob-group { border-bottom: 1px solid var(--border); }
+.ob-group-head { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.875rem 0; border: 0; background: none; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.ob-group-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+.ob-group-title { font-size: 0.9375rem; font-weight: 600; }
+.ob-group-count { margin-left: auto; color: var(--fg-3); font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+.ob-group-head svg { width: 1rem; height: 1rem; color: var(--fg-3); transition: transform 0.15s var(--ease-out); }
+.ob-group-head svg.flip { transform: rotate(180deg); }
+.ob-group-summary { display: flex; flex-wrap: wrap; gap: 0.375rem; margin: -0.25rem 0 0.875rem !important; }
+.ob-chip { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.5rem 0.15rem 0.35rem; border: 1px solid var(--border); border-radius: 999px; color: var(--fg-2); font-size: 0.75rem; }
+.ob-chip.bad { color: var(--bad); text-decoration: line-through; }
+.ob-sources { display: grid; gap: 0.125rem; margin: 0 0 0.875rem !important; padding: 0; list-style: none; }
+.ob-source { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 0.75rem; padding: 0.5rem 0.25rem; border-radius: var(--radius-sm); }
+.ob-source-name { display: grid; min-width: 0; cursor: pointer; }
+.ob-source-name strong { font-size: 0.875rem; font-weight: 550; }
+.ob-source-name span { overflow: hidden; color: var(--fg-3); font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; }
+.ob-source:not(.on) .ob-source-name strong { color: var(--fg-2); }
+.ob-reach { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--fg-3); font-size: 0.75rem; white-space: nowrap; }
+.ob-reach svg { width: 0.9rem; height: 0.9rem; }
+.ob-reach .dot { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: currentColor; }
+.ob-reach.ok { color: var(--ok); }
+.ob-reach.warn { color: var(--warn); }
+.ob-reach.bad { color: var(--bad); }
+
+/* Sign-ins */
+.ob-platforms { display: grid; gap: 0.375rem; padding: 0; list-style: none; }
+.ob-platforms li { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.5rem 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-md, 10px); background: var(--surface); }
+.ob-platform-name { font-size: 0.875rem; font-weight: 550; }
+.ob-platforms .state { margin-left: auto; font-size: 0.8125rem; }
+.ob-platforms .btn { margin-left: auto; }
+.ob-platforms .state + .btn { margin-left: 0; }
+
+/* First search */
+.ob-search { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.25rem 0.25rem 0.875rem; border: 1px solid var(--border-ctl); border-radius: 999px; background: var(--bg); }
+.ob-search:focus-within { border-color: var(--accent); outline: 2px solid var(--accent-soft); }
+.ob-search svg { flex: none; width: 1.1rem; height: 1.1rem; color: var(--fg-3); }
+.options-page .ob-search input { flex: 1; min-width: 0; padding: 0.5rem 0; border: 0; background: none; outline: none; }
+.ob-search .btn { border-radius: 999px; }
+.ob-details summary { cursor: pointer; }
+.ob-details[open] summary { margin-bottom: 0.75rem; }
+
+.ob-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 2rem !important; padding-top: 1.25rem; border-top: 1px solid var(--border); }
+.ob-nav .btn { display: inline-flex; align-items: center; gap: 0.35rem; }
+.ob-nav-gap { flex: 1; }
+.ob-finish-note { margin-top: 0.75rem !important; }
+
+@media (max-width: 600px) {
+  .ob-bar, .ob-main { padding-left: 1rem; padding-right: 1rem; }
+  .ob-progress button { flex-direction: column; align-items: flex-start; gap: 0.25rem; font-size: 0.75rem; }
+  .ob-source { grid-template-columns: auto auto minmax(0, 1fr); }
+  .ob-reach { grid-column: 3; }
+  .ob-welcome { padding-top: 2rem; }
+}
+@media (prefers-reduced-motion: reduce) { .ob-spinner { animation: none; } }

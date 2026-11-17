@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { CloseIcon } from '@kiwi-search/app/icons';
 import { addDomains } from '@kiwi-search/protocol';
+import type { ConfirmLayout } from '@/lib/sourceConfirm';
 import { t } from '@kiwi-search/app/i18n';
 
 /** An on/off switch. Used instead of a checkbox where the change takes effect at once. */
@@ -195,23 +196,48 @@ export function RuleList({ label, values, onChange, placeholder }: { label: stri
 }
 
 /** A modal "are you sure?". Escape, a click on the backdrop and the cancel button all close it without confirming; focus starts on cancel. */
-export function ConfirmDialog({ title, confirmLabel, onConfirm, onCancel, children }: { title: string; confirmLabel: string; onConfirm: () => void; onCancel: () => void; children: ReactNode }) {
+export function ConfirmDialog({ title, confirmLabel, cancelLabel, primary = 'confirm', holdMs = 0, step, layout = 'end', onConfirm, onCancel, children }: {
+  title: string; confirmLabel: string; onConfirm: () => void; onCancel: () => void; children: ReactNode;
+  cancelLabel?: string;
+  /** The highlighted button. */
+  primary?: 'confirm' | 'cancel';
+  /** Keep the confirm button disabled this long after the dialog (or a new `step`) appears. */
+  holdMs?: number;
+  /** Changes when the same dialog asks its next question: focus goes back to cancel and the hold starts again. */
+  step?: number;
+  layout?: ConfirmLayout;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const [held, setHeld] = useState(holdMs > 0);
   useEffect(() => {
     ref.current?.showModal();
   }, []);
+  useEffect(() => {
+    cancelRef.current?.focus();
+    if (holdMs <= 0) { setHeld(false); return; }
+    setHeld(true);
+    const timer = window.setTimeout(() => setHeld(false), holdMs);
+    return () => window.clearTimeout(timer);
+  }, [step, holdMs]);
+  // The buttons are in the page in the order they are drawn, so the keyboard goes through them as the eye does.
+  const cancel = (
+    <button key="cancel" ref={cancelRef} type="button" className={primary === 'cancel' ? 'btn btn-primary' : 'btn'} onClick={() => ref.current?.close()}>
+      {cancelLabel ?? t('options.controls.cancel')}
+    </button>
+  );
+  const confirm = (
+    <button key="confirm" type="button" className={primary === 'confirm' ? 'btn btn-primary' : 'btn'} disabled={held} onClick={onConfirm}>
+      {confirmLabel}
+    </button>
+  );
   return (
     <dialog ref={ref} className="confirm" aria-labelledby="confirm-title" onClose={onCancel} onClick={(event) => event.target === ref.current && ref.current.close()}>
       <div className="confirm-body">
         <h2 id="confirm-title">{title}</h2>
         <p>{children}</p>
-        <div className="confirm-actions">
-          <button type="button" className="btn" onClick={() => ref.current?.close()}>
-            {t('options.controls.cancel')}
-          </button>
-          <button type="button" className="btn btn-primary" onClick={onConfirm}>
-            {confirmLabel}
-          </button>
+        <div className="confirm-actions" data-layout={layout}>
+          {layout === 'start' ? <>{confirm}{cancel}</> : <>{cancel}{confirm}</>}
         </div>
       </div>
     </dialog>

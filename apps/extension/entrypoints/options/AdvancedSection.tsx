@@ -1,5 +1,6 @@
 import { wikipediaFoldEnabled, type FusionConfig, type SourceId } from '@kiwi-search/core';
 import { useMemo } from 'react';
+import { browser } from 'wxt/browser';
 import { browserLanguage } from '@/lib/language';
 import { t } from '@kiwi-search/app/i18n';
 import { tr } from '@kiwi-search/app/i18n/rich';
@@ -131,6 +132,10 @@ export function AdvancedSection({ open, onOpenChange, config, bridge, health, on
 
         <div className="adv-block">
           <h3>{t('options.advanced.guideTitle')}</h3>
+          <p className="note">{t('options.advanced.guideRerunNote')}</p>
+          <button type="button" className="btn" onClick={() => void browser.tabs.create({ url: browser.runtime.getURL('/onboarding.html') })}>
+            {t('options.advanced.guideRerun')}
+          </button>
           <details className="inline-details">
             <summary>{t('options.advanced.guideSummary')}</summary>
             <StartSection config={config} health={health} />

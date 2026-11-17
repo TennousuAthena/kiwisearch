@@ -138,13 +138,13 @@
 .sources { margin: 0.75rem 0 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); overflow: hidden; }
 .source { border-top: 1px solid var(--border); }
 .source:first-child { border-top: 0; }
-.source-main { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; }
+.source-main { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; }
 .source-name { min-width: 0; line-height: 1.4; }
 .source-name strong { display: block; font-size: 0.9375rem; font-weight: 600; }
 .source:not(.on) .source-name strong { color: var(--fg-2); font-weight: 500; }
 .source-name span { display: block; color: var(--fg-3); font-size: 0.8125rem; }
 .source-side { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; min-width: 0; }
-.source-fields { display: grid; gap: 0.75rem; padding: 0 1rem 1rem 4.25rem; }
+.source-fields { display: grid; gap: 0.75rem; padding: 0 1rem 1rem 6.125rem; }
 .status { display: inline-flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 0.25rem 0.625rem; min-width: 0; font-size: 0.8125rem; }
 .state { display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 500; white-space: nowrap; }
 .state svg { width: 1.05em; height: 1.05em; }
@@ -221,6 +221,9 @@
 .confirm h2 { margin: 0 0 0.5rem; font-size: 1.0625rem; font-weight: 600; }
 .confirm p { margin: 0; color: var(--fg-2); font-size: 0.875rem; line-height: 1.65; text-wrap: pretty; }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem; }
+.confirm-actions[data-layout='start'] { justify-content: flex-start; }
+.confirm-actions[data-layout='stack'] { flex-direction: column; align-items: center; }
+.confirm-actions[data-layout='stack'] .btn { width: 11rem; justify-content: center; }
 
 @media (max-width: 900px) {
   .options-body { grid-template-columns: minmax(0, 1fr); gap: 1.25rem; }
@@ -233,8 +236,8 @@
   .options-bar-inner { padding: 0.5rem 1rem; }
   .options-body { padding: 1.25rem 1rem 3rem; }
   .field-grid, .field-grid.weights { grid-template-columns: minmax(0, 1fr); }
-  .source-main { grid-template-columns: auto minmax(0, 1fr); }
-  .source-side { grid-column: 2; justify-content: flex-start; }
+  .source-main { grid-template-columns: auto auto minmax(0, 1fr); }
+  .source-side { grid-column: 3; justify-content: flex-start; }
   .source-fields { padding-left: 1rem; }
   .group-head .presets { margin-left: 0; width: 100%; }
   .copy-item { grid-template-columns: minmax(0, 1fr) auto; }

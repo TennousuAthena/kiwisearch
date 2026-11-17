@@ -26,21 +26,28 @@ export interface SourceInfo {
   confirm?: SourceConfirmKey;
 }
 
-/** The order the groups appear in. The words the page uses for them are `group.<id>.title` and `group.<id>.lead`. */
-export const GROUPS: { id: SourceGroup }[] = [{ id: 'web' }, { id: 'shopping' }, { id: 'academic' }, { id: 'video' }, { id: 'community' }, { id: 'image' }];
+/**
+ * The order the groups appear in: the order of the tabs on the results page (all, images, video, shopping, academic, community).
+ * The words the page uses for them are `group.<id>.title` and `group.<id>.lead`.
+ */
+export const GROUPS: { id: SourceGroup }[] = [{ id: 'web' }, { id: 'image' }, { id: 'video' }, { id: 'shopping' }, { id: 'academic' }, { id: 'community' }];
 
-/** Typed over `SourceId`, so a new source can't be left without a place on the settings page. Order inside a group is the order shown. */
+/**
+ * Typed over `SourceId`, so a new source can't be left without a place on the settings page. Order inside a group is the order shown:
+ * what works out of the box first (the ones on by default first), then what needs an account, then what needs a key or a server of
+ * the user's own. Two sources over one index (the two Brave ones) sit side by side, since turning on both counts it twice.
+ */
 export const SOURCE_INFO: Record<SourceId, SourceInfo> = {
   google: { group: 'web' },
   bing: { group: 'web' },
   duckduckgo: { group: 'web' },
   bravesearch: { group: 'web' },
-  kagi: { group: 'web', loginUrl: 'https://kagi.com/signin', confirm: 'source.confirm.kagi' },
-  baidu: { group: 'web', confirm: 'source.confirm.baidu' },
+  brave: { group: 'web', key: 'required', keyUrl: 'https://brave.com/search/api/' },
+  yandex: { group: 'web' },
   sogou: { group: 'web' },
   yuanbao: { group: 'web' },
-  yandex: { group: 'web' },
-  brave: { group: 'web', key: 'required', keyUrl: 'https://brave.com/search/api/' },
+  baidu: { group: 'web', confirm: 'source.confirm.baidu' },
+  kagi: { group: 'web', loginUrl: 'https://kagi.com/signin', confirm: 'source.confirm.kagi' },
   exa: { group: 'web', key: 'required', keyUrl: 'https://exa.ai' },
   deepseek: { group: 'web', key: 'required', keyUrl: 'https://platform.deepseek.com' },
   searxng: { group: 'web', baseUrl: true, key: 'optional' },
@@ -51,20 +58,20 @@ export const SOURCE_INFO: Record<SourceId, SourceInfo> = {
   scholar: { group: 'academic' },
   openalex: { group: 'academic', key: 'optional', keyUrl: 'https://openalex.org/settings/api' },
   arxiv: { group: 'academic' },
+  crossref: { group: 'academic' },
   pubmed: { group: 'academic', key: 'optional', keyUrl: 'https://account.ncbi.nlm.nih.gov/settings/' },
   europepmc: { group: 'academic' },
   dblp: { group: 'academic' },
   baiduxueshu: { group: 'academic' },
   cnki: { group: 'academic' },
   wos: { group: 'academic', login: true, loginUrl: 'https://www.webofscience.com' },
-  crossref: { group: 'academic' },
   youtube: { group: 'video' },
   bilibili: { group: 'video' },
   douyin: { group: 'video', login: true, loginUrl: 'https://www.douyin.com' },
   zhihu: { group: 'community', login: true, loginUrl: 'https://www.zhihu.com/signin' },
-  weixin: { group: 'community' },
-  rednote: { group: 'community', login: true, loginUrl: 'https://www.rednote.com' },
   xiaohongshu: { group: 'community', login: true, loginUrl: 'https://www.xiaohongshu.com' },
+  rednote: { group: 'community', login: true, loginUrl: 'https://www.rednote.com' },
+  weixin: { group: 'community' },
   x: { group: 'community', login: true, loginUrl: 'https://x.com/login' },
   openverse: { group: 'image' },
 };
