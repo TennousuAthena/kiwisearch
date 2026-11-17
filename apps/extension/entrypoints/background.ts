@@ -25,7 +25,7 @@ import { handleFaviconMessage } from '@/lib/faviconService';
 import { handleDecisionTest, handleLlmTest } from '@/lib/llmTest';
 import { createRedirectTarget, type RedirectEvents } from '@/lib/redirectTarget';
 import { recordSourceStatus } from '@/lib/sourceStatus';
-import { collectIdleWorkers, focusWorker, forgetWorkerTab, handleWorkerMessage, runBrowserEngine } from '@/lib/tabRenderer';
+import { collectIdleWorkers, focusWorker, forgetWorkerTab, handleWorkerMessage, handleWorkerTabUpdated, runBrowserEngine } from '@/lib/tabRenderer';
 
 /** The search interface shows results once the fast sources are in; slower ones merge in afterwards. */
 const UI_SOFT_DEADLINE_MS = 6000;
@@ -186,6 +186,8 @@ export default defineBackground(() => {
     return true;
   });
   browser.tabs.onRemoved.addListener(forgetWorkerTab);
+  browser.tabs.onDetached.addListener(forgetWorkerTab);
+  browser.tabs.onUpdated.addListener(handleWorkerTabUpdated);
 
   browser.runtime.onConnect.addListener((port) => {
     if (port.name === 'web-push') {

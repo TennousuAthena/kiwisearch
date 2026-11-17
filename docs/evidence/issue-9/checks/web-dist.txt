@@ -1,0 +1,4 @@
+> @kiwi-search/web@0.1.0 check:dist /Users/takuenn/Workspace/KiwiSearch/.cindy-worktrees/silly-hawking/apps/web
+> node scripts/check-dist.mjs
+
+dist is complete: 10 files in the service worker list, 10 pages

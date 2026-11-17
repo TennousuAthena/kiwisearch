@@ -1,0 +1,14 @@
+[
+  {
+    "profile": "chromium-baseline-profile",
+    "pid": 74313,
+    "at": "2026-11-17T12:50:49.686Z",
+    "remainingWindows": 0
+  },
+  {
+    "profile": "chromium-fixed-profile",
+    "pid": 35930,
+    "at": "2026-11-17T12:50:50.169Z",
+    "remainingWindows": 0
+  }
+]

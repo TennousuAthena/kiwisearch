@@ -1,0 +1,35 @@
+> @kiwi-search/extension@0.1.0 build /Users/takuenn/Workspace/KiwiSearch/.cindy-worktrees/silly-hawking/apps/extension
+> wxt build
+
+
+WXT 0.20.27
+ℹ Building chrome-mv3 for production with Vite 7.3.8
+- Preparing...
+[1G✔ Built extension in 1.295 s
+  ├─ .output/chrome-mv3/manifest.json                          2.85 kB
+  ├─ .output/chrome-mv3/app.html                               927 B
+  ├─ .output/chrome-mv3/onboarding.html                        1.01 kB
+  ├─ .output/chrome-mv3/options.html                           1.13 kB
+  ├─ .output/chrome-mv3/background.js                          543.61 kB
+  ├─ .output/chrome-mv3/chunks/app-aGliFvV9.js                 147.56 kB
+  ├─ .output/chrome-mv3/chunks/extensionHost-BuCI_ddb.js       417.02 kB
+  ├─ .output/chrome-mv3/chunks/onboarding-ClljusnT.js          16.16 kB
+  ├─ .output/chrome-mv3/chunks/options-ca_i4Imj.js             41.25 kB
+  ├─ .output/chrome-mv3/chunks/pageLocation-BfWro3jY.js        838 B
+  ├─ .output/chrome-mv3/chunks/UiPreferencesPanel-D0BJabwK.js  1.92 kB
+  ├─ .output/chrome-mv3/chunks/useAutosave-CNgoFFoP.js         69.54 kB
+  ├─ .output/chrome-mv3/content-scripts/engines.js             49.39 kB
+  ├─ .output/chrome-mv3/content-scripts/shopping.js            49.41 kB
+  ├─ .output/chrome-mv3/content-scripts/web-bridge.js          8.03 kB
+  ├─ .output/chrome-mv3/assets/app-D8bKyAWO.css                31.63 kB
+  ├─ .output/chrome-mv3/assets/extensionHost-mawhiNAd.css      7.45 kB
+  ├─ .output/chrome-mv3/assets/onboarding-DpgWTxec.css         6.8 kB
+  ├─ .output/chrome-mv3/assets/useAutosave-_iUG3c8-.css        15.25 kB
+  ├─ .output/chrome-mv3/favicon.svg                            553 B
+  ├─ .output/chrome-mv3/icon/128.png                           3.49 kB
+  ├─ .output/chrome-mv3/icon/16.png                            412 B
+  ├─ .output/chrome-mv3/icon/32.png                            876 B
+  ├─ .output/chrome-mv3/icon/48.png                            1.31 kB
+  └─ .output/chrome-mv3/licenses/lucide.txt                    3.21 kB
+Σ Total size: 1.42 MB
+✔ Finished in 1.331 s

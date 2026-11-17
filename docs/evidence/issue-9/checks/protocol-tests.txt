@@ -1,0 +1,15 @@
+> @kiwi-search/protocol@0.1.0 test /Users/takuenn/Workspace/KiwiSearch/.cindy-worktrees/silly-hawking/packages/protocol
+> vitest run
+
+
+ RUN  v3.2.7 /Users/takuenn/Workspace/KiwiSearch/.cindy-worktrees/silly-hawking/packages/protocol
+
+ ✓ test/summaryRequest.test.ts (1 test) 3ms
+ ✓ test/domains.test.ts (3 tests) 2ms
+ ✓ test/webRequests.test.ts (12 tests) 3ms
+ ✓ test/bridge.test.ts (19 tests) 358ms
+
+ Test Files  4 passed (4)
+      Tests  35 passed (35)
+   Start at  19:58:33
+   Duration  1.58s (transform 252ms, setup 0ms, collect 598ms, tests 367ms, environment 0ms, prepare 891ms)

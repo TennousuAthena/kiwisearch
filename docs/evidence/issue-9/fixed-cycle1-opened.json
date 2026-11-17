@@ -1,0 +1,81 @@
+{
+  "at": "2026-11-17T12:32:36.207Z",
+  "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "activeGroupCount": 1,
+  "groups": [
+    {
+      "collapsed": false,
+      "color": "blue",
+      "id": 1645804127,
+      "shared": false,
+      "title": "Kiwi Search",
+      "windowId": 797942732
+    }
+  ],
+  "tabs": [
+    {
+      "id": 797942733,
+      "windowId": 797942732,
+      "groupId": 1645804127,
+      "pinned": false,
+      "title": "Issue 9 preserved user tab",
+      "url": "chrome-extension://helhmldjageofhnjldofpnlcinbklfnh/fixture.html"
+    },
+    {
+      "id": 797942734,
+      "windowId": 797942732,
+      "groupId": -1,
+      "pinned": false,
+      "title": "Kiwi lifecycle observer — read only",
+      "url": "chrome-extension://helhmldjageofhnjldofpnlcinbklfnh/observer.html"
+    },
+    {
+      "id": 797942735,
+      "windowId": 797942732,
+      "groupId": -1,
+      "pinned": false,
+      "title": "JavaScript Array MDN - Kiwi Search",
+      "url": "https://kiwi.moe/"
+    },
+    {
+      "id": 797942745,
+      "windowId": 797942732,
+      "groupId": -1,
+      "pinned": false,
+      "title": "Kiwi Search 设置",
+      "url": "chrome-extension://kjagbgdmpfcijicdbnehcconnldbgmdd/options.html"
+    },
+    {
+      "id": 797942747,
+      "windowId": 797942746,
+      "groupId": -1,
+      "pinned": false,
+      "title": "https://www.google.com/search",
+      "url": "https://www.google.com/sorry/index"
+    },
+    {
+      "id": 797942748,
+      "windowId": 797942746,
+      "groupId": -1,
+      "pinned": false,
+      "title": "JavaScript Array MDN - Search",
+      "url": "https://cn.bing.com/search"
+    },
+    {
+      "id": 797942749,
+      "windowId": 797942746,
+      "groupId": -1,
+      "pinned": false,
+      "title": "JavaScript Array MDN at DuckDuckGo",
+      "url": "https://duckduckgo.com/"
+    },
+    {
+      "id": 797942750,
+      "windowId": 797942746,
+      "groupId": -1,
+      "pinned": false,
+      "title": "JavaScript Array MDN - Brave Search",
+      "url": "https://search.brave.com/search"
+    }
+  ]
+}

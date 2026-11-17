@@ -1,0 +1,19 @@
+> @kiwi-search/web@0.1.0 test /Users/takuenn/Workspace/KiwiSearch/.cindy-worktrees/silly-hawking/apps/web
+> vitest run
+
+
+ RUN  v3.2.7 /Users/takuenn/Workspace/KiwiSearch/.cindy-worktrees/silly-hawking/apps/web
+
+ ✓ test/fallback.test.ts (8 tests) 5ms
+ ✓ test/address.test.ts (2 tests) 4ms
+ ✓ test/ConnectionPanel.test.tsx (7 tests) 12ms
+ ✓ test/webHost.test.ts (12 tests) 207ms
+ ✓ test/installation.test.tsx (13 tests) 30ms
+ ✓ test/panelFollowsAddress.test.tsx (5 tests) 150ms
+ ✓ test/connection.test.ts (7 tests) 427ms
+   ✓ finding the extension > is "missing" when nothing marks the page  302ms
+
+ Test Files  7 passed (7)
+      Tests  54 passed (54)
+   Start at  19:58:33
+   Duration  2.59s (transform 698ms, setup 0ms, collect 1.97s, tests 833ms, environment 1.87s, prepare 1.17s)
