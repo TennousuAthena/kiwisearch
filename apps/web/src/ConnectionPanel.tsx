@@ -9,6 +9,7 @@ import baiduIcon from '../../../packages/app/assets/engine-logos/baidu.svg';
 import baiduDarkIcon from '../../../packages/app/assets/engine-logos/baidu.dark.svg';
 import { engineUrl, ENGINES, rememberedEngine, rememberEngine, safeStorage, type EngineId } from './fallback';
 import { InstallOptions } from './InstallOptions';
+import { RELEASES_URL } from './installation';
 
 /** Where the extension is installed from, and how to update it: a page of this site. */
 export const INSTALL_URL = '/install';
@@ -47,7 +48,7 @@ export function ConnectionPanel({ state, query: initial, onOpenLocal, store = sa
     <div className={`panel${state === 'missing' ? ' panel-missing' : ''}`}>
       {state === 'missing' && <header className="panel-topbar">
         <a className="panel-name" href="/">{t('brand.name')}</a>
-        <nav aria-label={t('web.footer.navigation')}><a href="/about">{t('web.footer.about')}</a><a href="/privacy">{t('web.footer.privacy')}</a></nav>
+        <nav aria-label={t('web.footer.navigation')}><a href="/about">{t('web.footer.about')}</a><a href={RELEASES_URL} target="_blank" rel="noreferrer">{t('web.install.release')}</a><a href="/privacy">{t('web.footer.privacy')}</a></nav>
       </header>}
       <main className="panel-layout">
         <section className="panel-search-stage" aria-label={t('web.search.label')}>

@@ -36,5 +36,11 @@ export function storeForBrowser(browser: BrowserId): StoreId {
   return browser === 'edge' || browser === 'firefox' ? browser : 'chrome';
 }
 
-/** The release index remains valid before the first release exists. */
 export const RELEASES_URL = 'https://github.com/TennousuAthena/kiwisearch/releases';
+/** GitHub resolves the current stable release, including its versioned asset names. */
+export const LATEST_RELEASE_URL = `${RELEASES_URL}/latest`;
+
+export function releasePackageForBrowser(browser: BrowserId): string {
+  const target = storeForBrowser(browser);
+  return `${target}-${target === 'firefox' ? 'mv2' : 'mv3'}.zip`;
+}

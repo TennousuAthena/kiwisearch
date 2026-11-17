@@ -1,9 +1,9 @@
 /* The disconnected website uses the same brand, fonts and light/dark tokens as the search app. */
 .panel { min-height: 100svh; display: flex; flex-direction: column; padding: 0 clamp(1.25rem, 4.5vw, 5rem); }
 .panel-topbar, .panel-layout, .panel-footer { width: min(100%, 80rem); margin-inline: auto; }
-.panel-topbar { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; padding-block: 2rem; }
+.panel-topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.5rem; padding-block: 2rem; }
 .panel-name { color: var(--fg); font-size: 1rem; font-weight: 650; text-decoration: none; letter-spacing: -0.025em; }
-.panel-topbar nav { display: flex; align-items: center; gap: 1.75rem; }
+.panel-topbar nav { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.75rem; }
 .panel-topbar nav a, .panel-footer a { font-size: 0.8125rem; color: var(--fg-3); text-decoration: none; }
 .panel-topbar nav a:hover, .panel-footer a:hover { color: var(--accent); }
 .panel-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(19rem, 1fr); align-items: center; gap: clamp(2rem, 5vw, 5rem); flex: 1; padding-block: 1rem 3rem; }
@@ -46,7 +46,7 @@
 .install-route-icon { flex: none; width: 1.25rem; height: 1.25rem; color: var(--fg-3); }
 .install-route-copy { flex: 1; min-width: 0; }
 .install-route-title { display: block; font-size: 1rem; font-weight: 550; line-height: 1.5; }
-.install-description { display: block; font-size: 0.75rem; line-height: 1.6; color: var(--fg-3); margin-top: 0.375rem; }
+.install-description { display: block; font-size: 0.75rem; line-height: 1.6; color: var(--fg-3); margin-top: 0.375rem; overflow-wrap: anywhere; }
 .install-route-arrow { flex: none; width: 1.125rem; height: 1.125rem; color: var(--accent); }
 .install-route:disabled { cursor: not-allowed; color: var(--fg-3); }
 .install-route:disabled .install-route-arrow { color: var(--fg-3); opacity: 0.5; }

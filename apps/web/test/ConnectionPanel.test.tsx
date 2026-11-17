@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ConnectionPanel, INSTALL_URL, type PanelState } from '../src/ConnectionPanel';
+import { LATEST_RELEASE_URL, RELEASES_URL } from '../src/installation';
 
 const store = () => { const data = new Map<string, string>(); return { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => { data.set(k, v); }, removeItem: (k: string) => { data.delete(k); } }; };
 const render = (state: PanelState, query = 'a&b c', extra: Partial<Parameters<typeof ConnectionPanel>[0]> = {}) => renderToStaticMarkup(<ConnectionPanel state={state} query={query} store={store()} {...extra} />);
@@ -10,6 +11,8 @@ describe('what the page shows without a working extension', () => {
     const html = render('missing');
     expect(html).toContain('value="a&amp;b c"');
     expect(html).toContain(`href="${INSTALL_URL}"`);
+    expect(html).toContain(`href="${RELEASES_URL}"`);
+    expect(html).toContain(`href="${LATEST_RELEASE_URL}"`);
     expect(html).toContain('href="https://www.google.com/search?q=a%26b%20c"');
     expect(html).toContain('href="https://www.baidu.com/s?wd=a%26b%20c"');
     // Nothing is sent anywhere until a link is clicked: the engines are anchors, not a form that submits.

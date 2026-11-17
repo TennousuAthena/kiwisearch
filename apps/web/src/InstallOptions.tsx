@@ -1,9 +1,9 @@
 import { useId, useState } from 'react';
 import { ArrowRightIcon, ChevronDownIcon, ExternalLinkIcon, GlobeIcon } from '@kiwi-search/app/icons';
 import { t } from '@kiwi-search/app/i18n';
-import { BROWSERS, detectBrowser, RELEASES_URL, STORE_URLS, storeForBrowser, type BrowserId } from './installation';
+import { BROWSERS, detectBrowser, LATEST_RELEASE_URL, releasePackageForBrowser, STORE_URLS, storeForBrowser, type BrowserId } from './installation';
 
-/** Both distribution channels stay visible before launch; only actual destinations become links. */
+/** Store availability and the latest published packages are separate distribution routes. */
 export function InstallOptions() {
   const [browser, setBrowser] = useState<BrowserId | null>(() => detectBrowser());
   const id = useId();
@@ -39,11 +39,11 @@ export function InstallOptions() {
           <button type="button" className="install-route" disabled aria-describedby={`${id}-availability`}>{storeContent}</button>
         )}
       </section>
-      <a className="install-route install-release" href={RELEASES_URL} target="_blank" rel="noreferrer">
+      <a className="install-route install-release" href={LATEST_RELEASE_URL} target="_blank" rel="noreferrer">
         <ExternalLinkIcon className="install-route-icon" />
         <span className="install-route-copy">
-          <span className="install-route-title">{t('web.install.release')}</span>
-          <span className="install-description">{t('web.install.releasePending')}</span>
+          <span className="install-route-title">{t('web.install.latest')}</span>
+          <span className="install-description">{browser ? t('web.install.releasePackage', { package: releasePackageForBrowser(browser) }) : t('web.install.releaseChoose')}</span>
         </span>
         <ArrowRightIcon className="install-route-arrow" />
       </a>

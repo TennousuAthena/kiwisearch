@@ -18,24 +18,33 @@
         <a href="/en/install" aria-current="page">Install</a>
         <a href="/en/start">Get started</a>
         <a href="/en/privacy">Privacy</a>
+        <a href="https://github.com/TennousuAthena/kiwisearch/releases" rel="noreferrer">Releases</a>
         <a href="https://github.com/TennousuAthena/kiwisearch" rel="noreferrer">GitHub</a>
         <a href="/install" hreflang="zh-CN">简体中文</a>
       </nav>
     </header>
     <main class="doc">
       <h1>Install</h1>
-      <p>Kiwi Search is not in browser stores yet, and release packages have not been published. You can check <a href="https://github.com/TennousuAthena/kiwisearch/releases" rel="noreferrer">GitHub Releases</a> for releases. For now, build from source using the steps below.</p>
+      <p>Get Kiwi Search from GitHub Releases and choose the ZIP for your browser. Browser store listings are not available yet.</p>
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/TennousuAthena/kiwisearch/releases/latest" rel="noreferrer">Get the latest version</a>
+        <a class="btn" href="https://github.com/TennousuAthena/kiwisearch/releases" rel="noreferrer">All releases</a>
+      </div>
       <h2>Chrome and Edge</h2>
       <ol>
-        <li>You need Node.js 24 and pnpm 12. Get the source from <a href="https://github.com/TennousuAthena/kiwisearch" rel="noreferrer">GitHub</a> and run <code>pnpm install</code> and <code>pnpm --filter @kiwi-search/extension build</code> in the repository root.</li>
+        <li>In the latest release's Assets, choose the ZIP ending in <code>chrome-mv3.zip</code> for Chrome, Chromium, Brave or Opera, or <code>edge-mv3.zip</code> for Edge. Download it and extract it to a permanent folder.</li>
         <li>Open <code>chrome://extensions</code> in Chrome (<code>edge://extensions</code> in Edge) and turn on Developer mode.</li>
-        <li>Click “Load unpacked” and choose <code>apps/extension/.output/chrome-mv3</code>.</li>
+        <li>Click “Load unpacked” and choose the extracted folder containing <code>manifest.json</code>. Keep that folder after installing.</li>
       </ol>
       <h2>Firefox</h2>
       <ol>
-        <li>Run <code>pnpm --filter @kiwi-search/extension build:firefox</code>.</li>
-        <li>Open <code>about:debugging#/runtime/this-firefox</code>, click “Load Temporary Add-on” and choose <code>apps/extension/.output/firefox-mv2/manifest.json</code>. A temporarily loaded extension has to be loaded again after the browser restarts.</li>
+        <li>Download and extract the latest release's ZIP ending in <code>firefox-mv2.zip</code>.</li>
+        <li>Open <code>about:debugging#/runtime/this-firefox</code>, click “Load Temporary Add-on” and choose <code>manifest.json</code> in the extracted folder. The current Firefox package is unsigned; a temporarily loaded extension has to be loaded again after the browser restarts.</li>
       </ol>
+      <h2>Update the extension</h2>
+      <p>Download the new version, extract the ZIP into the original install folder, then click Reload for Kiwi Search on the browser's extensions page. Keep the original folder and extension to continue using your settings.</p>
+      <h2>Build from source</h2>
+      <p>You need Node.js 24 and pnpm 12. Get the source from <a href="https://github.com/TennousuAthena/kiwisearch" rel="noreferrer">GitHub</a>, run <code>pnpm install</code> in the repository root, then run <code>pnpm --filter @kiwi-search/extension build</code> (Chrome), <code>pnpm --filter @kiwi-search/extension exec wxt build -b edge</code> (Edge) or <code>pnpm --filter @kiwi-search/extension build:firefox</code> (Firefox). Load the matching folder in <code>apps/extension/.output/</code> using the steps above.</p>
       <h2>After installing</h2>
       <p>The settings page opens once, with a getting-started guide. How to open Kiwi and how to make it your default search is on <a href="/en/start">Get started</a>.</p>
     </main>

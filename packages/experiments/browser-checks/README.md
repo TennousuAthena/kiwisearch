@@ -20,3 +20,5 @@ Scripts that check, in a real browser, what the unit tests cannot: how the exten
 | `site-shot.mjs <apps/web/dist> <shots-dir>` | The pages of `kiwi.moe` (introduction, install, getting started, privacy) under their own security policy, at desktop and phone width. |
 
 Results are printed, and some are also written as `results-*.json` (ignored).
+
+`release-install.mjs <apps/web/dist> <evidence-dir>` checks latest-release/history links, package hints for every browser choice, and layout at 1440/390/320px with both OS colour preferences. It serves the built homepage and Chinese/English installation guides under their actual CSP, refuses external requests and saves screenshots/results. Check public GitHub redirects and assets separately.

@@ -18,24 +18,33 @@
         <a href="/install" aria-current="page">安装</a>
         <a href="/start">开始使用</a>
         <a href="/privacy">隐私</a>
+        <a href="https://github.com/TennousuAthena/kiwisearch/releases" rel="noreferrer">Releases</a>
         <a href="https://github.com/TennousuAthena/kiwisearch" rel="noreferrer">GitHub</a>
         <a href="/en/install" hreflang="en">English</a>
       </nav>
     </header>
     <main class="doc">
       <h1>安装</h1>
-      <p>Kiwi Search 尚未上架浏览器商店，安装包也尚未发布。可前往 <a href="https://github.com/TennousuAthena/kiwisearch/releases" rel="noreferrer">GitHub Releases</a> 查看发布情况；现在可以按以下步骤从源码构建并安装。</p>
+      <p>从 GitHub Releases 获取 Kiwi Search 安装包，按浏览器选择 ZIP 文件。浏览器商店尚未上架。</p>
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/TennousuAthena/kiwisearch/releases/latest" rel="noreferrer">获取最新版本</a>
+        <a class="btn" href="https://github.com/TennousuAthena/kiwisearch/releases" rel="noreferrer">所有 Release</a>
+      </div>
       <h2>Chrome 和 Edge</h2>
       <ol>
-        <li>需要 Node.js 24 和 pnpm 12。从 <a href="https://github.com/TennousuAthena/kiwisearch" rel="noreferrer">GitHub</a> 取得源码，在仓库根目录运行 <code>pnpm install</code> 和 <code>pnpm --filter @kiwi-search/extension build</code>。</li>
+        <li>在最新 Release 的 Assets 中，Chrome、Chromium、Brave 和 Opera 选择以 <code>chrome-mv3.zip</code> 结尾的安装包；Edge 选择以 <code>edge-mv3.zip</code> 结尾的安装包。下载后解压到一个固定目录。</li>
         <li>在 Chrome 打开 <code>chrome://extensions</code>（Edge 打开 <code>edge://extensions</code>），启用“开发者模式”。</li>
-        <li>点“加载已解压的扩展程序”，选择 <code>apps/extension/.output/chrome-mv3</code>。</li>
+        <li>点“加载已解压的扩展程序”，选择解压后包含 <code>manifest.json</code> 的目录。安装后保留这个目录。</li>
       </ol>
       <h2>Firefox</h2>
       <ol>
-        <li>运行 <code>pnpm --filter @kiwi-search/extension build:firefox</code>。</li>
-        <li>打开 <code>about:debugging#/runtime/this-firefox</code>，点“临时载入附加组件”，选择 <code>apps/extension/.output/firefox-mv2/manifest.json</code>。临时载入的扩展在浏览器重启后要重新载入。</li>
+        <li>下载最新 Release 中以 <code>firefox-mv2.zip</code> 结尾的安装包并解压。</li>
+        <li>打开 <code>about:debugging#/runtime/this-firefox</code>，点“临时载入附加组件”，选择解压目录中的 <code>manifest.json</code>。当前 Firefox 包未签名，临时载入的扩展在浏览器重启后要重新载入。</li>
       </ol>
+      <h2>更新扩展</h2>
+      <p>下载新版本后，将 ZIP 解压到原安装目录，在浏览器扩展管理页点击 Kiwi Search 的“重新加载”。保留原目录和扩展，已有设置会继续使用。</p>
+      <h2>从源码构建</h2>
+      <p>需要 Node.js 24 和 pnpm 12。从 <a href="https://github.com/TennousuAthena/kiwisearch" rel="noreferrer">GitHub</a> 取得源码，在仓库根目录运行 <code>pnpm install</code>，再运行 <code>pnpm --filter @kiwi-search/extension build</code>（Chrome）、<code>pnpm --filter @kiwi-search/extension exec wxt build -b edge</code>（Edge）或 <code>pnpm --filter @kiwi-search/extension build:firefox</code>（Firefox）。按上述步骤加载 <code>apps/extension/.output/</code> 中对应的目录。</p>
       <h2>装好之后</h2>
       <p>设置页会自动打开一次，里面有“开始使用”引导。怎么打开 Kiwi、怎么设为默认搜索，见<a href="/start">开始使用</a>。</p>
     </main>
