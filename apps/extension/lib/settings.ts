@@ -33,12 +33,21 @@ export async function saveSettings(next: { config: FusionConfig; bridge: BridgeS
   await sendSettingsUpdate({ type: 'kiwi:update-settings', config: diffSettingsFromBaselines(previous.map((value) => value.config), next.config), bridge: diffSettingsFromBaselines(previous.map((value) => value.bridge), next.bridge) });
 }
 
-/** Whether the "开始使用" guide on the settings page has been finished or dismissed. Not part of the search config. */
-export async function loadOnboardingDone(): Promise<boolean> {
-  const { onboarding } = await browser.storage.local.get('onboarding');
-  return !!(onboarding as { done?: boolean } | undefined)?.done;
+/**
+ * The onboarding page's progress: finished (or skipped), or the step it was left at, so closing the tab does not start it over.
+ * Not part of the search config. `done` was written by the guide that used to sit on the settings page; it means the same.
+ */
+export interface OnboardingState {
+  done: boolean;
+  step?: number;
 }
 
-export async function saveOnboardingDone(done: boolean): Promise<void> {
-  await browser.storage.local.set({ onboarding: { done } });
+export async function loadOnboarding(): Promise<OnboardingState> {
+  const { onboarding } = await browser.storage.local.get('onboarding');
+  const value = onboarding as Partial<OnboardingState> | undefined;
+  return { done: !!value?.done, ...(typeof value?.step === 'number' ? { step: value.step } : {}) };
+}
+
+export async function saveOnboarding(state: OnboardingState): Promise<void> {
+  await browser.storage.local.set({ onboarding: state });
 }

@@ -122,7 +122,8 @@ export default defineBackground(() => {
 
   browser.runtime.onInstalled.addListener(({ reason }) => {
     registerSearchRedirectRule();
-    if (reason === 'install') browser.runtime.openOptionsPage?.().catch(() => {});
+    // A new install opens the onboarding page; an update never does (existing users rerun it from the settings page).
+    if (reason === 'install') void browser.tabs.create({ url: browser.runtime.getURL('/onboarding.html') }).catch(() => {});
   });
   browser.runtime.onStartup.addListener(registerSearchRedirectRule);
   registerSearchRedirectRule();

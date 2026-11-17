@@ -11,21 +11,17 @@ import {
   DEFAULT_BRIDGE,
   loadBridge,
   loadConfig,
-  loadOnboardingDone,
   saveSettings,
-  saveOnboardingDone,
   type BridgeSettings,
 } from '@/lib/settings';
-import { SOURCE_INFO } from '@/lib/sourceCatalog';
 import type { SourceHealthMap } from '@/lib/sourceHealth';
-import { sourceLabel } from '@/lib/sourceMeta';
 import { loadSourceStatus, watchSourceStatus } from '@/lib/sourceStatus';
 import { AdvancedSection } from './AdvancedSection';
 import { AiSection } from './AiSection';
 import { ConfirmDialog } from './controls';
+import { EnableSourceDialog } from './EnableSourceDialog';
 import { FiltersSection } from './FiltersSection';
 import { SourcesSection } from './SourcesSection';
-import { StartSection } from './StartSection';
 import { useAutosave } from './useAutosave';
 
 export default function OptionsApp() {
@@ -39,7 +35,6 @@ export default function OptionsApp() {
   const baseline = useRef<{ config: FusionConfig; bridge: BridgeSettings } | null>(null);
   const saveVersion = useRef(0);
   const savedVersion = useRef(0);
-  const [onboardingDone, setOnboardingDone] = useState(true);
   const [advancedOpen, setAdvancedOpen] = useState(() => location.hash === '#advanced');
   const [currentSection, setCurrentSection] = useState('sources');
   const [confirming, setConfirming] = useState<SourceId | null>(null);
@@ -48,14 +43,13 @@ export default function OptionsApp() {
   useEffect(() => {
     let active = true;
     setLoadError(false);
-    void Promise.all([loadConfig(), loadBridge(), loadSourceStatus().catch(() => ({})), loadOnboardingDone()]).then(([nextConfig, nextBridge, nextHealth, done]) => {
+    void Promise.all([loadConfig(), loadBridge(), loadSourceStatus().catch(() => ({}))]).then(([nextConfig, nextBridge, nextHealth]) => {
       if (!active) return;
       const config = tidyConfig(nextConfig);
       baseline.current = { config, bridge: nextBridge };
       setConfig(config);
       setBridge(nextBridge);
       setHealth(nextHealth);
-      setOnboardingDone(done);
       setLoaded(true);
     }).catch(() => { if (active) setLoadError(true); });
     void loadBlocklistMeta().then((value) => { if (active) setBlocklistMeta(value); }).catch(() => {});
@@ -95,27 +89,20 @@ export default function OptionsApp() {
   const setWeight = (id: SourceId, weight: number) =>
     change((current) => ({ ...current, sources: { ...current.sources, [id]: { ...(current.sources[id] ?? { enabled: false }), weight } } }));
 
-  const finishOnboarding = () => {
-    setOnboardingDone(true);
-    void saveOnboardingDone(true);
-  };
-
   const sections = [
-    ...(onboardingDone ? [] : [{ id: 'start', label: t('options.nav.start') }]),
     { id: 'preferences', label: t('options.ux.preferences') },
     { id: 'sources', label: t('options.nav.sources') },
     { id: 'ai', label: t('options.nav.ai') },
     { id: 'filters', label: t('options.nav.filters') },
     { id: 'advanced', label: t('options.nav.advanced') },
   ];
-  const confirmKey = confirming ? SOURCE_INFO[confirming].confirm : undefined;
 
   useEffect(() => {
     if (!loaded) return;
     let frame = 0;
     const update = () => {
       frame = 0;
-      const ids = [...(onboardingDone ? [] : ['start']), 'preferences', 'sources', 'ai', 'filters', 'advanced'];
+      const ids = ['preferences', 'sources', 'ai', 'filters', 'advanced'];
       const positions = ids.map((id) => ({ id, top: document.getElementById(id)?.getBoundingClientRect().top ?? Infinity }));
       const atBottom = window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
       setCurrentSection(atBottom ? ids.at(-1)! : positions.filter((item) => item.top <= 150).at(-1)?.id ?? ids[0]);
@@ -132,7 +119,7 @@ export default function OptionsApp() {
     onHash();
     update();
     return () => { cancelAnimationFrame(frame); window.removeEventListener('scroll', schedule); window.removeEventListener('resize', schedule); window.removeEventListener('hashchange', onHash); };
-  }, [loaded, onboardingDone]);
+  }, [loaded]);
 
   if (!loaded) return (
     <div className="options-page"><main className="options-load" aria-busy={!loadError}>
@@ -182,13 +169,6 @@ export default function OptionsApp() {
           </header>
           {saveState === 'error' && <p className="notice save-draft-notice" role="alert">{t('options.ux.unsavedHint')}</p>}
 
-          {!onboardingDone && (
-            <section className="section" id="start" aria-labelledby="start-title">
-              <h2 id="start-title">{t('options.start.title')}</h2>
-              <StartSection config={config} health={health} onDone={finishOnboarding} />
-            </section>
-          )}
-
           <section className="section" id="preferences" aria-labelledby="preferences-title">
             <h2 id="preferences-title">{t('options.ux.preferences')}</h2>
             <UiPreferencesPanel />
@@ -212,17 +192,14 @@ export default function OptionsApp() {
       </div>
 
       {confirming && (
-        <ConfirmDialog
-          title={t('options.app.enableTitle', { source: sourceLabel(confirming) })}
-          confirmLabel={t('options.app.enableConfirm')}
-          onConfirm={() => {
+        <EnableSourceDialog
+          id={confirming}
+          onEnable={() => {
             updateSource(confirming, 'enabled', true);
             setConfirming(null);
           }}
           onCancel={() => setConfirming(null)}
-        >
-          {confirmKey && t(confirmKey)}
-        </ConfirmDialog>
+        />
       )}
       {resetting && (
         <ConfirmDialog

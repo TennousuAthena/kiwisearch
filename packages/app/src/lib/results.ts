@@ -87,6 +87,7 @@ const LOCALIZED_SITES: Record<string, Extract<MessageKey, `site.${string}`>> = {
   taobao: 'site.taobao',
   tmall: 'site.tmall',
   jd: 'site.jd',
+  goofish: 'site.goofish',
   zhihu: 'site.zhihu',
   bilibili: 'site.bilibili',
   douyin: 'site.douyin',

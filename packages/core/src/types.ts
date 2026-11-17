@@ -28,6 +28,7 @@ export type SourceId =
   | 'taobao'
   | 'jd'
   | 'amazon'
+  | 'xianyu'
   | 'zhihu'
   | 'xiaohongshu'
   | 'rednote'

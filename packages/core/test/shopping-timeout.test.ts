@@ -11,11 +11,14 @@ describe('shopping source timeouts', () => {
   it.each([
     ['amazon', 15_000, 60_000],
     ['jd', 15_000, 15_000],
+    ['xianyu', 15_000, 30_000],
     ['amazon', 75_000, 75_000],
   ] as const)('%s respects its baseline and longer configured timeouts (%i -> %i)', async (id, configuredMs, expectedMs) => {
     vi.useFakeTimers();
     const config = structuredClone(DEFAULT_CONFIG);
     config.sourceTimeoutMs = configuredMs;
+    // Xianyu is off by default; the others are on already.
+    config.sources[id as SourceId] = { ...config.sources[id as SourceId], enabled: true };
     let options!: BrowserRunOptions;
     const pending = runSearch('coffee', config, {
       fetch: vi.fn(),

@@ -182,3 +182,85 @@ export const amazon: BrowserEngine = {
     return hits;
   },
 };
+
+function xianyuItemUrl(raw: string | null, base: string): string | null {
+  const url = parsedHttpUrl(raw, base);
+  if (!url || url.hostname !== 'www.goofish.com' || url.pathname !== '/item') return null;
+  const id = url.searchParams.get('id');
+  // The page adds `categoryId`, the category the item was listed in; it does not name the item and is dropped.
+  return id && /^\d{6,24}$/.test(id) ? `https://www.goofish.com/item?id=${id}` : null;
+}
+
+// Xianyu's search page is a React app: the cards are drawn by the site's own components (xy-site 0.0.184, read from its public
+// p_search-index.js and CSS on 2026-11-16), whose class names carry a build hash after `--`. Prefixes keep the parser off the hash.
+// A card is one link: image, title, tags, price, who wants it, seller.
+const XIANYU_CARDS = 'a[class*="feeds-item-wrap--"]';
+// The site's image component first draws a loading picture and, once the card is on screen, the product's. A card that was never on
+// screen (the minimized worker window) keeps only the placeholders, which are not photographs of the item.
+const XIANYU_PLACEHOLDERS = ['O1CN01CYtPWu1MUBqQAUK9D', 'O1CN01KivsFV1LX78B1hnum'];
+
+function xianyuPrice(card: Element): string | undefined {
+  const wrap = card.querySelector('[class*="price-wrap--"]');
+  const integer = cleanText(wrap?.querySelector('[class*="number--"], [class*="chinese--"]'));
+  if (!wrap || !integer) return undefined;
+  const sign = cleanText(wrap.querySelector('[class*="sign--"]'));
+  // The cents, with or without the point depending on what the site sent.
+  const cents = cleanText(wrap.querySelector('[class*="decimal--"]'));
+  const decimal = /^\d+$/.test(cents) ? `.${cents}` : cents;
+  // 万 and a unit such as 元/斤 follow the amount, outside the amount's own element.
+  const magnitude = Array.from(card.querySelectorAll('[class*="magnitude--"]')).map((part) => cleanText(part)).join('');
+  return `${sign}${integer}${decimal}${magnitude}`;
+}
+
+export const xianyu: BrowserEngine = {
+  id: 'xianyu',
+  label: '闲鱼',
+  modes: ['shopping'],
+  // Strict about frequent visits (its own risk control answers with a slider or a refusal): a gap well above the general one, as for X.
+  minIntervalMs: 10_000,
+  // A React app that signs its own API calls before the cards appear.
+  minTimeoutMs: 30_000,
+  buildUrl: (query) => `https://www.goofish.com/search?q=${encodeURIComponent(query)}`,
+  matches: ['*://www.goofish.com/*', '*://passport.goofish.com/*'],
+  readySelector: `${XIANYU_CARDS} [class*="main-title--"]`,
+  // The site's own login (`/login?redirectURL=…`) and the mini-login frame it embeds (`passport.goofish.com/mini_login.htm`), both built by
+  // functions in its bundle. Neither was seen on a live page: the one signed-out visit made for this was refused instead (see below).
+  loginSelector: 'iframe[src*="passport.goofish.com/mini_login.htm"], iframe[src*="passport.goofish.com/login"]',
+  isLoginUrl: (url) => matchesUrl(url, ['www.goofish.com'], /^\/login(?:\/|$)/) || matchesUrl(url, ['passport.goofish.com'], /^\/(?:mini_)?login\.htm/),
+  // The page loads Alibaba's baxia library, the same one Taobao uses; the punish path is assumed to be the same too.
+  blockedSelector: '#nc_1_wrapper, #nc_2_wrapper, #baxia-dialog-content[src*="/_____tmd_____/punish"]',
+  isBlockedUrl: (url) => matchesUrl(url, ['www.goofish.com'], /^\/_____tmd_____\/punish/),
+  // What a headless browser is shown instead of results (captured 2026-11-16). Nothing for the user to solve: the source fails with it.
+  refusedPattern: /非法访问\s*为了保障您的体验，请使用正常浏览器访问闲鱼/,
+  extract(doc, pageUrl) {
+    const hits: ReturnType<BrowserEngine['extract']> = [];
+    const seen = new Set<string>();
+    for (const card of doc.querySelectorAll(XIANYU_CARDS)) {
+      const url = xianyuItemUrl(card.getAttribute('href'), pageUrl);
+      // The title is also the `title` attribute of its row, free of the badges drawn inside it.
+      const heading = card.querySelector('[class*="row1-wrap-title--"]');
+      const title = (heading?.getAttribute('title') ?? '').replace(/\s+/g, ' ').trim() || cleanText(card.querySelector('[class*="main-title--"]'));
+      if (!url || !title || seen.has(url)) continue;
+      seen.add(url);
+      const photo = Array.from(card.querySelectorAll('img[class*="feeds-image--"]'))
+        .map((image) => imageUrl(image, pageUrl))
+        .filter((src): src is string => !!src && !XIANYU_PLACEHOLDERS.some((id) => src.includes(id)))
+        .at(-1);
+      // The item's condition and attributes ("256GB", "no repairs") and its service tags.
+      const tags = [...card.querySelectorAll('span[class*="cpv--"]'), ...card.querySelectorAll('[class*="row2-wrap-service--"]')]
+        .map((tag) => cleanText(tag)).filter(Boolean);
+      // "3人想要" and the like: how many want the item, which is the nearest thing a second-hand listing has to sales.
+      const wanted = Array.from(card.querySelectorAll('[class*="price-desc--"]')).map((part) => cleanText(part)).filter(Boolean).join(' · ');
+      hits.push({
+        url, host: 'www.goofish.com', title, snippet: tags.join(' · '), rank: hits.length + 1,
+        product: {
+          thumbnail: photo,
+          price: xianyuPrice(card),
+          shop: cleanText(card.querySelector('p[class*="seller-text--"]')) || undefined,
+          sales: wanted || undefined,
+        },
+      });
+    }
+    return hits;
+  },
+};

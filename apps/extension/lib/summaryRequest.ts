@@ -3,6 +3,6 @@ export function isExtensionPageSender(sender: { id?: string; url?: string } | un
   if (sender?.id !== id || !sender.url) return false;
   try {
     const url = new URL(sender.url); const base = new URL(baseUrl);
-    return url.protocol === base.protocol && url.host === base.host && ['/app.html', '/options.html'].includes(url.pathname);
+    return url.protocol === base.protocol && url.host === base.host && ['/app.html', '/options.html', '/onboarding.html'].includes(url.pathname);
   } catch { return false; }
 }

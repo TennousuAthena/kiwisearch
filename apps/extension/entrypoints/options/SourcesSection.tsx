@@ -8,6 +8,7 @@ import type { SourceHealthMap } from '@/lib/sourceHealth';
 import { sourceLabel } from '@/lib/sourceMeta';
 import { sourceNeedsAttention, sourcePresetUndo, undoSourcePreset, type SourcePresetUndo, type SourceEnabledPatch } from '@/lib/sourceControls';
 import { describeSource, type SourceBadge } from '@/lib/sourceView';
+import { SourceLogo } from '@kiwi-search/app/SourceLogo';
 import { Field, SecretInput, Segmented, Switch } from './controls';
 
 type SourceField = 'enabled' | 'apiKey' | 'baseUrl';
@@ -103,6 +104,7 @@ export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfi
             label={label}
             onChange={(next) => changeEnabled(id, next)}
           />
+          <SourceLogo id={id} />
           <div className="source-name">
             <label htmlFor={`source-switch-${id}`}><strong>{label}</strong></label>
             <span>{t(`source.blurb.${id}`)}</span>

@@ -1,0 +1,2 @@
+.source-logo { flex: none; border-radius: 3px; }
+:root[data-theme='dark'] .source-logo.inv { filter: invert(1); }

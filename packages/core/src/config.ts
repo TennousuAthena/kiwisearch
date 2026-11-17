@@ -44,6 +44,10 @@ export const DEFAULT_CONFIG: FusionConfig = {
     taobao: { enabled: true },
     jd: { enabled: true },
     amazon: { enabled: true },
+    // Xianyu (second-hand) only answers a browser signed in to the user's Alibaba account and is strict about automated visits (it refuses a
+    // headless browser outright), so it is opt-in: a source that spends the account's standing with the site does not switch on by itself,
+    // and not for users whose saved settings predate it.
+    xianyu: { enabled: false },
     zhihu: { enabled: true },
     // Mainland site and international site (RedNote): the same notes behind separate domains and logins; enable the one you are signed in to.
     xiaohongshu: { enabled: false },
