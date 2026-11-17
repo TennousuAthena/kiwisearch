@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InstallOptions } from '../src/InstallOptions';
-import { detectBrowser, RELEASES_URL, STORE_URLS, storeForBrowser } from '../src/installation';
+import { BROWSERS, detectBrowser, LATEST_RELEASE_URL, STORE_URLS, storeForBrowser } from '../src/installation';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -30,7 +30,7 @@ describe('choosing an installation destination', () => {
     expect(detectBrowser({ userAgent: 'Macintosh Safari/605.1.15', maxTouchPoints: 5 })).toBeNull();
   });
 
-  it('keeps unpublished stores inert and the release index reachable', () => {
+  it('keeps unpublished stores inert and offers the latest published release', () => {
     vi.stubGlobal('navigator', { userAgent: 'Chrome/156.0 Edg/156.0' });
     const host = document.createElement('div');
     const root = createRoot(host);
@@ -39,8 +39,26 @@ describe('choosing an installation destination', () => {
       expect(host.querySelector('select')!.value).toBe('edge');
       expect(host.querySelector('.install-store a')).toBeNull();
       expect(host.querySelector<HTMLButtonElement>('.install-store button')!.disabled).toBe(true);
-      expect(host.querySelector<HTMLAnchorElement>('a')!.href).toBe(RELEASES_URL);
-      expect(host.textContent).toContain('安装包尚未发布');
+      expect(host.querySelector<HTMLAnchorElement>('.install-release')!.href).toBe(LATEST_RELEASE_URL);
+      expect(host.textContent).toContain('获取最新版本');
+      expect(host.querySelector('.install-release')!.textContent).toContain('edge-mv3.zip');
+    } finally { root.unmount(); }
+  });
+
+  it('keeps the latest-release destination as the selected browser changes, with the matching package suffix', () => {
+    vi.stubGlobal('navigator', { userAgent: 'Chromium/156.0' });
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const packages = { chrome: 'chrome-mv3.zip', edge: 'edge-mv3.zip', firefox: 'firefox-mv2.zip', chromium: 'chrome-mv3.zip', brave: 'chrome-mv3.zip', opera: 'chrome-mv3.zip' };
+    try {
+      flushSync(() => root.render(<InstallOptions />));
+      const select = host.querySelector('select')!;
+      for (const browser of BROWSERS) {
+        flushSync(() => { select.value = browser; select.dispatchEvent(new Event('change', { bubbles: true })); });
+        const link = host.querySelector<HTMLAnchorElement>('.install-release')!;
+        expect(link.href).toBe('https://github.com/TennousuAthena/kiwisearch/releases/latest');
+        expect(link.textContent).toContain(packages[browser]);
+      }
     } finally { root.unmount(); }
   });
 
@@ -73,6 +91,8 @@ describe('choosing an installation destination', () => {
       expect(host.querySelector('select')!.value).toBe('');
       expect(host.textContent).toContain('请选择要安装扩展的桌面浏览器');
       expect(host.querySelector('.install-store a')).toBeNull();
+      expect(host.querySelector<HTMLAnchorElement>('.install-release')!.href).toBe(LATEST_RELEASE_URL);
+      expect(host.querySelector('.install-release')!.textContent).toContain('选择浏览器对应的安装包');
     } finally { root.unmount(); }
   });
 });
