@@ -1,34 +1,100 @@
-/* The website's own screens; the search interface brings its own styles. Tokens come from the interface's base.css. */
-.panel {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1.25rem;
-  padding: clamp(3rem, 14vh, 9rem) 1.5rem 3rem;
+/* The disconnected website uses the same brand, fonts and light/dark tokens as the search app. */
+.panel { min-height: 100svh; display: flex; flex-direction: column; padding: 0 clamp(1.25rem, 4.5vw, 5rem); }
+.panel-topbar, .panel-layout, .panel-footer { width: min(100%, 80rem); margin-inline: auto; }
+.panel-topbar { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; padding-block: 2rem; }
+.panel-name { color: var(--fg); font-size: 1rem; font-weight: 650; text-decoration: none; letter-spacing: -0.025em; }
+.panel-topbar nav { display: flex; align-items: center; gap: 1.75rem; }
+.panel-topbar nav a, .panel-footer a { font-size: 0.8125rem; color: var(--fg-3); text-decoration: none; }
+.panel-topbar nav a:hover, .panel-footer a:hover { color: var(--accent); }
+.panel-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(19rem, 1fr); align-items: center; gap: clamp(2rem, 5vw, 5rem); flex: 1; padding-block: 1rem 3rem; }
+.panel-search-stage { display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: min(38rem, 70vh); padding: 3rem clamp(1.5rem, 4vw, 3.5rem); background: var(--accent-soft); border-radius: calc(var(--radius-lg) * 2); }
+.panel-logo { color: var(--accent); display: block; font-size: clamp(4rem, 7.25vw, 6.5rem); font-weight: 700; letter-spacing: -0.055em; text-decoration: none; margin-bottom: 2.75rem; }
+.panel-search { position: relative; display: flex; align-items: center; width: 100%; height: 3.75rem; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); box-shadow: var(--shadow-1); padding: 0.375rem; }
+.panel-search > svg { flex: none; margin-left: 0.875rem; width: 1.125rem; height: 1.125rem; color: var(--fg-3); }
+.panel-search input { min-width: 0; flex: 1; width: 100%; height: 100%; padding: 0.5rem 0.75rem; background: transparent; color: var(--fg); border: 0; border-radius: 999px; font-size: 1rem; outline: none; }
+.panel-search input::placeholder { color: var(--fg-3); opacity: 1; }
+.panel-search:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
+.panel-search button { display: grid; place-items: center; flex: none; width: 2.875rem; height: 2.875rem; padding: 0; border: 0; border-radius: 50%; color: var(--on-accent); background: var(--accent-solid); }
+.panel-search button:hover { background: var(--accent-solid-hover); }
+.panel-search button svg { width: 1.25rem; height: 1.25rem; }
+.panel-engines { width: 100%; display: flex; flex-direction: column; align-items: center; color: var(--fg-3); margin-top: 1.5rem; }
+.panel-engines h2 { font-size: 0.75rem; font-weight: 400; }
+.panel-engines ul { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.25rem 1rem; list-style: none; margin: 0.625rem 0 0; padding: 0; }
+.panel-engines li a { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; min-height: 2.5rem; color: var(--fg-2); font-size: 0.8125rem; text-decoration: none; }
+.panel-engines li a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 0.25em; }
+.engine-art { width: 1rem; height: 1rem; object-fit: contain; flex: none; }
+.engine-art-dark { display: none; }
+:root[data-theme='dark'] .engine-art-dark { display: block; }
+:root[data-theme='dark'] .engine-art-light { display: none; }
+.panel-remember { display: flex; align-items: center; gap: 0.5rem; min-height: 2rem; margin-top: 1.25rem; color: var(--fg-3); font-size: 0.75rem; cursor: pointer; }
+.panel-remember input { flex: none; width: 0.875rem; height: 0.875rem; margin: 0; accent-color: var(--accent-solid); }
+.panel-engines .panel-hint { font-size: 0.75rem; text-align: center; }
+.panel-connection { width: 100%; max-width: 25rem; padding-right: 1rem; }
+.panel-eyebrow { display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem; letter-spacing: 0.12em; font-weight: 500; color: var(--accent); margin-bottom: 1.25rem; }
+.panel-eyebrow::before { content: ''; width: 1.5rem; height: 2px; background: currentColor; }
+.panel-title { font-size: clamp(1.75rem, 2.5vw, 2.25rem); font-weight: 650; letter-spacing: -0.035em; line-height: 1.3; text-wrap: balance; }
+.panel-hint { color: var(--fg-3); font-size: 0.875rem; line-height: 1.7; }
+.panel-connection > .panel-hint { margin-top: 1rem; }
+.install-options { margin-top: 2.5rem; }
+.install-browser { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; color: var(--fg-3); font-size: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-ctl); }
+.install-select { display: inline-flex; align-items: center; position: relative; max-width: 75%; }
+.install-select select { appearance: none; min-width: 0; max-width: 100%; padding: 0.375rem 1.75rem 0.375rem 0.5rem; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--fg-2); font-size: 0.8125rem; cursor: pointer; }
+.install-select select:hover { background: var(--surface-2); }
+.install-select select option { color: var(--fg); background: var(--surface); }
+.install-select svg { position: absolute; right: 0.25rem; pointer-events: none; width: 1rem; height: 1rem; }
+.install-route { display: flex; align-items: center; gap: 1rem; width: 100%; min-height: 6rem; padding: 1.125rem 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; text-decoration: none; text-align: left; color: var(--fg); }
+.install-route-icon { flex: none; width: 1.25rem; height: 1.25rem; color: var(--fg-3); }
+.install-route-copy { flex: 1; min-width: 0; }
+.install-route-title { display: block; font-size: 1rem; font-weight: 550; line-height: 1.5; }
+.install-description { display: block; font-size: 0.75rem; line-height: 1.6; color: var(--fg-3); margin-top: 0.375rem; }
+.install-route-arrow { flex: none; width: 1.125rem; height: 1.125rem; color: var(--accent); }
+.install-route:disabled { cursor: not-allowed; color: var(--fg-3); }
+.install-route:disabled .install-route-arrow { color: var(--fg-3); opacity: 0.5; }
+.install-route[href]:hover .install-route-title { color: var(--accent); text-decoration: underline; text-underline-offset: 0.25em; }
+.install-release .install-route-arrow { box-sizing: content-box; padding: 0.5rem; margin-right: -0.5rem; background: var(--accent-soft); border-radius: 50%; }
+.panel-install-help { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-top: 1.75rem; font-size: 0.75rem; }
+.panel-install-help a { display: inline-flex; align-items: center; gap: 0.5rem; color: var(--fg-2); text-decoration: none; }
+.panel-install-help a svg { width: 0.875rem; height: 0.875rem; }
+.panel-install-help a:hover { color: var(--accent); }
+button.link { background: none; border: 0; padding: 0; font: inherit; color: var(--fg-3); cursor: pointer; text-decoration: underline; text-underline-offset: 0.2em; }
+button.link:hover { color: var(--accent); }
+.panel-footer { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; padding-block: 1.25rem; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--fg-3); }
+.panel-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.5rem; }
+.panel .btn.primary { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; }
+.panel .btn.primary:hover { background: var(--accent-solid-hover); }
+.panel-connection > .btn { margin-top: 1.5rem; }
+.panel:not(.panel-missing) .panel-layout { padding-block: 3rem; }
+@media (max-width: 960px) {
+  .panel-layout { grid-template-columns: minmax(0, 1.2fr) minmax(17rem, 1fr); gap: 2rem; }
+  .panel-search-stage { padding-inline: 1.5rem; }
+  .panel-connection { padding-right: 0; }
+  .panel-engines ul { gap: 0.25rem 0.75rem; }
 }
-.panel-logo { color: var(--accent); display: block; font-size: clamp(3rem, 7vw, 4.5rem); font-weight: 700; letter-spacing: -0.03em; text-decoration: none; }
-.panel-search { width: min(38rem, 100%); }
-.panel-search input {
-  width: 100%;
-  font: inherit;
-  font-size: 1.0625rem;
-  color: var(--fg);
-  background: var(--surface);
-  border: 1px solid var(--border-ctl);
-  border-radius: 999px;
-  padding: 0.8rem 1.25rem;
+@media (max-width: 760px) {
+  .panel-topbar { padding-block: 1.25rem; }
+  .panel-topbar nav { gap: 1rem; }
+  .panel-layout { grid-template-columns: minmax(0, 1fr); gap: 2.5rem; padding-block: 0.5rem 2.5rem; }
+  .panel-search-stage { min-height: 0; padding: 2.75rem 1.25rem 2rem; border-radius: calc(var(--radius-lg) * 1.5); }
+  .panel-logo { font-size: 4.25rem; margin-bottom: 1.75rem; }
+  .panel-search { height: 3.25rem; }
+  .panel-search button { width: 2.375rem; height: 2.375rem; }
+  .panel-search input { font-size: 0.9375rem; }
+  .panel-engines { margin-top: 1rem; }
+  .panel-remember { margin-top: 0.75rem; }
+  .panel-connection { max-width: 30rem; margin-inline: auto; padding-inline: 0.5rem; }
+  .panel-eyebrow { margin-bottom: 0.875rem; }
+  .panel-title { font-size: 1.75rem; }
+  .panel-connection > .panel-hint { margin-top: 0.75rem; }
+  .install-options { margin-top: 1.5rem; }
+  .install-route { min-height: 5.25rem; }
+  .panel-install-help { margin-top: 1.25rem; }
 }
-.panel-search input:hover { box-shadow: var(--shadow-1); }
-.panel-search input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring), var(--shadow-1); }
-.panel-title { font-size: 1.25rem; font-weight: 600; margin: 0.5rem 0 0; text-align: center; }
-.panel-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; }
-.panel-hint { color: var(--fg-3); margin: 0; text-align: center; }
-.panel-engines { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; margin-top: 1.5rem; color: var(--fg-3); }
-.panel-engines p { margin: 0; }
-.panel-engines ul { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.25rem 1.25rem; list-style: none; margin: 0; padding: 0; }
-.panel-engines a { color: var(--link); }
-.panel-remember { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
-.btn.primary { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; text-decoration: none; }
-.btn.primary:hover { background: var(--accent-solid-hover); }
-button.link { background: none; border: 0; padding: 0; font: inherit; color: var(--link); cursor: pointer; text-decoration: underline; }
+@media (max-width: 380px) {
+  .panel { padding-inline: 1rem; }
+  .panel-topbar nav { gap: 0.75rem; }
+  .panel-topbar nav a { font-size: 0.75rem; }
+  .panel-search-stage { padding-inline: 0.875rem; }
+  .panel-engines ul { display: grid; grid-template-columns: repeat(2, auto); gap: 0 1.5rem; }
+  .panel-engines li a { justify-content: flex-start; }
+  .install-route { gap: 0.75rem; }
+}
