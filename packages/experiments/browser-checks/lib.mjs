@@ -1,6 +1,7 @@
 // Helpers for the browser checks: local servers, a throwaway headless Chromium, and a small CDP client.
 // Every browser gets a fresh temporary profile and a random debugging port, and all outside DNS is refused. Never use these with your own profile.
 import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
@@ -118,6 +119,7 @@ export async function launchChromium({ ext, httpsPort, extraArgs = [], allowHost
   for (let i = 0; i < 100 && !fs.existsSync(portFile); i++) await sleep(150);
   const [port, wsPath] = fs.readFileSync(portFile, 'utf8').trim().split('\n');
   const browser = await cdp(`ws://127.0.0.1:${port}${wsPath}`);
+  if (ext) browser.extensionId = unpackedExtensionId(ext);
   const stop = async () => {
     try { await browser.send('Browser.close'); } catch { /* already gone */ }
     await sleep(600);
@@ -138,10 +140,18 @@ export async function targetInfo(browser, targetId) {
   return targetInfos.find((t) => t.targetId === targetId);
 }
 
+/** The id Chromium gives an unpacked extension: the first 16 bytes of the SHA-256 of its path, written with the letters a to p. */
+export function unpackedExtensionId(dir) {
+  const hex = createHash('sha256').update(fs.realpathSync(dir)).digest('hex').slice(0, 32);
+  return [...hex].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join('');
+}
+
 export async function findExtension(browser, fileName = 'background.js') {
   for (let i = 0; i < 40; i++) {
     const { targetInfos } = await browser.send('Target.getTargets');
-    const sw = targetInfos.find((t) => t.type === 'service_worker' && t.url.startsWith('chrome-extension://') && t.url.endsWith(fileName));
+    // Newer Chromium builds run service workers of their own built-in extensions, also named background.js; take the loaded one.
+    const prefix = `chrome-extension://${browser.extensionId ? browser.extensionId + '/' : ''}`;
+    const sw = targetInfos.find((t) => t.type === 'service_worker' && t.url.startsWith(prefix) && t.url.endsWith(fileName));
     if (sw) return { targetId: sw.targetId, id: new URL(sw.url).host };
     await sleep(250);
   }

@@ -122,6 +122,15 @@ What the documentation says matches: an offscreen document only closes by itself
 
 The same check was run again against `apps/relay` once it replaced the experimental copy: the same results (channel open in 237 ms, 4 frames of 1564 bytes with nothing readable, every replay and forgery rejected, forwarding after 20 s idle), and a 16,385-byte frame was closed with 1009.
 
+**Three devices online at once (2026-11-20).** The probe first kept one connection per device, so when a third device joined a topic, an existing peer's connection was closed and replaced (seen with two Chromiums and a Firefox, and reproduced with three Chromiums: one device's channel went to `closed`). The relay was not at fault; it only forwards. `ext-webrtc/offscreen.js` now keeps one connection per peer, and `ext-webrtc/relay-probe.js` negotiates per peer: the device with the smaller id makes the offer (the other replies `here` to a `hello`), and an answer names the offer it replies to (`re`), still inside the encrypted envelope. `relay-mesh-check.mjs` checks this with three throwaway Chromium 158 browsers (headless) against `apps/relay` in local `workerd`, and passed five runs in a row:
+
+- A and B connect; C joins; all three pairs are open with matching certificates, and the A-B connection is the same one as before (its channel-open timestamp did not change).
+- Bytes sent to one peer arrived only at that peer.
+- B's browser was closed and a new one joined under the same device name: all pairs open again, and the A-C connection was kept.
+- All three sent `hello` at the same moment: all pairs stayed open and no device logged a failed negotiation.
+
+`relay-check.mjs` was run again afterwards with the same results as above. Not checked: more than three devices, devices on different networks, Firefox in the three-device check, and a deployed relay. `lib.mjs` now finds the test extension's service worker by the id Chromium derives from its path, because Chromium 158 also lists a built-in extension's `background.js`.
+
 **End-to-end run of 2026-11-19, from a clean copy.** To check what CI would do, the files a commit would contain (tracked and untracked, ignored ones left out) were copied to an empty directory, and there, under Node 24 (CI's version; the development machine has 26) with pnpm 12: `pnpm install --frozen-lockfile` (the `workerd` install script is allowed in `pnpm-workspace.yaml`), typecheck, the tests of core, protocol, app, extension, web, mcp and relay (632, 35, 164, 166, 54, 18 and 13 tests), the mcp, web and relay builds, `check:dist` of the web build, and the extension builds for Chrome, Edge and Firefox all passed, and `relay-check.mjs` ran there with the results above. The extension's manifest has no relay or offscreen entry, as expected.
 
 Two things the unit tests only covered at the header level were then run in real browsers against the local relay:

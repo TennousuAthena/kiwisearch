@@ -48,6 +48,8 @@ async function evaluate(browser, targetId, expression) {
 async function device() {
   const b = await launchChromium({ ext: EXT, httpsPort: 1, allowHosts: ['*.local'] });
   const sw = await findExtension(b.browser);
+  // The worker's target can appear before its script has run.
+  for (let i = 0; i < 40 && !(await evaluate(b.browser, sw.targetId, "typeof openOffscreen === 'function'")); i++) await sleep(150);
   await evaluate(b.browser, sw.targetId, "openOffscreen('relay.html')");
   let page;
   for (let i = 0; i < 40 && !page; i++) { page = (await b.browser.send('Target.getTargets')).targetInfos.find((t) => t.url.endsWith('/relay.html')); if (!page) await sleep(150); }

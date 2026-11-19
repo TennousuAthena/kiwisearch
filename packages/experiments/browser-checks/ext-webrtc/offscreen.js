@@ -1,7 +1,12 @@
 // The WebRTC side of the device-sync probe, run in a Chrome offscreen document (reason WEB_RTC).
 // Driven over CDP by ../webrtc-check.mjs: each function returns plain JSON. Addresses are never returned, only their kind.
 
-const state = { pc: null, dc: null, cert: null, received: 0, receivedBytes: 0, pongs: [], log: [] };
+// One connection per remote device: `probe.use(peer)` picks whose connection the calls after it act on, so a third device joining
+// does not replace the connection to the second. Without `use` there is a single unnamed connection, as the two-device checks expect.
+const fresh = () => ({ pc: null, dc: null, received: 0, receivedBytes: 0, pongs: [], log: [], answerAt: undefined });
+const slots = new Map();
+let state = fresh();
+let certificate = null;
 
 /** The device's long-lived DTLS certificate: generated once and kept in IndexedDB, so its fingerprint can be pinned by paired devices. */
 async function loadCertificate() {
@@ -14,7 +19,7 @@ async function loadCertificate() {
     await idbPut('dtls-cert-requested-expiry', requested);
     created = true;
   }
-  state.cert = cert;
+  certificate = cert;
   const requested = await idbGet('dtls-cert-requested-expiry');
   return {
     created,
@@ -56,8 +61,12 @@ function expand(code, type) {
   return lines.join('\r\n') + '\r\n';
 }
 
+const current = () => state;
+
 function newPeer(iceServers) {
-  const pc = new RTCPeerConnection({ iceServers, certificates: [state.cert] });
+  // The handlers keep writing to the connection they belong to after `use` has moved on to another device.
+  const state = current();
+  const pc = new RTCPeerConnection({ iceServers, certificates: [certificate] });
   const dc = pc.createDataChannel('sync', { negotiated: true, id: 0 });
   dc.binaryType = 'arraybuffer';
   dc.onmessage = (ev) => {
@@ -97,6 +106,13 @@ async function describeLocal(pc, started) {
 
 self.probe = {
   loadCertificate,
+
+  /** Act on the connection to this device from now on. Call it right before another probe call, with no `await` in between. */
+  use(peer) {
+    if (!slots.has(peer)) slots.set(peer, fresh());
+    state = slots.get(peer);
+    return peer;
+  },
   cryptoProbe,
 
   async makeOffer(iceServers = []) {
@@ -122,6 +138,7 @@ self.probe = {
 
   /** Connection state, the selected candidate pair (kinds only) and whether the peer's certificate is the one the code promised. */
   async status(expectedFingerprint) {
+    const state = current();
     const pc = state.pc;
     const out = { connectionState: pc?.connectionState, channel: state.dc?.readyState, received: state.received, receivedBytes: state.receivedBytes, log: state.log };
     if (!pc) return out;
@@ -152,6 +169,7 @@ self.probe = {
   },
 
   async ping() {
+    const state = current();
     const before = state.pongs.length;
     state.dc.send('ping:' + performance.now());
     for (let i = 0; i < 50 && state.pongs.length === before; i++) await new Promise((r) => setTimeout(r, 100));
@@ -174,7 +192,7 @@ self.probe = {
 
   reset() {
     state.pc?.close();
-    Object.assign(state, { pc: null, dc: null, received: 0, receivedBytes: 0, pongs: [], log: [], answerAt: undefined });
+    Object.assign(state, fresh());
     return 'reset';
   },
 

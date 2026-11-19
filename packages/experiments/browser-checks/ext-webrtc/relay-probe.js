@@ -6,10 +6,14 @@
 //   signal key -> AES-256-GCM over every frame, with the topic id as associated data.
 // A frame is nonce (12) || ciphertext of a JSON message padded to a fixed size, so the relay learns neither the content nor its length.
 // Messages carry a random id and a time; repeats and old messages are dropped.
+//
+// Any number of devices can share a topic. Each pair gets its own peer connection, and for each pair the device with the smaller id
+// offers, so two devices that announce themselves at the same time never offer to each other at once. A device that joins sends
+// `hello`; a device with a smaller id answers with an offer, one with a larger id answers `here` and is then offered to.
 
 const FRAME_PLAINTEXT = 1536;
 const MAX_AGE_MS = 120_000;
-const rs = { ws: null, keys: null, topic: null, device: null, seen: new Set(), log: [], rejected: [], waiters: [], peerFingerprint: null };
+const rs = { ws: null, keys: null, topic: null, device: null, seen: new Set(), log: [], rejected: [], waiters: [], peers: new Map() };
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -58,38 +62,91 @@ async function open(frame) {
   return { message };
 }
 
-function send(type, to, body) {
+/** `re` names the message this one answers, so an answer is never applied to another offer. Resolves to the new message's id. */
+function send(type, to, body, re) {
   const id = b64url(crypto.getRandomValues(new Uint8Array(12)));
   // A device never acts on its own messages, even when someone sends them back to it.
   rs.seen.add(id);
-  return seal({ type, from: rs.device, to, body, id, t: Date.now() }).then((frame) => rs.ws.send(frame));
+  return seal({ type, from: rs.device, to, body, id, re, t: Date.now() }).then((frame) => { rs.ws.send(frame); return id; });
 }
 
 function waitFor(predicate, ms = 15000) {
   return new Promise((resolve, reject) => {
     const waiter = { predicate, resolve };
     rs.waiters.push(waiter);
-    setTimeout(() => { rs.waiters.splice(rs.waiters.indexOf(waiter), 1); reject(new Error('timed out waiting for a relay message')); }, ms);
+    setTimeout(() => {
+      const at = rs.waiters.indexOf(waiter);
+      if (at < 0) return;
+      rs.waiters.splice(at, 1);
+      reject(new Error('timed out waiting for a relay message'));
+    }, ms);
   });
 }
+
+/** The connection to one device: its pinned fingerprint and a promise that settles when the data channel is open or has failed. */
+function track(peer, started) {
+  const entry = { fingerprint: null, started, result: null };
+  rs.peers.set(peer, entry);
+  entry.done = (async () => {
+    for (let i = 0; i < 150; i++) {
+      if (rs.peers.get(peer) !== entry) return (entry.result = { channel: 'replaced' });
+      if (entry.fingerprint) {
+        probe.use(peer);
+        const s = await probe.status(entry.fingerprint);
+        if (s.channel === 'open' || s.connectionState === 'failed') return (entry.result = { channel: s.channel, ms: Math.round(performance.now() - started), selectedPair: s.selectedPair, dtls: s.dtlsVersion, peerCertificateMatches: s.remoteCertificateMatches });
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return (entry.result = { channel: 'timeout' });
+  })();
+  return entry;
+}
+
+async function offerTo(peer) {
+  const entry = track(peer, performance.now());
+  probe.use(peer);
+  probe.reset();
+  const offer = await probe.makeOffer([]);
+  const id = await send('offer', peer, offer.code);
+  const answer = await waitFor((m) => m.type === 'answer' && m.from === peer && m.re === id);
+  if (rs.peers.get(peer) !== entry) return;
+  probe.use(peer);
+  await probe.acceptAnswer(answer.body);
+  entry.fingerprint = answer.body.f;
+}
+
+const offers = (peer) => rs.device < peer;
+const pending = (peer) => rs.peers.has(peer) && !rs.peers.get(peer).result;
 
 async function onFrame(data) {
   if (typeof data === 'string') return rs.rejected.push('text frame');
   const { message, rejected } = await open(data);
   if (rejected) return rs.rejected.push(rejected);
   if (message.to && message.to !== rs.device) return;
-  rs.log.push([Math.round(performance.now()), message.type, message.from]);
-  // Answer an offer addressed to this device.
-  if (message.type === 'offer') {
-    rs.peerFingerprint = message.body.f;
+  const peer = message.from;
+  rs.log.push([Math.round(performance.now()), message.type, peer]);
+  if (message.type === 'hello') {
+    // A hello means the device has no connection to anyone yet, so an older one to it is replaced; the others are left alone.
+    if (offers(peer)) void offerTo(peer).catch((e) => rs.log.push([Math.round(performance.now()), 'offer failed', String(e)]));
+    else void send('here', peer, {});
+  }
+  if (message.type === 'here' && offers(peer) && !pending(peer)) void offerTo(peer).catch((e) => rs.log.push([Math.round(performance.now()), 'offer failed', String(e)]));
+  // Answer an offer addressed to this device. Only the connection to its sender is replaced.
+  if (message.type === 'offer' && !offers(peer)) {
+    const entry = track(peer, performance.now());
+    probe.use(peer);
     probe.reset();
     const answer = await probe.acceptOffer(message.body, []);
-    await send('answer', message.from, answer.code);
+    await send('answer', peer, answer.code, message.id);
+    entry.fingerprint = message.body.f;
   }
   for (const waiter of [...rs.waiters]) {
     if (waiter.predicate(message)) { rs.waiters.splice(rs.waiters.indexOf(waiter), 1); waiter.resolve(message); }
   }
 }
+
+/** The device meant when a call names none: the first one this device connected to. */
+const firstPeer = () => rs.peers.keys().next().value;
 
 self.relay = {
   async join(url, secretB64, device, day = Math.floor(Date.now() / 86400e3)) {
@@ -99,43 +156,51 @@ self.relay = {
     rs.device = device;
     rs.ws = new WebSocket(`${url}/v1/${rs.topic}`);
     rs.ws.binaryType = 'arraybuffer';
-    rs.ws.onmessage = (ev) => { void onFrame(ev.data); };
+    rs.ws.onmessage = (ev) => { onFrame(ev.data).catch((e) => rs.log.push([Math.round(performance.now()), 'frame failed', String(e)])); };
     rs.ws.onclose = (ev) => rs.log.push([Math.round(performance.now()), 'relay closed', ev.code]);
     await new Promise((resolve, reject) => { rs.ws.onopen = resolve; rs.ws.onerror = () => reject(new Error('relay connection failed')); });
     return { topic: rs.topic };
   },
 
-  /** Announce, wait for the other device, offer, apply its answer; returns when the data channel is open or fails. */
-  async call() {
-    const started = performance.now();
+  /**
+   * Announce and connect to every device already in the topic; returns when each data channel is open or has failed. The first device's
+   * result is at the top level, all of them are under `peers`. `settleMs` is how long to keep waiting for further devices to appear.
+   */
+  async call(settleMs = 600) {
     await send('hello', null, {});
-    const hello = await waitFor((m) => m.type === 'hello' || m.type === 'here');
-    probe.reset();
-    const offer = await probe.makeOffer([]);
-    await send('offer', hello.from, offer.code);
-    const answer = await waitFor((m) => m.type === 'answer' && m.from === hello.from);
-    rs.peerFingerprint = answer.body.f;
-    await probe.acceptAnswer(answer.body);
-    for (let i = 0; i < 100; i++) {
-      const s = await probe.status(rs.peerFingerprint);
-      if (s.channel === 'open' || s.connectionState === 'failed') return { channel: s.channel, ms: Math.round(performance.now() - started), selectedPair: s.selectedPair, dtls: s.dtlsVersion, peerCertificateMatches: s.remoteCertificateMatches };
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    return { channel: 'timeout' };
+    for (let i = 0; i < 150 && !rs.peers.size; i++) await new Promise((r) => setTimeout(r, 100));
+    if (!rs.peers.size) throw new Error('timed out waiting for a relay message');
+    await new Promise((r) => setTimeout(r, settleMs));
+    const peers = {};
+    for (const [peer, entry] of rs.peers) peers[peer] = await entry.done;
+    return { ...peers[firstPeer()], peers };
   },
 
-  /** The waiting side answers hellos so that a caller arriving later still finds it. */
+  /** Kept for the scripts that call it: a joined device always answers hellos, so a caller arriving later finds it. */
   async listen() {
-    rs.waiters.push({ predicate: (m) => { if (m.type === 'hello') void send('here', m.from, {}); return false; }, resolve: () => {} });
     return 'listening';
   },
 
-  async status() {
-    const s = await probe.status(rs.peerFingerprint);
-    return { channel: s.channel, peerCertificateMatches: s.remoteCertificateMatches, log: rs.log, rejected: rs.rejected };
+  async status(peer = firstPeer()) {
+    const peers = {};
+    for (const [id, entry] of rs.peers) {
+      probe.use(id);
+      const s = await probe.status(entry.fingerprint);
+      peers[id] = { channel: s.channel, peerCertificateMatches: s.remoteCertificateMatches, receivedBytes: s.receivedBytes };
+    }
+    return { channel: peers[peer]?.channel, peerCertificateMatches: peers[peer]?.peerCertificateMatches, peers, log: rs.log, rejected: rs.rejected };
   },
 
-  ping: () => probe.ping(),
+  ping(peer = firstPeer()) {
+    probe.use(peer);
+    return probe.ping();
+  },
+
+  /** Send `total` bytes to one device over its data channel. */
+  bulk(peer, total, chunk = 16384) {
+    probe.use(peer);
+    return probe.bulk(total, chunk);
+  },
 
   /** Send one more announcement, e.g. after the relay has been idle. */
   say: (type) => send(type, null, {}).then(() => 'sent'),
