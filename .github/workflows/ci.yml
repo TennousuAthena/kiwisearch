@@ -65,11 +65,20 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm --filter @kiwi-search/mcp test
 
+      # Runs the sync relay in a local workerd (Cloudflare's runtime); nothing is deployed.
+      - name: Test relay
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @kiwi-search/relay test
+
       - name: Build mcp server
         run: pnpm --filter @kiwi-search/mcp build
 
       - name: Build web
         run: pnpm --filter @kiwi-search/web build
+
+      # A dry-run bundle of the relay; it uploads nothing and needs no Cloudflare account.
+      - name: Build relay
+        run: pnpm --filter @kiwi-search/relay build
 
       - name: Check the web build
         run: pnpm --filter @kiwi-search/web check:dist

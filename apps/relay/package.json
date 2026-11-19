@@ -1,0 +1,20 @@
+{
+  "name": "@kiwi-search/relay",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc -p . && tsc -p test"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261113.1",
+    "@types/node": "^22.18.0",
+    "vitest": "^3.2.7",
+    "wrangler": "4.162.0"
+  }
+}
