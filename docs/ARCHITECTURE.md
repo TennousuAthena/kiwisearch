@@ -36,6 +36,7 @@
 | `packages/core` | 搜索管线：来源与引擎、去重融合、决策模型、屏蔽列表、重排、摘要。TypeScript 源码，不独立发布，扩展和 MCP 直接打进各自的包 | `node-html-parser`（解析页面） |
 | `apps/extension` | WXT + React 的 Manifest V3 扩展：后台调度、新标签页、设置页、内容脚本 | `@kiwi-search/core`、React、`marked`、`dompurify` |
 | `packages/mcp` | stdio MCP 服务，把工具调用转给浏览器里的扩展 | MCP SDK、`ws`、`zod` |
+| `apps/relay` | 设备同步的中继：Cloudflare Worker，每个房间一个 Durable Object，只在同时在线的设备之间转发端到端加密的数据，什么都不存。项目没有部署它，扩展也还没用上（见 [device-sync.md](internals/device-sync.md)） | 无运行时依赖；开发用 `wrangler` |
 | `packages/experiments` | 离线评测的空壳（目前没有源码和测试，README 提到的 CLI 和报告不在仓库里） | |
 
 ### core 的模块

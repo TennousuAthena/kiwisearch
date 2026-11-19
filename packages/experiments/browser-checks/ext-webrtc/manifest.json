@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "Kiwi WebRTC probe",
+  "version": "0.0.1",
+  "description": "Throwaway probe for the device-sync feasibility check. Not part of the product.",
+  "permissions": ["offscreen"],
+  "background": { "service_worker": "background.js" }
+}
