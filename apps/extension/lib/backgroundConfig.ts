@@ -1,10 +1,30 @@
 import { browser } from 'wxt/browser';
-import { applySettingsPatch, type DomainPreferenceState, type SettingsUpdate, type SettingsUpdateResponse } from './configUpdates';
+import { applySettingsPatch, type DomainPreferenceState, type SettingsPatch, type SettingsUpdate, type SettingsUpdateResponse } from './configUpdates';
 import { normalizeDomain } from '@kiwi-search/protocol';
 import { loadBridge, loadConfig } from './settings';
+import { domainTransitionToSyncChanges, settingsPatchesToSyncChanges } from './syncMapping';
+import type { LocalChangeInput } from '@kiwi-search/sync';
 
 let writes: Promise<unknown> = Promise.resolve();
 const REVISION_KEY = 'domainPreferenceRevisions';
+
+let onLocalSyncChanges: ((changes: LocalChangeInput[]) => void) | null = null;
+
+/** Subscribe to local config edits (never fired for remote sync writes). */
+export function setOnLocalSyncChanges(listener: ((changes: LocalChangeInput[]) => void) | null): void {
+  onLocalSyncChanges = listener;
+}
+
+/** Apply remote sync patches through the same serialized writer without emitting local sync echoes. */
+export function applyRemoteConfigPatches(patches: SettingsPatch[]): Promise<void> {
+  if (!patches.length) return Promise.resolve();
+  const job = writes.then(async (): Promise<void> => {
+    const config = applySettingsPatch(await loadConfig(), patches);
+    await browser.storage.local.set({ config });
+  });
+  writes = job.catch(() => {});
+  return job;
+}
 
 async function loadDomainRevisions(): Promise<Record<string, string>> {
   const stored = (await browser.storage.local.get(REVISION_KEY))[REVISION_KEY];
@@ -42,6 +62,10 @@ export function handleConfigUpdate(message: unknown): Promise<SettingsUpdateResp
       if ('undo' in message) delete revisions[domain];
       else revisions[domain] = revision;
       await browser.storage.local.set({ config, [REVISION_KEY]: revisions });
+      if (onLocalSyncChanges) {
+        const syncChanges = domainTransitionToSyncChanges(domain, before, after);
+        if (syncChanges.length) onLocalSyncChanges(syncChanges);
+      }
       return 'undo' in message ? { ok: true, restored: true } : { ok: true, undo: { domain, before, after, revision } };
     }
     const changes: Record<string, unknown> = {};
@@ -59,6 +83,10 @@ export function handleConfigUpdate(message: unknown): Promise<SettingsUpdateResp
     }
     if (message.bridge?.length) changes.bridge = applySettingsPatch(await loadBridge(), message.bridge);
     if (Object.keys(changes).length) await browser.storage.local.set(changes);
+    if (onLocalSyncChanges && message.config?.length) {
+      const syncChanges = settingsPatchesToSyncChanges(message.config);
+      if (syncChanges.length) onLocalSyncChanges(syncChanges);
+    }
     return { ok: true };
   }).catch((error: unknown): SettingsUpdateResponse => ({ ok: false, error: error instanceof Error ? error.message : String(error) }));
   writes = job;

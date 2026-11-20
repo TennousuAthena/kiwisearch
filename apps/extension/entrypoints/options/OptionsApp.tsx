@@ -1,5 +1,6 @@
 import { DEFAULT_CONFIG, type FusionConfig, type SourceId } from '@kiwi-search/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { browser } from 'wxt/browser';
 import { CheckIcon, CircleAlertIcon } from '@kiwi-search/app/icons';
 import { loadBlocklistMeta, watchBlocklistMeta } from '@/lib/blocklistService';
 import type { BlocklistMetaMap } from '@/lib/blocklistState';
@@ -22,6 +23,7 @@ import { ConfirmDialog } from './controls';
 import { EnableSourceDialog } from './EnableSourceDialog';
 import { FiltersSection } from './FiltersSection';
 import { SourcesSection } from './SourcesSection';
+import { SyncSection } from './SyncSection';
 import { useAutosave } from './useAutosave';
 
 export default function OptionsApp() {
@@ -67,12 +69,31 @@ export default function OptionsApp() {
 
   // One value for the autosave to watch, so config and bridge are written together.
   const both = { config, bridge };
+  const saveStateRef = useRef<'idle' | 'dirty' | 'saving' | 'saved' | 'error'>('idle');
   const { state: saveState, error: saveError, retry: retrySave } = useAutosave(both, loaded, async (value, superseded) => {
     if (!baseline.current) return;
+    if (!superseded?.length && JSON.stringify(value) === JSON.stringify(baseline.current)) return;
     const version = ++saveVersion.current;
     await saveSettings(value, baseline.current, superseded);
     if (version > savedVersion.current) { baseline.current = value; savedVersion.current = version; }
   });
+  saveStateRef.current = saveState;
+
+  useEffect(() => {
+    const onChanged = (changes: Record<string, { newValue?: unknown }>, areaName: string) => {
+      if (areaName !== 'local' || !('config' in changes) || !baseline.current) return;
+      if (saveStateRef.current === 'dirty' || saveStateRef.current === 'saving') return;
+      void loadConfig().then((nextConfig) => {
+        if (!baseline.current) return;
+        const next = tidyConfig(nextConfig);
+        if (JSON.stringify(next) === JSON.stringify(baseline.current.config)) return;
+        baseline.current = { config: next, bridge: baseline.current.bridge };
+        setConfig(next);
+      }).catch(() => {});
+    };
+    browser.storage.onChanged.addListener(onChanged);
+    return () => { browser.storage.onChanged.removeListener(onChanged); };
+  }, []);
 
   const change = useCallback((update: (current: FusionConfig) => FusionConfig) => setConfig(update), []);
 
@@ -94,6 +115,7 @@ export default function OptionsApp() {
     { id: 'sources', label: t('options.nav.sources') },
     { id: 'ai', label: t('options.nav.ai') },
     { id: 'filters', label: t('options.nav.filters') },
+    { id: 'sync', label: t('options.nav.sync') },
     { id: 'advanced', label: t('options.nav.advanced') },
   ];
 
@@ -102,7 +124,7 @@ export default function OptionsApp() {
     let frame = 0;
     const update = () => {
       frame = 0;
-      const ids = ['preferences', 'sources', 'ai', 'filters', 'advanced'];
+      const ids = ['preferences', 'sources', 'ai', 'filters', 'sync', 'advanced'];
       const positions = ids.map((id) => ({ id, top: document.getElementById(id)?.getBoundingClientRect().top ?? Infinity }));
       const atBottom = window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
       setCurrentSection(atBottom ? ids.at(-1)! : positions.filter((item) => item.top <= 150).at(-1)?.id ?? ids[0]);
@@ -177,6 +199,7 @@ export default function OptionsApp() {
           <SourcesSection config={config} health={health} onUpdate={updateSource} onSetEnabled={setEnabled} onConfirmEnable={setConfirming} />
           <AiSection config={config} onChange={change} />
           <FiltersSection config={config} blocklistMeta={blocklistMeta} onChange={change} />
+          <SyncSection />
           <AdvancedSection
             open={advancedOpen}
             onOpenChange={setAdvancedOpen}

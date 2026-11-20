@@ -22,6 +22,7 @@ pnpm install
 | 构建 Firefox 扩展 | `pnpm --filter @kiwi-search/extension build:firefox`（输出 MV2，在 `about:debugging` 里临时加载；2026-11-13 在 Firefox 160 实测过，见 [testing.md](internals/testing.md)） |
 | 开发服务器 | `pnpm dev` |
 | 构建 MCP 服务 | `pnpm --filter @kiwi-search/mcp build`，输出 `packages/mcp/dist/index.js` |
+| 同步中继 | `pnpm --filter @kiwi-search/relay test`（在本机的 Cloudflare 运行时里测，不部署）；`dev` 在本机运行；`deploy` 会上传到 wrangler 登录的 Cloudflare 账号，只在确定要部署时运行。设计见 [device-sync.md](internals/device-sync.md) |
 
 **没有 lint 脚本和 lint 配置，类型检查是唯一的静态检查。**
 
@@ -59,6 +60,7 @@ apps/extension/            WXT + React，Manifest V3
   test/                    vitest：只测纯逻辑，不碰真实浏览器
 packages/core/             搜索管线（src/）与测试（test/，夹具在 test/fixtures/）
 packages/mcp/              stdio MCP 服务
+apps/relay/                设备同步的中继（Cloudflare Worker），只转发端到端加密的数据，什么都不存
 packages/experiments/      离线评测的空壳
 docs/                      本目录（中文，给人看）
 docs/internals/            实现细节和验证记录（英文），按主题分文件
