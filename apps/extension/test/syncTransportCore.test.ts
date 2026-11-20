@@ -100,7 +100,7 @@ describe('SyncTransportCore', () => {
     const today = await deriveTopicId(keys.topicKey, '2026-11-20');
     const tomorrow = await deriveTopicId(keys.topicKey, '2026-11-21');
     expect(FakeWebSocket.instances[0]?.url).toContain(today);
-    expect(FakeWebSocket.instances[0]?.send).toHaveBeenCalled();
+    await vi.waitFor(() => expect(FakeWebSocket.instances[0]?.send).toHaveBeenCalled());
 
     await vi.advanceTimersByTimeAsync(1_000);
     await vi.advanceTimersByTimeAsync(0);
