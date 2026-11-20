@@ -9,6 +9,7 @@ import {
   generateDeviceKeys,
   generateRecoveryPhrase,
   importGroupSecret,
+  memberCertificate,
   phraseToEntropy,
   verifyHandshakeProof,
   type DeviceKeys,
@@ -148,6 +149,7 @@ export class SyncService {
       try {
         const stored = await this.storage.load();
         if (stored) {
+          stored.device.agreementSig = await memberCertificate(stored.device);
           this.device = stored.device;
           this.groupSecret = stored.groupSecret;
           this.groupKeys = stored.groupKeys;

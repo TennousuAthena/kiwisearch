@@ -1,5 +1,6 @@
 import {
   concatBytes,
+  canonicalJson,
   fromBase64Url,
   toArrayBufferView,
   toBase64Url,
@@ -30,6 +31,14 @@ export interface DeviceKeys {
   agreement: CryptoKeyPair;
   signingPublicRaw: Uint8Array<ArrayBuffer>;
   agreementPublicRaw: Uint8Array<ArrayBuffer>;
+  agreementSig?: string;
+}
+
+export interface MemberCertificateFields {
+  deviceId: string;
+  signingPublic: string;
+  agreementPublic: string;
+  agreementSig: string;
 }
 
 export interface SerializedDevicePublicKeys {
@@ -135,7 +144,8 @@ export async function generateDeviceKeys(): Promise<DeviceKeys> {
   const signingPublicRaw = new Uint8Array(signingPublicBuf);
   const agreementPublicRaw = new Uint8Array(agreementPublicBuf);
   const deviceId = await deriveDeviceId(signingPublicRaw);
-  return { deviceId, signing, agreement, signingPublicRaw, agreementPublicRaw };
+  const device = { deviceId, signing, agreement, signingPublicRaw, agreementPublicRaw };
+  return { ...device, agreementSig: await memberCertificate(device) };
 }
 
 export function serializeDevicePublicKeys(keys: DeviceKeys): SerializedDevicePublicKeys {
@@ -159,6 +169,52 @@ export async function importPeerAgreementKey(agreementPublicBase64Url: string): 
 export async function signEd25519(privateKey: CryptoKey, payload: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
   const sig = await crypto.subtle.sign({ name: 'Ed25519' }, privateKey, toArrayBufferView(payload));
   return new Uint8Array(sig);
+}
+
+function memberCertificatePayload(
+  deviceId: string,
+  signingPublic: string,
+  agreementPublic: string,
+): Uint8Array<ArrayBuffer> {
+  return utf8Encode(canonicalJson(['kiwi-sync/v1/member-cert', deviceId, signingPublic, agreementPublic]));
+}
+
+export async function memberCertificate(device: DeviceKeys): Promise<string> {
+  const signingPublic = toBase64Url(device.signingPublicRaw);
+  const agreementPublic = toBase64Url(device.agreementPublicRaw);
+  if (device.deviceId !== (await deriveDeviceId(device.signingPublicRaw))) {
+    throw new Error('Device ID does not match its signing key');
+  }
+  return toBase64Url(
+    await signEd25519(
+      device.signing.privateKey,
+      memberCertificatePayload(device.deviceId, signingPublic, agreementPublic),
+    ),
+  );
+}
+
+export async function verifyMemberCertificate(fields: MemberCertificateFields): Promise<boolean> {
+  try {
+    const signingPublicRaw = fromBase64Url(fields.signingPublic);
+    const agreementPublicRaw = fromBase64Url(fields.agreementPublic);
+    const signature = fromBase64Url(fields.agreementSig);
+    if (
+      signingPublicRaw.byteLength !== 32 ||
+      agreementPublicRaw.byteLength !== 32 ||
+      signature.byteLength !== 64 ||
+      fields.deviceId !== (await deriveDeviceId(signingPublicRaw))
+    ) {
+      return false;
+    }
+    const signingPublic = await importPeerSigningKey(fields.signingPublic);
+    return verifyEd25519(
+      signingPublic,
+      signature,
+      memberCertificatePayload(fields.deviceId, fields.signingPublic, fields.agreementPublic),
+    );
+  } catch {
+    return false;
+  }
 }
 
 export async function verifyEd25519(publicKey: CryptoKey, signature: Uint8Array, payload: Uint8Array): Promise<boolean> {

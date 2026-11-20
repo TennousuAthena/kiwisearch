@@ -21,6 +21,7 @@ import {
   makeMembershipElementPath,
   MAX_RELAY_FRAME_BYTES,
   MAX_FUTURE_DRIFT_MS,
+  memberCertificate,
   openRelayFrame,
   openRecordBody,
   phraseToEntropy,
@@ -37,6 +38,7 @@ import {
   utf8Encode,
   validatePhrase,
   verifyHandshakeProof,
+  verifyMemberCertificate,
 } from '../src/index';
 
 describe('BIP39 recovery phrase', () => {
@@ -231,6 +233,119 @@ describe('SyncEngine multi-device synchronization', () => {
     await engine.createMemberJoinRecord(now);
     return { device, engine };
   }
+
+  it('verifies epoch-independent member certificates against device identity and agreement keys', async () => {
+    const device = await generateDeviceKeys();
+    const fields = {
+      deviceId: device.deviceId,
+      signingPublic: toBase64Url(device.signingPublicRaw),
+      agreementPublic: toBase64Url(device.agreementPublicRaw),
+      agreementSig: device.agreementSig!,
+    };
+
+    expect(await memberCertificate(device)).toBe(fields.agreementSig);
+    expect(await verifyMemberCertificate(fields)).toBe(true);
+    expect(
+      await verifyMemberCertificate({
+        ...fields,
+        agreementPublic: toBase64Url((await generateDeviceKeys()).agreementPublicRaw),
+      }),
+    ).toBe(false);
+    expect(await verifyMemberCertificate({ ...fields, deviceId: 'wrong-device' })).toBe(false);
+  });
+
+  it('attests snapshot-only members and wraps the next epoch secret for them', async () => {
+    const originalKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', originalKeys, now);
+    const C = await makePeer('C', originalKeys, now);
+    await A.engine.receiveRecords(C.engine.getAllEnvelopes(), now + 10);
+    expect(A.engine.getMembers().find((member) => member.deviceId === C.device.deviceId)).toMatchObject({
+      agreementSig: C.device.agreementSig,
+      agreementAttested: true,
+    });
+
+    const { entropy: secondEntropy } = await generateRecoveryPhrase();
+    const firstRotation = await A.engine.rotatePhrase(secondEntropy, now + 20);
+    const cFirstRotation = await C.engine.receiveRecords([firstRotation.envelope], now + 30);
+    expect(cFirstRotation.epochRotatedTo).toBe(2);
+
+    const snapshotEngine = new SyncEngine({
+      device: A.device,
+      deviceName: 'A',
+      groupKeys: firstRotation.newGroupKeys,
+      configVersion: 5,
+      persisted: A.engine.exportState(),
+    });
+    const snapshot = await snapshotEngine.createSnapshotRecords(now + 40);
+    const D = await makePeer('D', firstRotation.newGroupKeys, now);
+    await D.engine.receiveRecords(snapshot.records, now + 50);
+
+    expect(D.engine.getAllEnvelopes().some((record) => record.deviceId === C.device.deviceId)).toBe(false);
+    expect(D.engine.getMembers().find((member) => member.deviceId === C.device.deviceId)).toMatchObject({
+      agreementPublic: toBase64Url(C.device.agreementPublicRaw),
+      agreementSig: C.device.agreementSig,
+      agreementAttested: true,
+    });
+
+    const { entropy: thirdEntropy } = await generateRecoveryPhrase();
+    const secondRotation = await D.engine.rotatePhrase(thirdEntropy, now + 60);
+    const cSecondRotation = await C.engine.receiveRecords([secondRotation.envelope], now + 70);
+    expect(cSecondRotation.epochRotatedTo).toBe(3);
+  });
+
+  it('does not attest or wrap snapshot substitutions with a forged or missing certificate', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const B = await makePeer('B', groupKeys, now);
+    const C = await makePeer('C', groupKeys, now);
+    const actualC = C.engine.getMembers()[0]!;
+    const substitutedAgreement = toBase64Url(B.device.agreementPublicRaw);
+
+    for (const [name, agreementSig] of [
+      ['forged', B.device.agreementSig!],
+      ['missing', ''],
+    ] as const) {
+      const snapshotState = B.engine.exportState();
+      snapshotState.members[C.device.deviceId] = {
+        ...actualC,
+        agreementPublic: substitutedAgreement,
+        agreementSig,
+        agreementAttested: true,
+      };
+      const snapshotEngine = new SyncEngine({
+        device: B.device,
+        deviceName: 'B',
+        groupKeys,
+        configVersion: 5,
+        persisted: snapshotState,
+      });
+      const snapshot = await snapshotEngine.createSnapshotRecords(now + 10);
+      const D = await makePeer(`D-${name}`, groupKeys, now);
+      const received = await D.engine.receiveRecords(snapshot.records, now + 20);
+      expect(received.accepted).toBe(snapshot.records.length);
+      expect(D.engine.getMembers().find((member) => member.deviceId === C.device.deviceId)).toMatchObject({
+        agreementPublic: substitutedAgreement,
+        agreementAttested: false,
+      });
+
+      const { envelope } = await D.engine.rotatePhrase((await generateRecoveryPhrase()).entropy, now + 30);
+      const body = await openRecordBody<{ wrappedSecrets: Array<{ recipientDeviceId: string }> }>(
+        groupKeys.recordKey,
+        canonicalJson({
+          deviceId: envelope.deviceId,
+          seq: envelope.seq,
+          epoch: envelope.epoch,
+          hlc: envelope.hlc,
+          configVersion: envelope.configVersion,
+          kind: envelope.kind,
+        }),
+        envelope.nonce,
+        envelope.ciphertext,
+      );
+      expect(body.wrappedSecrets.some((wrapped) => wrapped.recipientDeviceId === C.device.deviceId)).toBe(false);
+    }
+  });
 
   it('serializes concurrent local changes into unique record sequences', async () => {
     const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
@@ -438,6 +553,7 @@ describe('SyncEngine multi-device synchronization', () => {
       deviceName: 'Forged',
       signingPublic: toBase64Url(A.device.signingPublicRaw),
       agreementPublic: toBase64Url(A.device.agreementPublicRaw),
+      agreementSig: '',
       agreementAttested: false,
       joinedAt: now,
       lastSeenAt: now,
