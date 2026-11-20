@@ -332,8 +332,14 @@ describe('SyncTransportCore', () => {
     oldLegacySocket.close();
     await vi.advanceTimersByTimeAsync(2_000);
 
-    const reconnectedSocket = FakeWebSocket.instances[2]!;
-    expect(reconnectedSocket).toBeDefined();
+    await vi.waitFor(() =>
+      expect(
+        FakeWebSocket.instances.some((socket) => socket !== oldLegacySocket && socket.url === oldLegacySocket.url),
+      ).toBe(true),
+    );
+    const reconnectedSocket = FakeWebSocket.instances.find(
+      (socket) => socket !== oldLegacySocket && socket.url === oldLegacySocket.url,
+    )!;
     reconnectedSocket.open();
     await vi.waitFor(() =>
       expect(events).toContainEqual({
@@ -367,8 +373,15 @@ describe('SyncTransportCore', () => {
     await vi.advanceTimersByTimeAsync(10_000);
 
     expect(oldLegacySocket.readyState).toBe(FakeWebSocket.CLOSED);
-    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(4));
-    const legacyTopicId = await deriveTopicId(previousKeys.topicKey);
+    const legacyTopicId = await deriveTopicId(previousKeys.topicKey, '2026-11-21');
+    const currentTopicId = await deriveTopicId(currentKeys.topicKey, '2026-11-21');
+    await vi.waitFor(() =>
+      expect(
+        FakeWebSocket.instances.some((socket) => socket.url.includes(legacyTopicId)) &&
+          FakeWebSocket.instances.some((socket) => socket.url.includes(currentTopicId)),
+      ).toBe(true),
+    );
+    expect(FakeWebSocket.instances.filter((socket) => socket.url.includes(currentTopicId))).toHaveLength(1);
     expect(FakeWebSocket.instances.filter((socket) => socket.url.includes(legacyTopicId))).toHaveLength(1);
     core.stop();
   });
