@@ -36,6 +36,7 @@ import type { TransportConfig, TransportEvent } from '../lib/syncTransportCore';
 
 class MockMeshBus {
   private nodes = new Map<string, { onEvent: (ev: TransportEvent) => void; connected: Set<string> }>();
+  readonly sentMessages: Array<{ from: string; to: string; payload: string }> = [];
 
   createTransport(onEvent: (ev: TransportEvent) => void, shouldStart: (config: TransportConfig) => boolean = () => true): SyncTransport {
     let myId = '';
@@ -69,6 +70,7 @@ class MockMeshBus {
         onEvent({ type: 'state', state: 'idle' });
       },
       async sendToPeer(peerId: string, payload: string) {
+        bus.sentMessages.push({ from: myId, to: peerId, payload });
         const peer = bus.nodes.get(peerId);
         if (!peer || !peer.connected.has(myId)) return false;
         queueMicrotask(() => peer.onEvent({ type: 'peer-message', peerId: myId, payload }));
@@ -233,6 +235,116 @@ describe('SyncService multi-device integration', () => {
     const created = await service.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: '' });
     expect(created.ok).toBe(true);
     expect((await store.load())?.settings.relayUrl).toBe('');
+  });
+
+  it('re-handshakes after a service worker restarts with an existing peer snapshot', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeD = new MemorySyncStorage();
+    const stateD = { config: structuredClone(DEFAULT_CONFIG) };
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const svcD = new SyncService({
+      storage: storeD,
+      transportFactory: (cb) => bus.createTransport(cb),
+      applyRemoteConfigPatches: async (patches) => {
+        stateD.config = applySettingsPatch(stateD.config, patches);
+      },
+    });
+
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: 'wss://relay.local' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const joined = await svcD.handleMessage({
+      type: 'kiwi:sync:join-group',
+      phrase: created.phrase!,
+      relayUrl: 'wss://relay.local',
+    });
+    expect(joined.ok).toBe(true);
+    await flushMicrotasks();
+
+    const helloCount = () =>
+      bus.sentMessages.filter(({ payload }) => (JSON.parse(payload) as { type: string }).type === 'hello').length;
+    const previousHelloCount = helloCount();
+    const deviceA = svcA.getStatus().deviceId!;
+    const deviceD = svcD.getStatus().deviceId!;
+    let onRestartedDEvent: ((event: TransportEvent) => void) | undefined;
+    const restartedD = new SyncService({
+      storage: storeD,
+      transportFactory: (cb) => {
+        onRestartedDEvent = cb;
+        return bus.createTransport(cb);
+      },
+      applyRemoteConfigPatches: async (patches) => {
+        stateD.config = applySettingsPatch(stateD.config, patches);
+      },
+    });
+    await restartedD.init();
+    expect(onRestartedDEvent).toBeDefined();
+    if (!onRestartedDEvent) return;
+
+    onRestartedDEvent({
+      type: 'snapshot',
+      state: 'connected',
+      peers: [{
+        peerId: deviceA,
+        peerName: 'Device A',
+        channel: 'webrtc',
+        ownCertHash: `cert-${deviceD}`,
+        peerCertHash: `cert-${deviceA}`,
+      }],
+    });
+    await flushMicrotasks();
+
+    expect(helloCount() - previousHelloCount).toBe(2);
+    await svcA.recordLocalChanges([{ path: 'config.summary.enabled', value: false }]);
+    await flushMicrotasks();
+
+    expect(stateD.config.summary.enabled).toBe(false);
+    expect(helloCount() - previousHelloCount).toBe(2);
+  });
+
+  it('restarts the handshake for unauthenticated peers when sync now is requested', async () => {
+    const bus = new MockMeshBus();
+    const store = new MemorySyncStorage();
+    let onTransportEvent: ((event: TransportEvent) => void) | undefined;
+    const service = new SyncService({
+      storage: store,
+      transportFactory: (cb) => {
+        onTransportEvent = cb;
+        return bus.createTransport(cb);
+      },
+      applyRemoteConfigPatches: async () => {},
+    });
+    const created = await service.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: '' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(onTransportEvent).toBeDefined();
+    if (!onTransportEvent) return;
+
+    onTransportEvent({
+      type: 'snapshot',
+      state: 'connected',
+      peers: [{
+        peerId: 'offline-peer',
+        peerName: 'Offline peer',
+        channel: 'webrtc',
+        ownCertHash: 'local-cert',
+        peerCertHash: 'peer-cert',
+      }],
+    });
+    await flushMicrotasks();
+    const helloCount = () =>
+      bus.sentMessages.filter(({ payload }) => (JSON.parse(payload) as { type: string }).type === 'hello').length;
+    const previousHelloCount = helloCount();
+
+    const syncNow = await service.handleMessage({ type: 'kiwi:sync:sync-now' });
+
+    expect(syncNow.ok).toBe(true);
+    expect(helloCount() - previousHelloCount).toBe(1);
   });
 
   it('syncs config between devices, suppresses echo, keeps keys off by default, and propagates via 3rd device', async () => {

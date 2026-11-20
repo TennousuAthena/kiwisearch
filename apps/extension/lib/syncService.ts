@@ -87,6 +87,7 @@ interface LivePeerSession {
   remoteHello?: HandshakeHello;
   authenticated: boolean;
   proofSent: boolean;
+  rehandshakePending: boolean;
   lastSeenAt: number;
 }
 
@@ -380,18 +381,35 @@ export class SyncService {
       peerCertHash: event.peerCertHash,
       authenticated: false,
       proofSent: false,
+      rehandshakePending: false,
       lastSeenAt: Date.now(),
     };
     this.livePeers.set(event.peerId, session);
-    const hello = buildHandshakeHello({
+    const hello = this.buildOwnHello(session);
+    session.ownHello = hello;
+    await this.transport.sendToPeer(event.peerId, JSON.stringify({ type: 'hello', hello } satisfies PeerWireHello));
+  }
+
+  private buildOwnHello(peer: LivePeerSession): HandshakeHello {
+    if (!this.device || !this.groupKeys || !this.settings) {
+      throw new Error('Sync is not initialized');
+    }
+    return buildHandshakeHello({
       device: this.device,
       deviceName: this.settings.deviceName,
       epoch: this.groupKeys.epoch,
-      ownCertHash: event.ownCertHash,
-      peerCertHash: event.peerCertHash,
+      ownCertHash: peer.ownCertHash,
+      peerCertHash: peer.peerCertHash,
     });
-    session.ownHello = hello;
-    await this.transport.sendToPeer(event.peerId, JSON.stringify({ type: 'hello', hello } satisfies PeerWireHello));
+  }
+
+  private async restartPeerHandshake(peer: LivePeerSession): Promise<void> {
+    peer.authenticated = false;
+    peer.proofSent = false;
+    peer.rehandshakePending = true;
+    const hello = this.buildOwnHello(peer);
+    peer.ownHello = hello;
+    await this.transport.sendToPeer(peer.peerId, JSON.stringify({ type: 'hello', hello } satisfies PeerWireHello));
   }
 
   private async handlePeerMessage(peerId: string, raw: string): Promise<void> {
@@ -414,6 +432,13 @@ export class SyncService {
       if (peer.peerCertHash && remoteHello.ownCertHash && peer.peerCertHash !== remoteHello.ownCertHash) {
         this.livePeers.delete(peerId);
         return;
+      }
+      const remoteHelloChanged =
+        peer.remoteHello !== undefined && JSON.stringify(peer.remoteHello) !== JSON.stringify(remoteHello);
+      if (!peer.rehandshakePending && (remoteHelloChanged || peer.proofSent)) {
+        await this.restartPeerHandshake(peer);
+      } else if (peer.rehandshakePending && remoteHelloChanged) {
+        peer.proofSent = false;
       }
       peer.remoteHello = remoteHello;
       peer.peerName = remoteHello.deviceName || peer.peerName;
@@ -454,6 +479,7 @@ export class SyncService {
 
       await this.promoteGroupEpoch(peer.remoteHello.epoch);
       peer.authenticated = true;
+      peer.rehandshakePending = false;
       const memberJoin = this.engine.getAllEnvelopes().find(
         (record) =>
           record.deviceId === this.device!.deviceId &&
@@ -766,6 +792,8 @@ export class SyncService {
         for (const peer of this.livePeers.values()) {
           if (peer.authenticated) {
             await this.transport.sendToPeer(peer.peerId, json).catch(() => {});
+          } else {
+            await this.restartPeerHandshake(peer).catch(() => {});
           }
         }
         return { ok: true, status: this.getStatus() };
