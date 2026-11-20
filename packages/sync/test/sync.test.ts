@@ -22,6 +22,7 @@ import {
   MAX_RELAY_FRAME_BYTES,
   MAX_FUTURE_DRIFT_MS,
   openRelayFrame,
+  openRecordBody,
   phraseToEntropy,
   RELAY_FRAME_BUCKETS,
   ReplayGuard,
@@ -31,6 +32,8 @@ import {
   SyncEngine,
   tickHlc,
   toBase64Url,
+  type WrappedEpochSecret,
+  unwrapGroupEntropyFromPeer,
   utf8Encode,
   validatePhrase,
   verifyHandshakeProof,
@@ -229,6 +232,19 @@ describe('SyncEngine multi-device synchronization', () => {
     return { device, engine };
   }
 
+  it('serializes concurrent local changes into unique record sequences', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const device = await generateDeviceKeys();
+    const engine = new SyncEngine({ device, deviceName: 'A', groupKeys, configVersion: 5, nowMs: 1_700_000_000_000 });
+    const [first, second] = await Promise.all([
+      engine.applyLocalChanges([{ path: 'config.defaultMode', value: 'news' }], 1_700_000_000_100),
+      engine.applyLocalChanges([{ path: 'config.defaultMode', value: 'video' }], 1_700_000_000_100),
+    ]);
+
+    expect([first[0]!.seq, second[0]!.seq].sort()).toEqual([1, 2]);
+    expect(engine.getAllEnvelopes().map((record) => record.seq).sort()).toEqual([1, 2]);
+  });
+
   it('resolves concurrent LWW conflicts deterministically, merges membership sets, and propagates via third device', async () => {
     const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
     const now = 1_700_000_000_000;
@@ -290,7 +306,7 @@ describe('SyncEngine multi-device synchronization', () => {
     expect(emittedOff).toHaveLength(0);
 
     // Enable on A only: A emits, B receives into register but does NOT apply locally while B.keys is false
-    A.engine.setCategories({ keys: true });
+    await A.engine.setCategories({ keys: true });
     const emittedOn = await A.engine.applyLocalChanges([{ path: 'config.llm.apiKey', value: 'sk-test-2' }], now + 200);
     expect(emittedOn).toHaveLength(1);
 
@@ -299,7 +315,7 @@ describe('SyncEngine multi-device synchronization', () => {
     expect(resBOff.applied).toHaveLength(0);
 
     // Enable on B and send newer key from A -> B applies it
-    B.engine.setCategories({ keys: true });
+    await B.engine.setCategories({ keys: true });
     const emittedOn2 = await A.engine.applyLocalChanges([{ path: 'config.llm.apiKey', value: 'sk-test-3' }], now + 400);
     const resBOn = await B.engine.receiveRecords(emittedOn2, now + 500);
     expect(resBOn.applied).toHaveLength(1);
@@ -327,7 +343,7 @@ describe('SyncEngine multi-device synchronization', () => {
     const oldKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
     const now = 1_700_000_000_000;
     const A = await makePeer('A', oldKeys, now);
-    A.engine.setCategories({ keys: true });
+    await A.engine.setCategories({ keys: true });
     await A.engine.applyLocalChanges([
       { path: 'config.defaultMode', value: 'academic' },
       { path: 'config.llm.apiKey', value: 'sk-snapshot-test' },
@@ -393,7 +409,7 @@ describe('SyncEngine multi-device synchronization', () => {
     });
     const snapshots = await snapshotEngine.createSnapshotRecords(now + 30);
     const D = await makePeer('D', newGroupKeys, now);
-    D.engine.registerEpochKeys(oldKeys);
+    await D.engine.registerEpochKeys(oldKeys);
 
     const result = await D.engine.receiveRecords(snapshots.records, now + 40);
     expect(result.accepted).toBe(snapshots.records.length);
@@ -422,6 +438,7 @@ describe('SyncEngine multi-device synchronization', () => {
       deviceName: 'Forged',
       signingPublic: toBase64Url(A.device.signingPublicRaw),
       agreementPublic: toBase64Url(A.device.agreementPublicRaw),
+      agreementAttested: false,
       joinedAt: now,
       lastSeenAt: now,
     };
@@ -439,6 +456,97 @@ describe('SyncEngine multi-device synchronization', () => {
     expect(result.accepted).toBe(0);
     expect(result.rejected[0]?.reason).toMatch(/snapshot member identity/i);
     expect(D.engine.getMembers().some((member) => member.deviceId === 'forged-device')).toBe(false);
+  });
+
+  it('does not trust snapshot agreement keys until the member signs its own join', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const B = await makePeer('B', groupKeys, now);
+    const C = await makePeer('C', groupKeys, now);
+    const D = await makePeer('D', groupKeys, now);
+    const snapshotState = B.engine.exportState();
+    const actualC = C.engine.getMembers()[0]!;
+    const substitutedAgreement = toBase64Url(B.device.agreementPublicRaw);
+    snapshotState.members[C.device.deviceId] = {
+      ...actualC,
+      agreementPublic: substitutedAgreement,
+      agreementAttested: true,
+    };
+    const snapshotEngine = new SyncEngine({
+      device: B.device,
+      deviceName: 'B',
+      groupKeys,
+      configVersion: 5,
+      persisted: snapshotState,
+    });
+    const snapshot = await snapshotEngine.createSnapshotRecords(now + 10);
+    await D.engine.receiveRecords(snapshot.records, now + 20);
+
+    expect(D.engine.getMembers().find((member) => member.deviceId === C.device.deviceId)).toMatchObject({
+      agreementPublic: substitutedAgreement,
+      agreementAttested: false,
+    });
+
+    const { entropy: firstEntropy } = await generateRecoveryPhrase();
+    const firstRotation = await D.engine.rotatePhrase(firstEntropy, now + 30);
+    const firstBody = await openRecordBody<{ wrappedSecrets: Array<{ recipientDeviceId: string }> }>(
+      groupKeys.recordKey,
+      canonicalJson({
+        deviceId: firstRotation.envelope.deviceId,
+        seq: firstRotation.envelope.seq,
+        epoch: firstRotation.envelope.epoch,
+        hlc: firstRotation.envelope.hlc,
+        configVersion: firstRotation.envelope.configVersion,
+        kind: firstRotation.envelope.kind,
+      }),
+      firstRotation.envelope.nonce,
+      firstRotation.envelope.ciphertext,
+    );
+    expect(firstBody.wrappedSecrets.some((wrapped) => wrapped.recipientDeviceId === C.device.deviceId)).toBe(false);
+    expect(firstBody.wrappedSecrets.some((wrapped) => wrapped.recipientDeviceId === D.device.deviceId)).toBe(true);
+
+    const genuineJoin = C.engine.getAllEnvelopes().find((record) => record.kind === 'member-join')!;
+    const joinResult = await D.engine.receiveRecords([genuineJoin], now + 40);
+    expect(joinResult.accepted).toBe(1);
+    expect(D.engine.getMembers().find((member) => member.deviceId === C.device.deviceId)).toMatchObject({
+      agreementPublic: toBase64Url(C.device.agreementPublicRaw),
+      agreementAttested: true,
+    });
+
+    const { entropy: secondEntropy } = await generateRecoveryPhrase();
+    const secondRotation = await D.engine.rotatePhrase(secondEntropy, now + 50);
+    const secondBody = await openRecordBody<{ wrappedSecrets: WrappedEpochSecret[] }>(
+      firstRotation.newGroupKeys.recordKey,
+      canonicalJson({
+        deviceId: secondRotation.envelope.deviceId,
+        seq: secondRotation.envelope.seq,
+        epoch: secondRotation.envelope.epoch,
+        hlc: secondRotation.envelope.hlc,
+        configVersion: secondRotation.envelope.configVersion,
+        kind: secondRotation.envelope.kind,
+      }),
+      secondRotation.envelope.nonce,
+      secondRotation.envelope.ciphertext,
+    );
+    const wrappedForC = secondBody.wrappedSecrets.find((wrapped) => wrapped.recipientDeviceId === C.device.deviceId);
+    expect(wrappedForC).toBeDefined();
+    expect(Array.from(await unwrapGroupEntropyFromPeer(C.device, wrappedForC!))).toEqual(Array.from(secondEntropy));
+  });
+
+  it('loads persisted members without an agreement attestation field as legacy-attested', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const A = await makePeer('A', groupKeys);
+    const state = A.engine.exportState();
+    Reflect.deleteProperty(state.members[A.device.deviceId]!, 'agreementAttested');
+    const restored = new SyncEngine({
+      device: A.device,
+      deviceName: 'A',
+      groupKeys,
+      configVersion: 5,
+      persisted: state,
+    });
+
+    expect(restored.getMembers().find((member) => member.deviceId === A.device.deviceId)?.agreementAttested).toBe(true);
   });
 
   it('skips and reports a single oversized register while continuing snapshot creation', async () => {
@@ -596,13 +704,13 @@ describe('SyncEngine multi-device synchronization', () => {
     await A.engine.applyLocalChanges([{ path: p, tombstone: true }], now + 300);
 
     // Before B acks, compaction removes nothing
-    expect(A.engine.compact()).toEqual({ removedEnvelopes: 0, removedTombstones: 0 });
+    expect(await A.engine.compact()).toEqual({ removedEnvelopes: 0, removedTombstones: 0 });
 
     // B receives and A records B's ack vector
     await B.engine.receiveRecords(A.engine.missingRecordsFor(B.engine.getVersionVector()), now + 400);
-    A.engine.recordPeerAck(B.device.deviceId, B.engine.getVersionVector());
+    await A.engine.recordPeerAck(B.device.deviceId, B.engine.getVersionVector());
 
-    const compacted = A.engine.compact();
+    const compacted = await A.engine.compact();
     expect(compacted.removedTombstones).toBe(1);
     expect(compacted.removedEnvelopes).toBeGreaterThanOrEqual(1);
     expect(A.engine.getRegisters()[p]).toBeUndefined();

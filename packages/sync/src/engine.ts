@@ -103,6 +103,7 @@ export interface SyncMember {
   deviceName: string;
   signingPublic: string;
   agreementPublic: string;
+  agreementAttested: boolean;
   joinedAt: number;
   lastSeenAt: number;
   removedAt?: number;
@@ -204,6 +205,7 @@ export class SyncEngine {
   private members: Record<string, SyncMember>;
   private registers: Record<string, RegisterState>;
   private recordLog: Map<string, SyncRecordEnvelope>;
+  private mutationQueue: Promise<void> = Promise.resolve();
 
   constructor(params: {
     device: DeviceKeys;
@@ -226,7 +228,12 @@ export class SyncEngine {
       this.categories = { ...DEFAULT_SYNC_CATEGORIES, ...params.persisted.categories };
       this.versionVector = { ...params.persisted.versionVector };
       this.peerAcks = structuredClone(params.persisted.peerAcks);
-      this.members = structuredClone(params.persisted.members);
+      this.members = Object.fromEntries(
+        Object.entries(structuredClone(params.persisted.members)).map(([deviceId, member]) => [
+          deviceId,
+          { ...member, agreementAttested: member.agreementAttested ?? true },
+        ]),
+      );
       this.registers = structuredClone(params.persisted.registers);
       this.recordLog = new Map(params.persisted.recordLog.map((r) => [this.recordKeyId(r.deviceId, r.seq), r]));
     } else {
@@ -243,6 +250,7 @@ export class SyncEngine {
           deviceName: params.deviceName,
           signingPublic: toBase64Url(params.device.signingPublicRaw),
           agreementPublic: toBase64Url(params.device.agreementPublicRaw),
+          agreementAttested: false,
           joinedAt: now,
           lastSeenAt: now,
         },
@@ -254,6 +262,15 @@ export class SyncEngine {
 
   private recordKeyId(deviceId: string, seq: number): string {
     return `${deviceId}:${seq}`;
+  }
+
+  private withMutationLock<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.mutationQueue.then(work, work);
+    this.mutationQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   get deviceId(): string {
@@ -268,7 +285,11 @@ export class SyncEngine {
     return this.epochKeys.get(epoch);
   }
 
-  registerEpochKeys(keys: GroupKeys): void {
+  registerEpochKeys(keys: GroupKeys): Promise<void> {
+    return this.withMutationLock(async () => this.registerEpochKeysLocked(keys));
+  }
+
+  private registerEpochKeysLocked(keys: GroupKeys): void {
     this.epochKeys.set(keys.epoch, keys);
     if (keys.epoch > this.currentEpoch) {
       this.currentEpoch = keys.epoch;
@@ -279,7 +300,11 @@ export class SyncEngine {
     return { ...this.categories };
   }
 
-  setCategories(next: Partial<SyncCategorySettings>): SyncCategorySettings {
+  setCategories(next: Partial<SyncCategorySettings>): Promise<SyncCategorySettings> {
+    return this.withMutationLock(async () => this.setCategoriesLocked(next));
+  }
+
+  private setCategoriesLocked(next: Partial<SyncCategorySettings>): SyncCategorySettings {
     this.categories = { ...this.categories, ...next };
     return this.getCategories();
   }
@@ -316,7 +341,11 @@ export class SyncEngine {
     return [...this.recordLog.values()].some((record) => record.deviceId !== this.device.deviceId);
   }
 
-  adoptCoveredVector(coveredVector: VersionVector): void {
+  adoptCoveredVector(coveredVector: VersionVector): Promise<void> {
+    return this.withMutationLock(async () => this.adoptCoveredVectorLocked(coveredVector));
+  }
+
+  private adoptCoveredVectorLocked(coveredVector: VersionVector): void {
     for (const [deviceId, seq] of Object.entries(coveredVector)) {
       if (Number.isInteger(seq) && seq >= 0) {
         this.versionVector[deviceId] = Math.max(this.versionVector[deviceId] ?? 0, seq);
@@ -326,6 +355,10 @@ export class SyncEngine {
   }
 
   async createSnapshotRecords(nowMs = Date.now()): Promise<SyncSnapshotRecords> {
+    return this.withMutationLock(() => this.createSnapshotRecordsLocked(nowMs));
+  }
+
+  private async createSnapshotRecordsLocked(nowMs: number): Promise<SyncSnapshotRecords> {
     const coveredVector = this.getVersionVector();
     const entries: SyncSnapshotEntry[] = Object.values(this.registers).map((register) => ({
       path: register.path,
@@ -417,7 +450,11 @@ export class SyncEngine {
     };
   }
 
-  recordPeerAck(peerDeviceId: string, remoteVector: VersionVector): void {
+  recordPeerAck(peerDeviceId: string, remoteVector: VersionVector): Promise<void> {
+    return this.withMutationLock(async () => this.recordPeerAckLocked(peerDeviceId, remoteVector));
+  }
+
+  private recordPeerAckLocked(peerDeviceId: string, remoteVector: VersionVector): void {
     const existing = this.peerAcks[peerDeviceId] ?? {};
     const merged: VersionVector = { ...existing };
     for (const [dev, seq] of Object.entries(remoteVector)) {
@@ -464,7 +501,7 @@ export class SyncEngine {
       member.removedAt !== undefined &&
       member.signingPublic === '' &&
       member.agreementPublic === '';
-    if (keylessRemoval) return member;
+    if (keylessRemoval) return { ...member, agreementAttested: false };
     if (!member.signingPublic || !member.agreementPublic) return null;
 
     try {
@@ -475,7 +512,7 @@ export class SyncEngine {
         agreementPublic.byteLength !== 32 ||
         (await deriveDeviceId(signingPublic)) !== member.deviceId ||
         (existing?.signingPublic && existing.signingPublic !== member.signingPublic) ||
-        (existing?.agreementPublic && existing.agreementPublic !== member.agreementPublic)
+        (existing?.agreementAttested && existing.agreementPublic !== member.agreementPublic)
       ) {
         return null;
       }
@@ -486,6 +523,10 @@ export class SyncEngine {
   }
 
   async createMemberJoinRecord(nowMs = Date.now()): Promise<SyncRecordEnvelope> {
+    return this.withMutationLock(() => this.createMemberJoinRecordLocked(nowMs));
+  }
+
+  private async createMemberJoinRecordLocked(nowMs: number): Promise<SyncRecordEnvelope> {
     return this.appendEnvelope(
       'member-join',
       {
@@ -500,6 +541,10 @@ export class SyncEngine {
   }
 
   async applyLocalChanges(changes: readonly LocalChangeInput[], nowMs = Date.now()): Promise<SyncRecordEnvelope[]> {
+    return this.withMutationLock(() => this.applyLocalChangesLocked(changes, nowMs));
+  }
+
+  private async applyLocalChangesLocked(changes: readonly LocalChangeInput[], nowMs: number): Promise<SyncRecordEnvelope[]> {
     const emitted: SyncRecordEnvelope[] = [];
     for (const change of changes) {
       const category = classifySyncPath(change.path);
@@ -545,6 +590,13 @@ export class SyncEngine {
   async receiveRecords(
     envelopes: readonly SyncRecordEnvelope[],
     nowMs = Date.now(),
+  ): Promise<ReceiveRecordsResult> {
+    return this.withMutationLock(() => this.receiveRecordsLocked(envelopes, nowMs));
+  }
+
+  private async receiveRecordsLocked(
+    envelopes: readonly SyncRecordEnvelope[],
+    nowMs: number,
   ): Promise<ReceiveRecordsResult> {
     const result: ReceiveRecordsResult = {
       accepted: 0,
@@ -652,7 +704,17 @@ export class SyncEngine {
           result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Member join identity mismatch' });
           continue;
         }
-        if (existingMember?.agreementPublic && existingMember.agreementPublic !== body.agreementPublic) {
+        try {
+          if (fromBase64Url(body.agreementPublic).byteLength !== 32) throw new Error('Invalid agreement key');
+        } catch {
+          result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Invalid member agreement key' });
+          continue;
+        }
+        if (
+          existingMember?.agreementAttested &&
+          existingMember.agreementPublic &&
+          existingMember.agreementPublic !== body.agreementPublic
+        ) {
           result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Agreement key mismatch for known device' });
           continue;
         }
@@ -671,6 +733,7 @@ export class SyncEngine {
           deviceName: body.deviceName,
           signingPublic: body.signingPublic,
           agreementPublic: body.agreementPublic,
+          agreementAttested: true,
           joinedAt: prev?.joinedAt ?? env.hlc.ms,
           lastSeenAt: nowMs,
           removedAt: prev?.removedAt,
@@ -687,6 +750,7 @@ export class SyncEngine {
             deviceName: body.removedDeviceId,
             signingPublic: '',
             agreementPublic: '',
+            agreementAttested: false,
             joinedAt: env.hlc.ms,
             lastSeenAt: env.hlc.ms,
             removedAt: env.hlc.ms,
@@ -715,7 +779,8 @@ export class SyncEngine {
           this.members[member.deviceId] = {
             ...member,
             signingPublic: existing?.signingPublic || member.signingPublic,
-            agreementPublic: existing?.agreementPublic || member.agreementPublic,
+            agreementPublic: existing?.agreementAttested ? existing.agreementPublic : member.agreementPublic,
+            agreementAttested: existing?.agreementAttested ?? false,
             joinedAt: Math.min(existing?.joinedAt ?? member.joinedAt, member.joinedAt),
             lastSeenAt: Math.max(existing?.lastSeenAt ?? member.lastSeenAt, member.lastSeenAt),
             removedAt,
@@ -774,7 +839,7 @@ export class SyncEngine {
             });
           }
         }
-        this.adoptCoveredVector(body.coveredVector);
+        this.adoptCoveredVectorLocked(body.coveredVector);
       } else if (body.kind === 'set' || body.kind === 'tombstone') {
         const migrated = migrateRecordEntry(
           {
@@ -834,6 +899,14 @@ export class SyncEngine {
     newEntropy: Uint8Array,
     nowMs = Date.now(),
   ): Promise<{ envelope: SyncRecordEnvelope; newGroupKeys: GroupKeys }> {
+    return this.withMutationLock(() => this.removeDeviceLocked(removedDeviceId, newEntropy, nowMs));
+  }
+
+  private async removeDeviceLocked(
+    removedDeviceId: string,
+    newEntropy: Uint8Array,
+    nowMs: number,
+  ): Promise<{ envelope: SyncRecordEnvelope; newGroupKeys: GroupKeys }> {
     if (removedDeviceId === this.device.deviceId) {
       throw new Error('Cannot remove the current device via removeDevice; use leave instead');
     }
@@ -861,7 +934,7 @@ export class SyncEngine {
 
     const secret = await importGroupSecret(newEntropy);
     const newGroupKeys = await deriveGroupKeys(secret, newEpoch);
-    this.registerEpochKeys(newGroupKeys);
+    this.registerEpochKeysLocked(newGroupKeys);
 
     return { envelope, newGroupKeys };
   }
@@ -872,6 +945,13 @@ export class SyncEngine {
   async rotatePhrase(
     newEntropy: Uint8Array,
     nowMs = Date.now(),
+  ): Promise<{ envelope: SyncRecordEnvelope; newGroupKeys: GroupKeys }> {
+    return this.withMutationLock(() => this.rotatePhraseLocked(newEntropy, nowMs));
+  }
+
+  private async rotatePhraseLocked(
+    newEntropy: Uint8Array,
+    nowMs: number,
   ): Promise<{ envelope: SyncRecordEnvelope; newGroupKeys: GroupKeys }> {
     const newEpoch = this.currentEpoch + 1;
     const wrappedSecrets = await this.wrapForActiveMembers(newEpoch, newEntropy);
@@ -888,7 +968,7 @@ export class SyncEngine {
 
     const secret = await importGroupSecret(newEntropy);
     const newGroupKeys = await deriveGroupKeys(secret, newEpoch);
-    this.registerEpochKeys(newGroupKeys);
+    this.registerEpochKeysLocked(newGroupKeys);
 
     return { envelope, newGroupKeys };
   }
@@ -897,7 +977,11 @@ export class SyncEngine {
    * Compacts superseded record envelopes and tombstones once every active member
    * has acknowledged up to the winning/tombstone (deviceId, seq).
    */
-  compact(): { removedEnvelopes: number; removedTombstones: number } {
+  compact(): Promise<{ removedEnvelopes: number; removedTombstones: number }> {
+    return this.withMutationLock(async () => this.compactLocked());
+  }
+
+  private compactLocked(): { removedEnvelopes: number; removedTombstones: number } {
     const activeMemberIds = this.getActiveMembers()
       .map((m) => m.deviceId)
       .filter((id) => id !== this.device.deviceId);
@@ -950,6 +1034,14 @@ export class SyncEngine {
     localEntries: readonly LocalChangeInput[],
     nowMs = Date.now(),
   ): Promise<{ toApplyLocally: AppliedChange[]; emitted: SyncRecordEnvelope[] }> {
+    return this.withMutationLock(() => this.resolveJoinConflictLocked(mode, localEntries, nowMs));
+  }
+
+  private async resolveJoinConflictLocked(
+    mode: JoinConflictMode,
+    localEntries: readonly LocalChangeInput[],
+    nowMs: number,
+  ): Promise<{ toApplyLocally: AppliedChange[]; emitted: SyncRecordEnvelope[] }> {
     const groupApplied: AppliedChange[] = [];
     for (const reg of Object.values(this.registers)) {
       if (reg.category === null || !isCategoryEnabled(this.categories, reg.category)) continue;
@@ -966,7 +1058,7 @@ export class SyncEngine {
     }
 
     if (mode === 'local') {
-      const emitted = await this.applyLocalChanges(localEntries, nowMs);
+      const emitted = await this.applyLocalChangesLocked(localEntries, nowMs);
       return { toApplyLocally: [], emitted };
     }
 
@@ -982,7 +1074,7 @@ export class SyncEngine {
         toPublish.push(entry);
       }
     }
-    const emitted = await this.applyLocalChanges(toPublish, nowMs);
+    const emitted = await this.applyLocalChangesLocked(toPublish, nowMs);
     return { toApplyLocally: groupApplied, emitted };
   }
 
@@ -1044,13 +1136,18 @@ export class SyncEngine {
   ): Promise<WrappedEpochSecret[]> {
     const wrapped: WrappedEpochSecret[] = [];
     for (const member of this.getActiveMembers()) {
-      if (member.deviceId === this.device.deviceId || member.deviceId === excludeDeviceId) continue;
-      if (!member.agreementPublic) continue;
+      if (member.deviceId === excludeDeviceId) continue;
+      if (member.deviceId !== this.device.deviceId && !member.agreementAttested) continue;
+      const agreementPublic =
+        member.deviceId === this.device.deviceId
+          ? toBase64Url(this.device.agreementPublicRaw)
+          : member.agreementPublic;
+      if (!agreementPublic) continue;
       wrapped.push(
         await wrapGroupEntropyForPeer(
           this.device,
           member.deviceId,
-          member.agreementPublic,
+          agreementPublic,
           newEpoch,
           newEntropy,
         ),
@@ -1069,7 +1166,7 @@ export class SyncEngine {
       const entropy = await unwrapGroupEntropyFromPeer(this.device, mine);
       const secret = await importGroupSecret(entropy);
       const nextKeys = await deriveGroupKeys(secret, newEpoch);
-      this.registerEpochKeys(nextKeys);
+      this.registerEpochKeysLocked(nextKeys);
       return { secret };
     } catch {
       return null;

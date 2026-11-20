@@ -36,6 +36,7 @@ import type { TransportConfig, TransportEvent } from '../lib/syncTransportCore';
 
 class MockMeshBus {
   private nodes = new Map<string, { onEvent: (ev: TransportEvent) => void; connected: Set<string> }>();
+  private offlineDevices = new Set<string>();
   readonly sentMessages: Array<{ from: string; to: string; payload: string }> = [];
   holdCoveredRecords = false;
   private heldCoveredMessages: Array<{ from: string; to: string; payload: string }> = [];
@@ -47,6 +48,7 @@ class MockMeshBus {
       async start(config: TransportConfig) {
         if (!shouldStart(config)) return;
         myId = config.deviceId;
+        bus.offlineDevices.delete(myId);
         const existing = bus.nodes.get(myId);
         if (existing) existing.onEvent = onEvent;
         else bus.nodes.set(myId, { onEvent, connected: new Set() });
@@ -69,12 +71,18 @@ class MockMeshBus {
           }
         }
         bus.nodes.delete(myId);
+        bus.offlineDevices.delete(myId);
         onEvent({ type: 'state', state: 'idle' });
       },
       async sendToPeer(peerId: string, payload: string) {
         bus.sentMessages.push({ from: myId, to: peerId, payload });
         const peer = bus.nodes.get(peerId);
-        if (!peer || !peer.connected.has(myId)) return false;
+        if (
+          !peer ||
+          !peer.connected.has(myId) ||
+          bus.offlineDevices.has(myId) ||
+          bus.offlineDevices.has(peerId)
+        ) return false;
         const message = JSON.parse(payload) as { type?: string; coveredVector?: unknown };
         if (bus.holdCoveredRecords && message.type === 'records' && message.coveredVector) {
           bus.heldCoveredMessages.push({ from: myId, to: peerId, payload });
@@ -118,6 +126,18 @@ class MockMeshBus {
       if (peer?.connected.has(from)) {
         queueMicrotask(() => peer.onEvent({ type: 'peer-message', peerId: from, payload }));
       }
+    }
+  }
+
+  setOnline(deviceId: string, online: boolean): void {
+    const node = this.nodes.get(deviceId);
+    if (!node) return;
+    if (online) {
+      this.offlineDevices.delete(deviceId);
+      node.onEvent({ type: 'state', state: 'connected' });
+    } else {
+      this.offlineDevices.add(deviceId);
+      node.onEvent({ type: 'state', state: 'offline' });
     }
   }
 
@@ -228,6 +248,82 @@ describe('syncMapping', () => {
 });
 
 describe('SyncService multi-device integration', () => {
+  it('catches up records missed during relay downtime after reconnect', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeD = new MemorySyncStorage();
+    const stateD = { config: structuredClone(DEFAULT_CONFIG) };
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const svcD = new SyncService({
+      storage: storeD,
+      transportFactory: (cb) => bus.createTransport(cb),
+      applyRemoteConfigPatches: async (patches) => {
+        stateD.config = applySettingsPatch(stateD.config, patches);
+      },
+    });
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: 'wss://relay.local' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await svcD.handleMessage({
+      type: 'kiwi:sync:join-group',
+      phrase: created.phrase!,
+      relayUrl: 'wss://relay.local',
+    });
+    await flushMicrotasks();
+
+    const deviceA = svcA.getStatus().deviceId!;
+    const deviceD = svcD.getStatus().deviceId!;
+    bus.setOnline(deviceA, false);
+    await svcA.recordLocalChanges([{ path: 'config.summary.enabled', value: false }]);
+    expect(stateD.config.summary.enabled).toBe(DEFAULT_CONFIG.summary.enabled);
+
+    bus.setOnline(deviceA, true);
+    await vi.waitFor(() => expect(stateD.config.summary.enabled).toBe(false));
+    expect(
+      bus.sentMessages.some(({ from, to, payload }) =>
+        from === deviceA && to === deviceD && (JSON.parse(payload) as { type?: string }).type === 'vv'),
+    ).toBe(true);
+  });
+
+  it('exchanges version vectors when an authenticated peer changes transport channel', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeD = new MemorySyncStorage();
+    let onAEvent: ((event: TransportEvent) => void) | undefined;
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => {
+        onAEvent = cb;
+        return bus.createTransport(cb);
+      },
+      applyRemoteConfigPatches: async () => {},
+    });
+    const svcD = new SyncService({
+      storage: storeD,
+      transportFactory: (cb) => bus.createTransport(cb),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: '' });
+    if (!created.ok) return;
+    await svcD.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase!, relayUrl: '' });
+    await flushMicrotasks();
+    const deviceD = svcD.getStatus().deviceId!;
+    const countVv = () => bus.sentMessages.filter(({ from, to, payload }) =>
+      from === svcA.getStatus().deviceId &&
+      to === deviceD &&
+      (JSON.parse(payload) as { type?: string }).type === 'vv').length;
+    const before = countVv();
+
+    onAEvent?.({ type: 'peer-channel', peerId: deviceD, channel: 'relay' });
+    await flushMicrotasks();
+
+    expect(countVv()).toBe(before + 1);
+  });
+
   it('defaults an omitted relay URL and reports it before a group exists', async () => {
     const store = new MemorySyncStorage();
     const service = new SyncService({

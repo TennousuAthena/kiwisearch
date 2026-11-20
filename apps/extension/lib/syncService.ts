@@ -219,7 +219,7 @@ export class SyncService {
       const keys = await deriveGroupKeys(this.groupSecret, epoch);
       this.groupKeys = keys;
       this.epochKeys[epoch] = keys.recordKey;
-      this.engine.registerEpochKeys(keys);
+      await this.engine.registerEpochKeys(keys);
     }
     this.settings.epochEstablished = true;
     await this.persist();
@@ -337,6 +337,18 @@ export class SyncService {
     }
   }
 
+  private async sendVersionVector(peer?: LivePeerSession): Promise<void> {
+    if (!this.engine) return;
+    const message: PeerWireVv = { type: 'vv', vector: this.engine.getVersionVector() };
+    const json = JSON.stringify(message);
+    const peers = peer ? [peer] : [...this.livePeers.values()];
+    for (const livePeer of peers) {
+      if (livePeer.authenticated) {
+        await this.transport.sendToPeer(livePeer.peerId, json).catch(() => {});
+      }
+    }
+  }
+
   private async handleTransportEvent(event: TransportEvent): Promise<void> {
     return this.enqueueMutation(async () => {
       await this.init();
@@ -358,8 +370,10 @@ export class SyncService {
       return;
     }
     if (event.type === 'state') {
+      const becameConnected = event.state === 'connected' && this.transportState !== 'connected';
       this.transportState = event.state;
       this.transportError = event.error;
+      if (becameConnected) await this.sendVersionVector();
       return;
     }
     if (event.type === 'peer-disconnected') {
@@ -368,7 +382,10 @@ export class SyncService {
     }
     if (event.type === 'peer-channel') {
       const peer = this.livePeers.get(event.peerId);
-      if (peer) peer.channel = event.channel;
+      if (peer) {
+        peer.channel = event.channel;
+        if (peer.authenticated) await this.sendVersionVector(peer);
+      }
       return;
     }
     if (event.type === 'peer-connected') {
@@ -518,7 +535,7 @@ export class SyncService {
     if (!peer.authenticated) return;
 
     if (msg.type === 'vv') {
-      this.engine.recordPeerAck(peerId, msg.vector);
+      await this.engine.recordPeerAck(peerId, msg.vector);
       const missing = this.engine.missingRecordsFor(msg.vector);
       const localVector = this.engine.getVersionVector();
       const remoteJoinEpoch = this.engine.getMemberJoinEpoch(peerId) ?? peer.remoteHello?.epoch;
@@ -556,15 +573,26 @@ export class SyncService {
         coveredVector,
       };
       await this.transport.sendToPeer(peerId, JSON.stringify(payload));
-      this.engine.compact();
+      await this.engine.compact();
       await this.persist();
       return;
     }
 
     if (msg.type === 'records') {
       const result = await this.engine.receiveRecords(msg.envelopes);
-      if (msg.coveredVector) this.engine.adoptCoveredVector(msg.coveredVector);
-      this.engine.recordPeerAck(peerId, msg.vector);
+      if (msg.coveredVector) await this.engine.adoptCoveredVector(msg.coveredVector);
+      await this.engine.recordPeerAck(peerId, msg.vector);
+      if (msg.coveredVector) {
+        const missing = this.engine.missingRecordsFor(msg.vector);
+        if (missing.length) {
+          const response: PeerWireRecords = {
+            type: 'records',
+            envelopes: missing,
+            vector: this.engine.getVersionVector(),
+          };
+          await this.transport.sendToPeer(peerId, JSON.stringify(response)).catch(() => {});
+        }
+      }
 
       if (result.groupSecret) this.groupSecret = result.groupSecret;
       if (result.epochRotatedTo !== undefined) {
@@ -593,7 +621,7 @@ export class SyncService {
       }
 
       this.lastSyncAt = Date.now();
-      this.engine.compact();
+      await this.engine.compact();
       await this.persist();
 
       const ack: PeerWireAck = { type: 'ack', vector: this.engine.getVersionVector() };
@@ -606,8 +634,8 @@ export class SyncService {
     }
 
     if (msg.type === 'ack') {
-      this.engine.recordPeerAck(peerId, msg.vector);
-      this.engine.compact();
+      await this.engine.recordPeerAck(peerId, msg.vector);
+      await this.engine.compact();
       this.lastSyncAt = Date.now();
       await this.persist();
     }
@@ -769,7 +797,7 @@ export class SyncService {
             ...this.settings.categories,
             ...message.categories,
           };
-          this.engine.setCategories(this.settings.categories);
+          await this.engine.setCategories(this.settings.categories);
         }
 
         // If the user just explicitly enabled `keys` on this device:
