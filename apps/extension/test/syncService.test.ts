@@ -1090,6 +1090,7 @@ describe('SyncService multi-device integration', () => {
     if (!removed.ok) return;
     await vi.waitFor(() => expect(serviceZ.getStatus().epoch).toBe(2));
     const deviceZ = serviceZ.getStatus().deviceId!;
+    expect((await stores.x.load())?.engineState.members[deviceZ]?.agreementAttested).toBe(true);
     bus.setOnline(deviceZ, false);
 
     const serviceW = makeService('w');
@@ -1106,6 +1107,7 @@ describe('SyncService multi-device integration', () => {
     await vi.waitFor(() => expect(serviceX.getStatus().epoch).toBe(3));
     expect(serviceZ.getStatus().epoch).toBe(2);
 
+    const deviceW = serviceW.getStatus().deviceId!;
     const restartedZ = makeService('z');
     await restartedZ.init();
     await vi.waitFor(() => expect(restartedZ.getStatus().epoch).toBe(3));
@@ -1119,7 +1121,6 @@ describe('SyncService multi-device integration', () => {
     expect(
       legacyEnvelopes.every((record) => record.epoch === 2 && record.kind !== 'snapshot'),
     ).toBe(true);
-    const deviceW = serviceW.getStatus().deviceId!;
     await vi.waitFor(() =>
       expect(
         bus.sentMessages.some(
@@ -1171,10 +1172,86 @@ describe('SyncService multi-device integration', () => {
       .slice(sentBeforeReconnect)
       .filter(({ from, to }) => from === serviceA.getStatus().deviceId && to === deviceY)
       .map(({ payload }) => (JSON.parse(payload) as { type?: string }).type);
-    expect(fromA).toContain('hello');
-    expect(fromA).not.toContain('proof');
-    expect(fromA).not.toContain('records');
+    expect(fromA).toEqual([]);
     expect(serviceA.getStatus().peers.find((peer) => peer.deviceId === deviceY)?.status).toBe('removed');
+  });
+
+  it('rejects a fresh identity joining through a retained topic and does not wrap a rotation for it', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeRemoved = new MemorySyncStorage();
+    const serviceA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const serviceRemoved = new SyncService({
+      storage: storeRemoved,
+      transportFactory: (cb) => bus.createTransport(cb, storeRemoved),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const created = await serviceA.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: 'wss://relay.local' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await serviceRemoved.handleMessage({
+      type: 'kiwi:sync:join-group',
+      phrase: created.phrase!,
+      relayUrl: 'wss://relay.local',
+    });
+    await flushMicrotasks();
+    const removedDeviceId = serviceRemoved.getStatus().deviceId!;
+    bus.setOnline(removedDeviceId, false);
+    const removed = await serviceA.handleMessage({
+      type: 'kiwi:sync:remove-device',
+      deviceId: removedDeviceId,
+    });
+    expect(removed.ok).toBe(true);
+    if (!removed.ok) return;
+
+    const freshStore = new MemorySyncStorage();
+    const freshService = new SyncService({
+      storage: freshStore,
+      transportFactory: (cb) => bus.createTransport(cb, freshStore),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const freshJoin = await freshService.handleMessage({
+      type: 'kiwi:sync:join-group',
+      phrase: created.phrase!,
+      relayUrl: 'wss://relay.local',
+    });
+    expect(freshJoin.ok).toBe(true);
+    if (!freshJoin.ok) return;
+    await flushMicrotasks();
+
+    const freshDeviceId = freshService.getStatus().deviceId!;
+    const messagesFromA = bus.sentMessages
+      .filter(({ from, to }) => from === serviceA.getStatus().deviceId && to === freshDeviceId)
+      .map(({ payload }) => (JSON.parse(payload) as { type?: string }).type);
+    expect(messagesFromA).toEqual([]);
+    expect(serviceA.getStatus().peers.some((peer) => peer.deviceId === freshDeviceId)).toBe(false);
+
+    const rotated = await serviceA.handleMessage({ type: 'kiwi:sync:rotate-phrase' });
+    expect(rotated.ok).toBe(true);
+    const stored = await storeA.load();
+    if (!stored) throw new Error('Missing test sync state');
+    const rotation = stored.engineState.recordLog.find(
+      (record) => record.kind === 'epoch-rotate' && record.epoch === 2,
+    );
+    if (!rotation) throw new Error('Missing rotation record');
+    const body = await openRecordBody<{ wrappedSecrets: Array<{ recipientDeviceId: string }> }>(
+      stored.epochKeys[rotation.epoch]!,
+      canonicalJson({
+        deviceId: rotation.deviceId,
+        seq: rotation.seq,
+        epoch: rotation.epoch,
+        hlc: rotation.hlc,
+        configVersion: rotation.configVersion,
+        kind: rotation.kind,
+      }),
+      rotation.nonce,
+      rotation.ciphertext,
+    );
+    expect(body.wrappedSecrets.some((wrapped) => wrapped.recipientDeviceId === freshDeviceId)).toBe(false);
   });
 
   it('starts transport with full config when a group has no relay', async () => {

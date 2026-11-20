@@ -109,6 +109,7 @@ export interface SyncMember {
   agreementPublic: string;
   agreementSig?: string;
   agreementAttested: boolean;
+  agreementSeq: number;
   joinedAt: number;
   lastSeenAt: number;
   removedAt?: number;
@@ -240,6 +241,7 @@ export class SyncEngine {
             ...member,
             agreementSig: member.agreementSig ?? '',
             agreementAttested: member.agreementAttested ?? true,
+            agreementSeq: member.agreementSeq ?? 0,
           },
         ]),
       );
@@ -265,6 +267,7 @@ export class SyncEngine {
           agreementPublic: toBase64Url(params.device.agreementPublicRaw),
           agreementSig: params.device.agreementSig ?? '',
           agreementAttested: false,
+          agreementSeq: 0,
           joinedAt: now,
           lastSeenAt: now,
         },
@@ -298,6 +301,7 @@ export class SyncEngine {
       agreementPublic,
       agreementSig,
       agreementAttested: true,
+      agreementSeq: existing?.agreementSeq ?? 0,
       joinedAt: existing?.joinedAt ?? this.hlc.ms,
       lastSeenAt: Math.max(existing?.lastSeenAt ?? this.hlc.ms, this.hlc.ms),
       removedAt: existing?.removedAt,
@@ -533,6 +537,7 @@ export class SyncEngine {
       typeof member.agreementPublic !== 'string' ||
       !Number.isFinite(member.joinedAt) ||
       !Number.isFinite(member.lastSeenAt) ||
+      (member.agreementSeq !== undefined && (!Number.isInteger(member.agreementSeq) || member.agreementSeq < 0)) ||
       (member.removedAt !== undefined && !Number.isFinite(member.removedAt)) ||
       (member.removedMaxSeq !== undefined && (!Number.isInteger(member.removedMaxSeq) || member.removedMaxSeq < 0))
     ) {
@@ -540,12 +545,14 @@ export class SyncEngine {
     }
 
     const existing = this.members[member.deviceId];
+    const agreementSeq = member.agreementSeq ?? 0;
     const agreementSig = typeof member.agreementSig === 'string' ? member.agreementSig : '';
+    const withSequence = { ...member, agreementSeq };
     const keylessRemoval =
       member.removedAt !== undefined &&
       member.signingPublic === '' &&
       member.agreementPublic === '';
-    if (keylessRemoval) return { ...member, agreementSig, agreementAttested: false };
+    if (keylessRemoval) return { ...withSequence, agreementSig, agreementAttested: false };
     if (!member.signingPublic || !member.agreementPublic) return null;
 
     try {
@@ -571,7 +578,12 @@ export class SyncEngine {
           agreementSig,
         })
       : false;
-    return { ...member, agreementSig, agreementAttested };
+    return {
+      ...withSequence,
+      agreementSig: agreementAttested ? agreementSig : '',
+      agreementAttested,
+      agreementSeq: agreementAttested ? agreementSeq : 0,
+    };
   }
 
   async createMemberJoinRecord(nowMs = Date.now()): Promise<SyncRecordEnvelope> {
@@ -580,7 +592,7 @@ export class SyncEngine {
 
   private async createMemberJoinRecordLocked(nowMs: number): Promise<SyncRecordEnvelope> {
     const agreementSig = await this.ensureLocalMemberCertificate();
-    return this.appendEnvelope(
+    const envelope = await this.appendEnvelope(
       'member-join',
       {
         kind: 'member-join',
@@ -592,6 +604,8 @@ export class SyncEngine {
       },
       nowMs,
     );
+    this.members[this.device.deviceId]!.agreementSeq = envelope.seq;
+    return envelope;
   }
 
   async applyLocalChanges(changes: readonly LocalChangeInput[], nowMs = Date.now()): Promise<SyncRecordEnvelope[]> {
@@ -790,15 +804,20 @@ export class SyncEngine {
 
       if (body.kind === 'member-join') {
         const prev = this.members[body.deviceId];
+        const previousAgreementSeq = prev?.agreementSeq ?? 0;
+        const sameAgreementKey = prev?.agreementPublic === body.agreementPublic;
+        const updateAgreementKey = !prev || env.seq > previousAgreementSeq;
+        const mayUseIncomingCertificate = updateAgreementKey || sameAgreementKey;
         this.members[body.deviceId] = {
           deviceId: body.deviceId,
           deviceName: body.deviceName,
           signingPublic: body.signingPublic,
-          agreementPublic: body.agreementPublic,
-          agreementSig:
-            memberJoinAgreementSig ||
-            (prev?.agreementPublic === body.agreementPublic ? prev.agreementSig ?? '' : ''),
-          agreementAttested: true,
+          agreementPublic: updateAgreementKey ? body.agreementPublic : prev!.agreementPublic,
+          agreementSig: mayUseIncomingCertificate
+            ? memberJoinAgreementSig || (sameAgreementKey ? prev?.agreementSig ?? '' : '')
+            : prev?.agreementSig ?? '',
+          agreementAttested: Boolean(prev?.agreementAttested || mayUseIncomingCertificate),
+          agreementSeq: updateAgreementKey ? env.seq : previousAgreementSeq,
           joinedAt: prev?.joinedAt ?? env.hlc.ms,
           lastSeenAt: nowMs,
           removedAt: prev?.removedAt,
@@ -817,6 +836,7 @@ export class SyncEngine {
             agreementPublic: '',
             agreementSig: '',
             agreementAttested: false,
+            agreementSeq: 0,
             joinedAt: env.hlc.ms,
             lastSeenAt: env.hlc.ms,
             removedAt: env.hlc.ms,
@@ -843,12 +863,20 @@ export class SyncEngine {
           const existing = this.members[member.deviceId];
           const removedAt = existing?.removedAt ?? member.removedAt;
           const existingAttested = Boolean(existing?.agreementAttested);
+          const existingAgreementSeq = existing?.agreementSeq ?? 0;
+          const sameAgreementKey = existing?.agreementPublic === member.agreementPublic;
+          const applyIncomingAgreementKey = !existing || member.agreementSeq > existingAgreementSeq;
+          const mayUseIncomingMember = applyIncomingAgreementKey || sameAgreementKey;
+          const incomingAgreementSig = member.agreementAttested ? member.agreementSig ?? '' : '';
           this.members[member.deviceId] = {
             ...member,
             signingPublic: existing?.signingPublic || member.signingPublic,
-            agreementPublic: existingAttested ? existing!.agreementPublic : member.agreementPublic,
-            agreementSig: existingAttested ? existing!.agreementSig ?? '' : member.agreementSig ?? '',
-            agreementAttested: existingAttested || member.agreementAttested,
+            agreementPublic: applyIncomingAgreementKey ? member.agreementPublic : existing!.agreementPublic,
+            agreementSig: mayUseIncomingMember
+              ? incomingAgreementSig || (sameAgreementKey ? existing?.agreementSig ?? '' : '')
+              : existing?.agreementSig ?? '',
+            agreementAttested: existingAttested || (mayUseIncomingMember && member.agreementAttested),
+            agreementSeq: Math.max(existingAgreementSeq, member.agreementSeq),
             joinedAt: Math.min(existing?.joinedAt ?? member.joinedAt, member.joinedAt),
             lastSeenAt: Math.max(existing?.lastSeenAt ?? member.lastSeenAt, member.lastSeenAt),
             removedAt,

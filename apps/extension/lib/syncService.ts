@@ -529,11 +529,18 @@ export class SyncService {
     if (!this.device || !this.groupKeys || !this.settings) return;
     const sessionKeys = this.epochGroupKeys.get(event.epoch);
     if (!sessionKeys) return;
+    const legacy =
+      event.epoch !== this.groupKeys.epoch &&
+      this.previousGroupSecrets.some((entry) => entry.epoch === event.epoch);
+    if (legacy) {
+      const knownMember = this.engine?.getMembers().find((member) => member.deviceId === event.peerId);
+      if (!knownMember || !knownMember.agreementAttested || knownMember.removedAt) return;
+    }
     const session: LivePeerSession = {
       peerId: event.peerId,
       epoch: event.epoch,
       groupKeys: sessionKeys,
-      legacy: event.epoch !== this.groupKeys.epoch && this.previousGroupSecrets.some((entry) => entry.epoch === event.epoch),
+      legacy,
       peerName: event.peerName,
       channel: event.channel,
       ownCertHash: event.ownCertHash,
@@ -660,6 +667,16 @@ export class SyncService {
         this.livePeers.delete(peerSessionKey(peerId, peer.epoch));
         return;
       }
+      if (
+        peer.legacy &&
+        (!knownMember ||
+          !knownMember.agreementAttested ||
+          knownMember.removedAt ||
+          knownMember.signingPublic !== remoteHello.signingPublic)
+      ) {
+        this.livePeers.delete(peerSessionKey(peerId, peer.epoch));
+        return;
+      }
       // Verify DTLS certificate channel binding when fingerprints are available.
       if (peer.peerCertHash && remoteHello.ownCertHash && peer.peerCertHash !== remoteHello.ownCertHash) {
         this.livePeers.delete(peerSessionKey(peerId, peer.epoch));
@@ -692,6 +709,16 @@ export class SyncService {
       if (!peer.ownHello || !peer.remoteHello) return;
       const knownMember = this.engine.getMembers().find((m) => m.deviceId === peerId);
       if (knownMember?.removedAt) {
+        this.livePeers.delete(peerSessionKey(peerId, peer.epoch));
+        return;
+      }
+      if (
+        peer.legacy &&
+        (!knownMember ||
+          !knownMember.agreementAttested ||
+          knownMember.removedAt ||
+          knownMember.signingPublic !== peer.remoteHello.signingPublic)
+      ) {
         this.livePeers.delete(peerSessionKey(peerId, peer.epoch));
         return;
       }
@@ -796,28 +823,21 @@ export class SyncService {
     }
 
     if (msg.type === 'records') {
+      if (peer.legacy) return;
       peer.remoteVector = { ...msg.vector };
-      const incomingEnvelopes = peer.legacy
-        ? msg.envelopes.filter((record) => record.epoch === peer.epoch && record.kind !== 'snapshot')
-        : msg.envelopes;
-      const result = await this.engine.receiveRecords(incomingEnvelopes);
-      if (msg.coveredVector && !peer.legacy) await this.engine.adoptCoveredVector(msg.coveredVector);
+      const result = await this.engine.receiveRecords(msg.envelopes);
+      if (msg.coveredVector) await this.engine.adoptCoveredVector(msg.coveredVector);
       await this.engine.recordPeerAck(peerId, msg.vector);
       await this.pruneAcknowledgedPreviousSecrets();
-      if (msg.coveredVector && !peer.legacy) {
+      if (msg.coveredVector) {
         const missing = this.engine.missingRecordsFor(msg.vector);
         if (missing.length) {
-          const envelopes = peer.legacy
-            ? this.legacyControlCatchup(peer, msg.vector)
-            : missing;
-          if (envelopes.length) {
-            const response: PeerWireRecords = {
-              type: 'records',
-              envelopes,
-              vector: this.engine.getVersionVector(),
-            };
-            await this.sendPeerPayload(peer, JSON.stringify(response)).catch(() => {});
-          }
+          const response: PeerWireRecords = {
+            type: 'records',
+            envelopes: missing,
+            vector: this.engine.getVersionVector(),
+          };
+          await this.sendPeerPayload(peer, JSON.stringify(response)).catch(() => {});
         }
       }
 

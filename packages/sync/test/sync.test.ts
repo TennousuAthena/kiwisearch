@@ -269,6 +269,43 @@ describe('SyncEngine multi-device synchronization', () => {
     return { ...unsigned, signature: toBase64Url(signature) };
   }
 
+  async function makeMemberJoinEnvelope(
+    device: DeviceKeys,
+    groupKeys: Awaited<ReturnType<typeof deriveGroupKeys>>,
+    seq: number,
+    agreementPublic: string,
+    nowMs: number,
+    agreementSig?: string,
+  ): Promise<SyncRecordEnvelope> {
+    const header = {
+      deviceId: device.deviceId,
+      seq,
+      epoch: groupKeys.epoch,
+      hlc: createHlc(device.deviceId, nowMs),
+      configVersion: 5,
+      kind: 'member-join' as const,
+    };
+    const body = {
+      kind: 'member-join' as const,
+      deviceId: device.deviceId,
+      deviceName: 'Member',
+      signingPublic: toBase64Url(device.signingPublicRaw),
+      agreementPublic,
+      ...(agreementSig ? { agreementSig } : {}),
+    };
+    const sealed = await sealRecordBody(groupKeys.recordKey, canonicalJson(header), body);
+    const unsigned = {
+      ...header,
+      signingPublic: toBase64Url(device.signingPublicRaw),
+      ...sealed,
+    };
+    const signature = await signEd25519(
+      device.signing.privateKey,
+      utf8Encode(`kiwi-sync-record/v1:${canonicalJson(unsigned)}`),
+    );
+    return { ...unsigned, signature: toBase64Url(signature) };
+  }
+
   it('verifies epoch-independent member certificates against device identity and agreement keys', async () => {
     const device = await generateDeviceKeys();
     const fields = {
@@ -450,6 +487,142 @@ describe('SyncEngine multi-device synchronization', () => {
     const { envelope } = await D.engine.rotatePhrase((await generateRecoveryPhrase()).entropy, now + 5);
     expect((await restoredA.receiveRecords([envelope], now + 6)).epochRotatedTo).toBe(2);
     expect((await restoredB.receiveRecords([envelope], now + 6)).epochRotatedTo).toBe(2);
+  });
+
+  it('does not restore an older agreement key from an out-of-order member join', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const receiver = await makePeer('Receiver', groupKeys, now);
+    const member = await generateDeviceKeys();
+    const olderKey = await generateDeviceKeys();
+    const newestJoin = await makeMemberJoinEnvelope(
+      member,
+      groupKeys,
+      2,
+      toBase64Url(member.agreementPublicRaw),
+      now + 2,
+      member.agreementSig,
+    );
+    const olderJoin = await makeMemberJoinEnvelope(
+      member,
+      groupKeys,
+      1,
+      toBase64Url(olderKey.agreementPublicRaw),
+      now + 1,
+    );
+
+    expect((await receiver.engine.receiveRecords([newestJoin], now + 3)).accepted).toBe(1);
+    expect((await receiver.engine.receiveRecords([olderJoin], now + 4)).accepted).toBe(1);
+    expect(receiver.engine.getMembers().find((entry) => entry.deviceId === member.deviceId)).toMatchObject({
+      agreementPublic: toBase64Url(member.agreementPublicRaw),
+      agreementSig: member.agreementSig,
+      agreementAttested: true,
+      agreementSeq: 2,
+    });
+
+    const receiverState = receiver.engine.exportState();
+    receiverState.members[member.deviceId]!.agreementAttested = false;
+    const snapshotReceiver = new SyncEngine({
+      device: receiver.device,
+      deviceName: 'Receiver',
+      groupKeys,
+      configVersion: 5,
+      persisted: receiverState,
+    });
+    const snapshotSource = await makePeer('SnapshotSource', groupKeys, now);
+    const snapshotState = snapshotSource.engine.exportState();
+    const olderAgreementPublic = toBase64Url(olderKey.agreementPublicRaw);
+    const olderAgreementSig = toBase64Url(
+      await signEd25519(
+        member.signing.privateKey,
+        utf8Encode(
+          canonicalJson([
+            'kiwi-sync/v1/member-cert',
+            member.deviceId,
+            toBase64Url(member.signingPublicRaw),
+            olderAgreementPublic,
+          ]),
+        ),
+      ),
+    );
+    snapshotState.members[member.deviceId] = {
+      deviceId: member.deviceId,
+      deviceName: 'Member',
+      signingPublic: toBase64Url(member.signingPublicRaw),
+      agreementPublic: olderAgreementPublic,
+      agreementSig: olderAgreementSig,
+      agreementAttested: true,
+      agreementSeq: 1,
+      joinedAt: now,
+      lastSeenAt: now,
+    };
+    const snapshotSourceEngine = new SyncEngine({
+      device: snapshotSource.device,
+      deviceName: 'SnapshotSource',
+      groupKeys,
+      configVersion: 5,
+      persisted: snapshotState,
+    });
+    const snapshot = await snapshotSourceEngine.createSnapshotRecords(now + 5);
+    expect((await snapshotReceiver.receiveRecords(snapshot.records, now + 6)).accepted).toBe(snapshot.records.length);
+    expect(snapshotReceiver.getMembers().find((entry) => entry.deviceId === member.deviceId)).toMatchObject({
+      agreementPublic: toBase64Url(member.agreementPublicRaw),
+      agreementAttested: false,
+      agreementSeq: 2,
+    });
+  });
+
+  it('propagates a valid certificate for a legacy-attested key through snapshots and rotations', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', groupKeys, now);
+    const B = await generateDeviceKeys();
+    const Bengine = new SyncEngine({ device: B, deviceName: 'B', groupKeys, configVersion: 5, nowMs: now });
+    const legacyJoin = await makeLegacyMemberJoin(B, groupKeys, now + 1);
+    await Bengine.createMemberJoinRecord(now + 2);
+    const certifiedJoin = await Bengine.createMemberJoinRecord(now + 3);
+    const C = await makePeer('C', groupKeys, now);
+
+    expect((await A.engine.receiveRecords([legacyJoin], now + 3)).accepted).toBe(1);
+    expect((await C.engine.receiveRecords([certifiedJoin], now + 4)).accepted).toBe(1);
+    expect(A.engine.getMembers().find((member) => member.deviceId === B.deviceId)).toMatchObject({
+      agreementSig: '',
+      agreementAttested: true,
+      agreementSeq: 1,
+    });
+
+    const cSnapshot = await C.engine.createSnapshotRecords(now + 5);
+    await A.engine.receiveRecords(cSnapshot.records, now + 6);
+    expect(A.engine.getMembers().find((member) => member.deviceId === B.deviceId)).toMatchObject({
+      agreementSig: B.agreementSig,
+      agreementAttested: true,
+      agreementSeq: 2,
+    });
+
+    const aSnapshot = await A.engine.createSnapshotRecords(now + 7);
+    const D = await makePeer('D', groupKeys, now);
+    await D.engine.receiveRecords(aSnapshot.records, now + 8);
+    expect(D.engine.getMembers().find((member) => member.deviceId === B.deviceId)).toMatchObject({
+      agreementSig: B.agreementSig,
+      agreementAttested: true,
+      agreementSeq: 2,
+    });
+
+    const { envelope } = await D.engine.rotatePhrase((await generateRecoveryPhrase()).entropy, now + 9);
+    const rotation = await openRecordBody<{ wrappedSecrets: WrappedEpochSecret[] }>(
+      groupKeys.recordKey,
+      canonicalJson({
+        deviceId: envelope.deviceId,
+        seq: envelope.seq,
+        epoch: envelope.epoch,
+        hlc: envelope.hlc,
+        configVersion: envelope.configVersion,
+        kind: envelope.kind,
+      }),
+      envelope.nonce,
+      envelope.ciphertext,
+    );
+    expect(rotation.wrappedSecrets.some((wrapped) => wrapped.recipientDeviceId === B.deviceId)).toBe(true);
   });
 
   it('serializes concurrent local changes into unique record sequences', async () => {
@@ -660,6 +833,7 @@ describe('SyncEngine multi-device synchronization', () => {
       agreementPublic: toBase64Url(A.device.agreementPublicRaw),
       agreementSig: '',
       agreementAttested: false,
+      agreementSeq: 0,
       joinedAt: now,
       lastSeenAt: now,
     };
@@ -759,6 +933,7 @@ describe('SyncEngine multi-device synchronization', () => {
     const A = await makePeer('A', groupKeys);
     const state = A.engine.exportState();
     Reflect.deleteProperty(state.members[A.device.deviceId]!, 'agreementAttested');
+    Reflect.deleteProperty(state.members[A.device.deviceId]!, 'agreementSeq');
     const restored = new SyncEngine({
       device: A.device,
       deviceName: 'A',
@@ -767,7 +942,10 @@ describe('SyncEngine multi-device synchronization', () => {
       persisted: state,
     });
 
-    expect(restored.getMembers().find((member) => member.deviceId === A.device.deviceId)?.agreementAttested).toBe(true);
+    expect(restored.getMembers().find((member) => member.deviceId === A.device.deviceId)).toMatchObject({
+      agreementAttested: true,
+      agreementSeq: 0,
+    });
   });
 
   it('skips and reports a single oversized register while continuing snapshot creation', async () => {
