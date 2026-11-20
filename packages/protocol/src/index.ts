@@ -6,4 +6,5 @@ export * from './preferences';
 export * from './rateLimit';
 export * from './relay';
 export * from './settings';
+export * from './sync';
 export * from './webRequests';

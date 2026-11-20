@@ -6,9 +6,10 @@ import { subscriptionsChanged } from '@/lib/blocklistState';
 import { initLocale, t } from '@kiwi-search/app/i18n';
 import { coreMessagesFor } from '@kiwi-search/app/i18n/coreMessages';
 import type { PortMessage, SearchRequest } from '@kiwi-search/protocol';
-import { handleConfigUpdate, isConfigUpdateMessage } from '@/lib/backgroundConfig';
-import { isExtensionPageSender } from '@/lib/summaryRequest';
-import { observedKeys, parseSearchStreamMessage, parseSummaryRequest, parseSummaryStreamMessage, preferenceValues } from '@kiwi-search/protocol';
+import { applyRemoteConfigPatches, handleConfigUpdate, isConfigUpdateMessage, setOnLocalSyncChanges } from '@/lib/backgroundConfig';
+import { isExtensionPageSender, isSyncOffscreenSender } from '@/lib/summaryRequest';
+import { isSyncRuntimeMessage, observedKeys, parseSearchStreamMessage, parseSummaryRequest, parseSummaryStreamMessage, preferenceValues } from '@kiwi-search/protocol';
+import { SyncService } from '@/lib/syncService';
 import { localSearchUrl, siteSearchUrl } from '@/lib/localUrl';
 import { SITE_ORIGIN } from '@/lib/webOrigins';
 import { REDIRECT_RULE_IDS, searchRedirectRules } from '@/lib/searchRedirect';
@@ -120,6 +121,13 @@ export default defineBackground(() => {
     webPushPorts.clear();
   };
 
+  // Device sync service: owns the SyncEngine, IndexedDB state, and dual-browser WebRTC/relay transport.
+  const syncService = new SyncService({ applyRemoteConfigPatches });
+  setOnLocalSyncChanges((changes) => {
+    void syncService.recordLocalChanges(changes);
+  });
+  void syncService.init();
+
   browser.runtime.onInstalled.addListener(({ reason }) => {
     registerSearchRedirectRule();
     // A new install opens the onboarding page; an update never does (existing users rerun it from the settings page).
@@ -172,6 +180,11 @@ export default defineBackground(() => {
       void handleConfigUpdate(msg).then(sendResponse).catch((error) => sendResponse({ ok: false, error: String(error) }));
       return true;
     }
+    if (isSyncRuntimeMessage(msg)) {
+      if (!isExtensionPageSender(sender, browser.runtime.id, browser.runtime.getURL('/'))) return false;
+      void syncService.handleMessage(msg).then(sendResponse).catch((error) => sendResponse({ ok: false, error: String(error) }));
+      return true;
+    }
     const reply =
       type === 'kiwi:favicon'
         ? handleFaviconMessage(msg)
@@ -190,6 +203,11 @@ export default defineBackground(() => {
   browser.tabs.onUpdated.addListener(handleWorkerTabUpdated);
 
   browser.runtime.onConnect.addListener((port) => {
+    if (port.name === 'kiwi-sync-transport') {
+      if (!isSyncOffscreenSender(port.sender, browser.runtime.id, browser.runtime.getURL('/'))) { port.disconnect(); return; }
+      syncService.attachOffscreenPort(port);
+      return;
+    }
     if (port.name === 'web-push') {
       if (!webBridge.isSender(port.sender) || webPushPorts.size >= MAX_WEB_PORTS) { port.disconnect(); return; }
       void webBridge.allowed(port.sender).then((ok) => {
@@ -345,5 +363,6 @@ export default defineBackground(() => {
     }
     if (changes.bridge) void ensureBridge(makeEnv);
     if (area === 'local' && subscriptionsChanged(changes.config)) refreshSubscribedLists();
+    if (area === 'local') void syncService.handleStorageChanged(changes);
   });
 });

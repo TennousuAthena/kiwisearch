@@ -1,6 +1,6 @@
 # Device sync (P2P over WebRTC)
 
-Design for syncing a user's Kiwi settings between their own browsers, directly from device to device. **Only the relay (`apps/relay`) is built**; the extension does not use it yet, and everything on the device side below is design. The feasibility checks of 2026-11-19 are throwaway scripts in `packages/experiments/browser-checks/`. Overview and rules: [AGENTS.md](../../AGENTS.md). The decision record for people (Chinese) is the "长期方向：设备间 P2P 同步" part of [docs/STATUS.md](../STATUS.md).
+Design and implementation record for syncing a user's Kiwi settings between their own browsers, directly from device to device. As of 2026-11-20, the relay (`apps/relay`), the pure sync library (`packages/sync`), the protocol types (`packages/protocol/src/sync.ts`), and the extension integration (`apps/extension/lib/sync*.ts`, `entrypoints/sync-offscreen/`, `entrypoints/options/SyncSection.tsx`) are implemented and covered by unit/integration tests; see [Implementation status (2026-11-20)](#implementation-status-2026-11-20) below for what is verified vs. not yet verified. The feasibility checks of 2026-11-19/20 are scripts in `packages/experiments/browser-checks/`. Overview and rules: [AGENTS.md](../../AGENTS.md). The decision record for people (Chinese) is the "长期方向：设备间 P2P 同步" part of [docs/STATUS.md](../STATUS.md).
 
 ## Requirements
 
@@ -340,3 +340,23 @@ Records carry the sender's `CONFIG_VERSION`. A device that does not know a path 
 6. How long the offscreen document stays open when idle (phase 3).
 
 Decided on 2026-11-19: the relay stores nothing, and devices sync only while both are online.
+
+## Implementation status (2026-11-20)
+
+- **Implemented:**
+  - `packages/sync`: 24-word BIP39 recovery phrase generation/validation (256-bit entropy + checksum), HKDF key derivation (topic/signal/record/member keys), Ed25519 device signing + X25519 key agreement, AES-256-GCM relay frame and record sealing/opening, 5-minute / 4,096-entry replay guard, `kiwi1-` manual connection-code encoding/decoding, peer handshake, HLC (48-bit ms + 16-bit counter + deterministic device ID tie-breaker) with 24-hour future-clock rejection, per-path LWW registers, per-element set merge with tombstones, version vectors, indirect third-device propagation, category filtering (`search`, `filters`, `ui`, `keys` with `keys` default-off), join conflict modes (`group`, `local`, `merge`), and member removal with epoch/phrase rotation + X25519-wrapped epoch secrets.
+  - `packages/protocol/src/sync.ts`: runtime message and status snapshot types shared between the options page and background worker.
+  - `apps/extension`: IndexedDB persistence (`kiwi-sync`, never storing plaintext recovery phrases), settings-to-sync mapping (`lib/syncMapping.ts`) using the serialized settings writer with echo suppression, `SyncService` (`lib/syncService.ts`), Chromium/Edge offscreen WebRTC + relay transport (`entrypoints/sync-offscreen/`, `lib/syncTransportBridge.ts`, `lib/syncTransportCore.ts`), Firefox background direct transport fallback, and the options page Sync panel (`entrypoints/options/SyncSection.tsx`) with localized copy in `packages/app/src/i18n/catalog/options.ts`.
+  - `apps/relay`: Cloudflare Worker + Durable Object blind relay (unchanged blind-forwarding boundary).
+- **Verified locally (2026-11-20):**
+  - Workspace `pnpm typecheck`, all package test suites (`@kiwi-search/core` 632, `@kiwi-search/protocol` 35, `@kiwi-search/sync` 14, `@kiwi-search/app` 164, `@kiwi-search/extension` 194, `@kiwi-search/web` 55, `@kiwi-search/mcp` 18, `@kiwi-search/relay` 13; 1,125 tests total), `pnpm build`, Chrome MV3 & Firefox MV2 extension builds, and `apps/web` dist check.
+  - Multi-device `SyncService` integration tests (`apps/extension/test/syncService.test.ts`): config propagation, echo suppression, keys default-off and explicit opt-in, third-device indirect propagation, and device removal with epoch rotation.
+  - Real-extension multi-device E2E in three visible, isolated Chrome profiles against local Wrangler `workerd` relay (`ws://127.0.0.1:8787`): group creation with 24-word phrase (hidden after reload), bilateral WebRTC peer discovery and live Options UI refresh without reload or echo loops (verified with `performance.timeOrigin` and 10-second stable record/sequence/version-vector checks), API key default-off filtering + bilateral opt-in confirmation + sequential A→B→A latest-value propagation, A→B→C indirect propagation while A was quit, manual `kiwi1-` offer code generation, device removal with epoch 1→2 rotation and new 24-word phrase (A accepted authorized C's new edits while excluding removed B's new edits), and IndexedDB `kiwi-sync` / `chrome.storage.local` scan confirming plaintext recovery phrases are not persisted. Zero extension/worker runtime errors captured.
+  - Three-device mesh probe (`relay-mesh-check.mjs`) on local `workerd` with three Chromium 158 instances (5 consecutive runs).
+- **Not verified:**
+  - Deployed Cloudflare Workers production relay;
+  - Two different physical computers or different networks (NAT / STUN / TURN / mainland China reachability);
+  - More than three devices online simultaneously;
+  - Full product sync in Firefox or Edge runtime;
+  - Concurrent/offline conflict resolution in visible browsers, full manual offer/answer code pairing round-trip, forced relay-only fallback without WebRTC, remote arrival while an Options page has unsaved dirty edits, and long-duration service-worker idle/restart cycles.
+- **Security boundary on device removal:** a removed device keeps whatever data and old-epoch keys it already received before removal; members that have not yet learned of the removal may continue syncing with it until they meet a member carrying the new epoch. Rejoining requires the new recovery phrase.

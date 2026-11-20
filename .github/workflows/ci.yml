@@ -49,6 +49,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm --filter @kiwi-search/protocol test
 
+      - name: Test sync
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @kiwi-search/sync test
+
       - name: Test app
         if: ${{ !cancelled() }}
         run: pnpm --filter @kiwi-search/app test

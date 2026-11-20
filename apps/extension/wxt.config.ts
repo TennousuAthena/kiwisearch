@@ -9,7 +9,8 @@ export default defineConfig({
     description: 'Kiwi Search: meta search across Google/Bing/OpenAlex/Exa/DeepSeek… fused, reranked and summarized by AI, with an MCP bridge.',
     omnibox: { keyword: 'k' },
     // `webRequest` only observes: it reads where a Google result link redirects to (`lib/redirectTarget.ts`).
-    permissions: ['storage', 'tabs', 'alarms', ...(browser === 'firefox' ? [] : ['favicon']), 'declarativeNetRequestWithHostAccess', 'webRequest'],
+    // `offscreen` hosts the Chrome/Edge WebRTC + relay transport; Firefox uses its background page directly.
+    permissions: ['storage', 'tabs', 'alarms', ...(browser === 'firefox' ? [] : ['favicon', 'offscreen']), 'declarativeNetRequestWithHostAccess', 'webRequest'],
     host_permissions: ['<all_urls>'],
     // The toolbar button opens the extension's own interface. Not an override of the new-tab page: where that is shown is the user's choice.
     action: { default_title: 'Kiwi Search' },

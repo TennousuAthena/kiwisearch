@@ -23,6 +23,9 @@ importers:
       '@kiwi-search/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@kiwi-search/sync':
+        specifier: workspace:*
+        version: link:../../packages/sync
       react:
         specifier: ^19.1.1
         version: 19.3.1
@@ -203,6 +206,15 @@ importers:
         version: 22.20.5
       vitest:
         specifier: ^3.2.7
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@18.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(supports-color@10.2.2)
+
+  packages/sync:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.18.0
+        version: 22.20.5
+      vitest:
+        specifier: ^3.2.4
         version: 3.2.7(@types/node@22.20.5)(happy-dom@18.0.1)(jiti@2.7.0)(lightningcss@1.33.0)(supports-color@10.2.2)
 
 packages:
@@ -3634,7 +3646,7 @@ snapshots:
     dependencies:
       '@hono/node-server': 2.1.6(hono@4.13.17)
       ajv: 8.20.0
-      ajv-formats: 3.0.1
+      ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
       cors: 2.8.6
       cross-spawn: 7.0.6
@@ -3945,8 +3957,8 @@ snapshots:
 
   adm-zip@0.5.18: {}
 
-  ajv-formats@3.0.1:
-    dependencies:
+  ajv-formats@3.0.1(ajv@8.20.0):
+    optionalDependencies:
       ajv: 8.20.0
 
   ajv@8.20.0:

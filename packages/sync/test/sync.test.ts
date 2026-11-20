@@ -1,0 +1,391 @@
+import { describe, expect, it } from 'vitest';
+import {
+  BIP39_WORDLIST,
+  buildHandshakeHello,
+  classifySyncPath,
+  compareHlc,
+  createHandshakeProof,
+  createHlc,
+  decodeConnectionCode,
+  DEFAULT_SYNC_CATEGORIES,
+  deriveGroupKeys,
+  deriveTopicId,
+  encodeConnectionCode,
+  entropyToPhrase,
+  generateDeviceKeys,
+  generateRecoveryPhrase,
+  importGroupSecret,
+  isHlcDriftAcceptable,
+  makeMembershipElementPath,
+  MAX_FUTURE_DRIFT_MS,
+  openRelayFrame,
+  phraseToEntropy,
+  RELAY_FRAME_BUCKETS,
+  ReplayGuard,
+  sealRelayFrame,
+  SyncEngine,
+  tickHlc,
+  validatePhrase,
+  verifyHandshakeProof,
+} from '../src/index';
+
+describe('BIP39 recovery phrase', () => {
+  it('generates and round-trips 24-word phrases with 256-bit entropy', async () => {
+    expect(BIP39_WORDLIST).toHaveLength(2048);
+    const { phrase, entropy } = await generateRecoveryPhrase();
+    expect(phrase.split(' ')).toHaveLength(24);
+    expect(entropy.byteLength).toBe(32);
+
+    const decoded = await phraseToEntropy(`  ${phrase.toUpperCase().replace(/ /g, '   ')}  `);
+    expect(Array.from(decoded)).toEqual(Array.from(entropy));
+    expect(await entropyToPhrase(decoded)).toBe(phrase);
+    expect(await validatePhrase(phrase)).toEqual({ ok: true });
+  });
+
+  it('rejects bad checksum and unknown words', async () => {
+    const { phrase } = await generateRecoveryPhrase();
+    const words = phrase.split(' ');
+    const swapped = [...words];
+    swapped[23] = swapped[23] === 'abandon' ? 'ability' : 'abandon';
+    const badChecksum = await validatePhrase(swapped.join(' '));
+    expect(badChecksum.ok).toBe(false);
+
+    const unknownWord = await validatePhrase([...words.slice(0, 23), 'notaword'].join(' '));
+    expect(unknownWord.ok).toBe(false);
+  });
+});
+
+describe('Group keys, relay frames, and connection codes', () => {
+  it('derives daily topic IDs matching relay URL constraints and seals padded frames', async () => {
+    const { entropy } = await generateRecoveryPhrase();
+    const secret = await importGroupSecret(entropy);
+    const keys = await deriveGroupKeys(secret, 1);
+
+    const topicToday = await deriveTopicId(keys.topicKey, '2026-11-20');
+    const topicTomorrow = await deriveTopicId(keys.topicKey, '2026-11-21');
+    expect(topicToday).toMatch(/^[A-Za-z0-9_-]{22,64}$/);
+    expect(topicToday).not.toBe(topicTomorrow);
+
+    const frame = await sealRelayFrame(keys, { type: 'hello', from: 'dev-a', id: 'f1', t: 1000 });
+    expect(RELAY_FRAME_BUCKETS).toContain(frame.byteLength as (typeof RELAY_FRAME_BUCKETS)[number]);
+    expect(await openRelayFrame(keys, frame)).toEqual({ type: 'hello', from: 'dev-a', id: 'f1', t: 1000 });
+
+    // Tampering fails decryption
+    const tampered = new Uint8Array(frame);
+    tampered[tampered.byteLength - 1]! ^= 0xff;
+    await expect(openRelayFrame(keys, tampered)).rejects.toThrow();
+
+    // Wrong group fails decryption
+    const other = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    await expect(openRelayFrame(other, frame)).rejects.toThrow();
+  });
+
+  it('rejects replayed and stale frame IDs', () => {
+    const guard = new ReplayGuard(60_000);
+    expect(guard.accept('id-1', 100_000, 100_500)).toBe(true);
+    expect(guard.accept('id-1', 100_000, 100_600)).toBe(false);
+    expect(guard.accept('id-2', 10_000, 100_600)).toBe(false);
+  });
+
+  it('encodes and decodes kiwi1- connection codes', async () => {
+    const secret = await importGroupSecret((await generateRecoveryPhrase()).entropy);
+    const keys = await deriveGroupKeys(secret, 1);
+    const payload = {
+      kind: 'offer' as const,
+      deviceId: 'dev-a',
+      timestampMs: 1_700_000_000_000,
+      ufrag: 'abcd',
+      pwd: 'secretpassword0123456789',
+      fingerprint: 'AA:BB:CC:DD',
+      candidates: [{ type: 'host' as const, address: '192.168.1.10', port: 54321, protocol: 'udp' as const }],
+    };
+    const code = await encodeConnectionCode(keys, payload);
+    expect(code.startsWith('kiwi1-')).toBe(true);
+    const decoded = await decodeConnectionCode(keys, code, 60_000, payload.timestampMs + 5000);
+    expect(decoded).toEqual(payload);
+    await expect(decodeConnectionCode(keys, code, 1000, payload.timestampMs + 5000)).rejects.toThrow(/expired/i);
+  });
+});
+
+describe('DTLS-bound channel handshake', () => {
+  it('verifies first-meeting HMAC and reconnection Ed25519, rejecting MITM cert mismatch', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const devA = await generateDeviceKeys();
+    const devB = await generateDeviceKeys();
+
+    const helloA = buildHandshakeHello({
+      device: devA,
+      deviceName: 'MacBook',
+      epoch: 1,
+      ownCertHash: 'cert-A',
+      peerCertHash: 'cert-B',
+    });
+    const helloB = buildHandshakeHello({
+      device: devB,
+      deviceName: 'Desktop',
+      epoch: 1,
+      ownCertHash: 'cert-B',
+      peerCertHash: 'cert-A',
+    });
+
+    const proofAFirst = await createHandshakeProof({
+      localHello: helloA,
+      remoteHello: helloB,
+      device: devA,
+      groupKeys,
+      knownPeer: false,
+    });
+    expect(
+      await verifyHandshakeProof({ localHello: helloB, remoteHello: helloA, remoteProof: proofAFirst, groupKeys }),
+    ).toEqual({ ok: true });
+
+    const proofAReconnect = await createHandshakeProof({
+      localHello: helloA,
+      remoteHello: helloB,
+      device: devA,
+      groupKeys,
+      knownPeer: true,
+    });
+    expect(
+      await verifyHandshakeProof({
+        localHello: helloB,
+        remoteHello: helloA,
+        remoteProof: proofAReconnect,
+        groupKeys,
+        knownPeerSigningPublic: helloA.signingPublic,
+      }),
+    ).toEqual({ ok: true });
+
+    // MITM cert mismatch fails
+    const badHelloB = { ...helloB, peerCertHash: 'cert-MITM' };
+    const mitmCheck = await verifyHandshakeProof({
+      localHello: badHelloB,
+      remoteHello: helloA,
+      remoteProof: proofAFirst,
+      groupKeys,
+    });
+    expect(mitmCheck.ok).toBe(false);
+  });
+});
+
+describe('HLC and category classification', () => {
+  it('enforces 24h future drift rejection and deterministic tie-break', () => {
+    const now = 1_700_000_000_000;
+    expect(isHlcDriftAcceptable({ ms: now + MAX_FUTURE_DRIFT_MS, counter: 0, deviceId: 'a' }, now)).toBe(true);
+    expect(isHlcDriftAcceptable({ ms: now + MAX_FUTURE_DRIFT_MS + 1, counter: 0, deviceId: 'a' }, now)).toBe(false);
+    expect(compareHlc({ ms: 100, counter: 0, deviceId: 'a' }, { ms: 100, counter: 0, deviceId: 'b' })).toBeLessThan(0);
+
+    const t0 = createHlc('a', 5000);
+    const t1 = tickHlc(t0, 'a', 4000); // clock went backwards
+    expect(t1).toEqual({ ms: 5000, counter: 1, deviceId: 'a' });
+  });
+
+  it('classifies API keys/endpoints as keys (default off) and never leaks them into search/filters', () => {
+    expect(DEFAULT_SYNC_CATEGORIES.keys).toBe(false);
+    expect(classifySyncPath('config.llm.apiKey')).toBe('keys');
+    expect(classifySyncPath('config.llm.baseUrl')).toBe('keys');
+    expect(classifySyncPath('config.judge.apiKey')).toBe('keys');
+    expect(classifySyncPath('config.sources.exa.apiKey')).toBe('keys');
+    expect(classifySyncPath('config.sources.exa.enabled')).toBe('search');
+    expect(classifySyncPath(makeMembershipElementPath('config.judge.blockedDomains', 'spam.test'))).toBe('filters');
+    expect(classifySyncPath('preferences.theme')).toBe('ui');
+  });
+});
+
+describe('SyncEngine multi-device synchronization', () => {
+  async function makePeer(name: string, groupKeys: Awaited<ReturnType<typeof deriveGroupKeys>>, now = 1_700_000_000_000) {
+    const device = await generateDeviceKeys();
+    const engine = new SyncEngine({ device, deviceName: name, groupKeys, configVersion: 5, nowMs: now });
+    await engine.createMemberJoinRecord(now);
+    return { device, engine };
+  }
+
+  it('resolves concurrent LWW conflicts deterministically, merges membership sets, and propagates via third device', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', groupKeys, now);
+    const B = await makePeer('B', groupKeys, now);
+    const C = await makePeer('C', groupKeys, now);
+
+    // Concurrent edit to same scalar path at identical ms (tie-break by deviceId)
+    await A.engine.applyLocalChanges(
+      [
+        { path: 'config.defaultMode', value: 'news' },
+        { path: makeMembershipElementPath('config.judge.blockedDomains', 'farm-a.test'), value: true },
+      ],
+      now + 1000,
+    );
+    await B.engine.applyLocalChanges(
+      [
+        { path: 'config.defaultMode', value: 'academic' },
+        { path: makeMembershipElementPath('config.judge.blockedDomains', 'farm-b.test'), value: true },
+      ],
+      now + 1000,
+    );
+
+    // A <-> B sync
+    const forB = A.engine.missingRecordsFor(B.engine.getVersionVector());
+    const forA = B.engine.missingRecordsFor(A.engine.getVersionVector());
+    await B.engine.receiveRecords(forB, now + 2000);
+    await A.engine.receiveRecords(forA, now + 2000);
+
+    // Duplicate delivery is idempotent
+    const dupRes = await B.engine.receiveRecords(forB, now + 2100);
+    expect(dupRes.duplicates).toBe(forB.length);
+    expect(dupRes.accepted).toBe(0);
+
+    // Both converge to exact same scalar winner and keep BOTH blocked domains
+    const winner = A.engine.getRegisters()['config.defaultMode']!.value;
+    expect(B.engine.getRegisters()['config.defaultMode']!.value).toBe(winner);
+    expect(A.engine.getRegisters()[makeMembershipElementPath('config.judge.blockedDomains', 'farm-a.test')]?.value).toBe(true);
+    expect(A.engine.getRegisters()[makeMembershipElementPath('config.judge.blockedDomains', 'farm-b.test')]?.value).toBe(true);
+    expect(B.engine.getRegisters()[makeMembershipElementPath('config.judge.blockedDomains', 'farm-a.test')]?.value).toBe(true);
+    expect(B.engine.getRegisters()[makeMembershipElementPath('config.judge.blockedDomains', 'farm-b.test')]?.value).toBe(true);
+
+    // Third-device indirect propagation: A never talks to C, only B talks to C!
+    const forC = B.engine.missingRecordsFor(C.engine.getVersionVector());
+    await C.engine.receiveRecords(forC, now + 3000);
+    expect(C.engine.getRegisters()['config.defaultMode']!.value).toBe(winner);
+    expect(C.engine.getRegisters()[makeMembershipElementPath('config.judge.blockedDomains', 'farm-a.test')]?.value).toBe(true);
+    expect(C.engine.getRegisters()[makeMembershipElementPath('config.judge.blockedDomains', 'farm-b.test')]?.value).toBe(true);
+  });
+
+  it('keeps API keys off by default and syncs them only when explicitly enabled on both devices', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', groupKeys, now);
+    const B = await makePeer('B', groupKeys, now);
+
+    // Default off: local key edit emits nothing
+    const emittedOff = await A.engine.applyLocalChanges([{ path: 'config.llm.apiKey', value: 'sk-test-1' }], now + 100);
+    expect(emittedOff).toHaveLength(0);
+
+    // Enable on A only: A emits, B receives into register but does NOT apply locally while B.keys is false
+    A.engine.setCategories({ keys: true });
+    const emittedOn = await A.engine.applyLocalChanges([{ path: 'config.llm.apiKey', value: 'sk-test-2' }], now + 200);
+    expect(emittedOn).toHaveLength(1);
+
+    const resBOff = await B.engine.receiveRecords(emittedOn, now + 300);
+    expect(resBOff.accepted).toBe(1);
+    expect(resBOff.applied).toHaveLength(0);
+
+    // Enable on B and send newer key from A -> B applies it
+    B.engine.setCategories({ keys: true });
+    const emittedOn2 = await A.engine.applyLocalChanges([{ path: 'config.llm.apiKey', value: 'sk-test-3' }], now + 400);
+    const resBOn = await B.engine.receiveRecords(emittedOn2, now + 500);
+    expect(resBOn.applied).toHaveLength(1);
+    expect(resBOn.applied[0]).toMatchObject({ path: 'config.llm.apiKey', value: 'sk-test-3', category: 'keys' });
+  });
+
+  it('rejects records with >24h future clock skew and clamps invalid numeric values', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', groupKeys, now);
+    const B = await makePeer('B', groupKeys, now);
+
+    const futureRecords = await A.engine.applyLocalChanges(
+      [{ path: 'config.defaultMode', value: 'images' }],
+      now + MAX_FUTURE_DRIFT_MS + 60_000,
+    );
+    const res = await B.engine.receiveRecords(futureRecords, now);
+    expect(res.accepted).toBe(0);
+    expect(res.rejected).toHaveLength(1);
+    expect(res.rejected[0]!.reason).toMatch(/24h/i);
+
+    // Clamping test (with a non-skewed peer C)
+    const C = await makePeer('C', groupKeys, now);
+    const clamped = await C.engine.applyLocalChanges([{ path: 'config.timeoutMs', value: 999_999 }], now + 100);
+    const resClamped = await B.engine.receiveRecords(clamped, now + 200);
+    expect(resClamped.applied[0]!.value).toBe(60_000);
+  });
+
+  it('supports device removal with epoch rotation and rejects subsequent records from removed device', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', groupKeys, now);
+    const B = await makePeer('B', groupKeys, now);
+    const C = await makePeer('C', groupKeys, now);
+
+    // Exchange member-join records so everyone knows everyone's X25519 key
+    await A.engine.receiveRecords([...B.engine.getAllEnvelopes(), ...C.engine.getAllEnvelopes()], now + 100);
+    await B.engine.receiveRecords([...A.engine.getAllEnvelopes(), ...C.engine.getAllEnvelopes()], now + 100);
+    await C.engine.receiveRecords([...A.engine.getAllEnvelopes(), ...B.engine.getAllEnvelopes()], now + 100);
+
+    // A removes C and rotates to epoch 2
+    const { entropy: newEntropy } = await generateRecoveryPhrase();
+    const { envelope: removeEnv } = await A.engine.removeDevice(C.device.deviceId, newEntropy, now + 200);
+    expect(A.engine.epoch).toBe(2);
+
+    // B receives removal record and automatically unwraps epoch 2 keys
+    const bRes = await B.engine.receiveRecords([removeEnv], now + 300);
+    expect(bRes.epochRotatedTo).toBe(2);
+    expect(B.engine.epoch).toBe(2);
+
+    // C creates a new record after removal (on epoch 1) -> A and B reject it
+    const rogue = await C.engine.applyLocalChanges([{ path: 'config.defaultMode', value: 'video' }], now + 400);
+    const bRogue = await B.engine.receiveRecords(rogue, now + 500);
+    expect(bRogue.accepted).toBe(0);
+    expect(bRogue.rejected[0]!.reason).toMatch(/removed/i);
+
+    // A writes under epoch 2 -> B decrypts and applies, C cannot decrypt
+    const epoch2Rec = await A.engine.applyLocalChanges([{ path: 'config.defaultMode', value: 'news' }], now + 600);
+    const bEpoch2 = await B.engine.receiveRecords(epoch2Rec, now + 700);
+    expect(bEpoch2.applied[0]!.value).toBe('news');
+    const cEpoch2 = await C.engine.receiveRecords(epoch2Rec, now + 700);
+    expect(cEpoch2.accepted).toBe(0);
+    expect(cEpoch2.rejected[0]!.reason).toMatch(/Unknown epoch/i);
+  });
+
+  it('compacts tombstones only after all active members acknowledge them', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', groupKeys, now);
+    const B = await makePeer('B', groupKeys, now);
+
+    await A.engine.receiveRecords(B.engine.getAllEnvelopes(), now + 100);
+    await B.engine.receiveRecords(A.engine.getAllEnvelopes(), now + 100);
+
+    const p = makeMembershipElementPath('config.judge.blockedDomains', 'temp.test');
+    await A.engine.applyLocalChanges([{ path: p, value: true }], now + 200);
+    await A.engine.applyLocalChanges([{ path: p, tombstone: true }], now + 300);
+
+    // Before B acks, compaction removes nothing
+    expect(A.engine.compact()).toEqual({ removedEnvelopes: 0, removedTombstones: 0 });
+
+    // B receives and A records B's ack vector
+    await B.engine.receiveRecords(A.engine.missingRecordsFor(B.engine.getVersionVector()), now + 400);
+    A.engine.recordPeerAck(B.device.deviceId, B.engine.getVersionVector());
+
+    const compacted = A.engine.compact();
+    expect(compacted.removedTombstones).toBe(1);
+    expect(compacted.removedEnvelopes).toBeGreaterThanOrEqual(1);
+    expect(A.engine.getRegisters()[p]).toBeUndefined();
+  });
+
+  it('resolves join conflicts in group, local, and merge modes', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', groupKeys, now);
+    await A.engine.applyLocalChanges(
+      [
+        { path: 'config.defaultMode', value: 'news' },
+        { path: makeMembershipElementPath('config.judge.blockedDomains', 'group.test'), value: true },
+      ],
+      now + 100,
+    );
+
+    const B = await makePeer('B', groupKeys, now + 200);
+    await B.engine.receiveRecords(A.engine.getAllEnvelopes(), now + 200);
+
+    const localEntries = [
+      { path: 'config.defaultMode', value: 'web' },
+      { path: makeMembershipElementPath('config.judge.blockedDomains', 'local.test'), value: true },
+    ];
+
+    const mergeRes = await B.engine.resolveJoinConflict('merge', localEntries, now + 300);
+    expect(mergeRes.emitted).toHaveLength(1); // local.test published, scalar stays group's 'news'
+    expect(B.engine.getRegisters()['config.defaultMode']!.value).toBe('news');
+    expect(B.engine.getRegisters()[makeMembershipElementPath('config.judge.blockedDomains', 'local.test')]?.value).toBe(true);
+    expect(B.engine.getRegisters()[makeMembershipElementPath('config.judge.blockedDomains', 'group.test')]?.value).toBe(true);
+  });
+});

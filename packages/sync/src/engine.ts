@@ -1,0 +1,798 @@
+import {
+  canonicalJson,
+  fromBase64Url,
+  toBase64Url,
+  utf8Encode,
+} from './encoding';
+import {
+  deriveDeviceId,
+  deriveGroupKeys,
+  importGroupSecret,
+  importPeerSigningKey,
+  openRecordBody,
+  sealRecordBody,
+  signEd25519,
+  unwrapGroupEntropyFromPeer,
+  verifyEd25519,
+  wrapGroupEntropyForPeer,
+  type DeviceKeys,
+  type GroupKeys,
+  type WrappedEpochSecret,
+} from './crypto';
+import {
+  compareHlc,
+  createHlc,
+  isHlcDriftAcceptable,
+  receiveHlc,
+  tickHlc,
+  type Hlc,
+} from './hlc';
+import {
+  classifySyncPath,
+  DEFAULT_SYNC_CATEGORIES,
+  isCategoryEnabled,
+  migrateRecordEntry,
+  parseMembershipElementPath,
+  validateAndClampSyncValue,
+  type SyncCategory,
+  type SyncCategorySettings,
+} from './categories';
+
+export type SyncRecordKind = 'set' | 'tombstone' | 'member-join' | 'member-remove' | 'epoch-rotate';
+
+export interface SyncRecordEnvelope {
+  deviceId: string;
+  seq: number;
+  epoch: number;
+  hlc: Hlc;
+  configVersion: number;
+  kind: SyncRecordKind;
+  signingPublic: string;
+  nonce: string;
+  ciphertext: string;
+  signature: string;
+}
+
+export type SyncRecordBody =
+  | { kind: 'set'; path: string; value: unknown }
+  | { kind: 'tombstone'; path: string }
+  | {
+      kind: 'member-join';
+      deviceId: string;
+      deviceName: string;
+      signingPublic: string;
+      agreementPublic: string;
+    }
+  | {
+      kind: 'member-remove';
+      removedDeviceId: string;
+      maxSeq: number;
+      newEpoch: number;
+      wrappedSecrets: WrappedEpochSecret[];
+    }
+  | {
+      kind: 'epoch-rotate';
+      newEpoch: number;
+      wrappedSecrets: WrappedEpochSecret[];
+    };
+
+export interface SyncMember {
+  deviceId: string;
+  deviceName: string;
+  signingPublic: string;
+  agreementPublic: string;
+  joinedAt: number;
+  lastSeenAt: number;
+  removedAt?: number;
+  removedMaxSeq?: number;
+}
+
+export interface RegisterState {
+  path: string;
+  hlc: Hlc;
+  deviceId: string;
+  seq: number;
+  tombstone: boolean;
+  value: unknown;
+  configVersion: number;
+  category: SyncCategory | null;
+}
+
+export type VersionVector = Record<string, number>;
+
+export interface LocalChangeInput {
+  path: string;
+  value?: unknown;
+  tombstone?: boolean;
+}
+
+export interface AppliedChange {
+  path: string;
+  value?: unknown;
+  tombstone: boolean;
+  category: SyncCategory;
+}
+
+export interface ReceiveRecordsResult {
+  accepted: number;
+  duplicates: number;
+  rejected: Array<{ deviceId: string; seq: number; reason: string }>;
+  applied: AppliedChange[];
+  epochRotatedTo?: number;
+  removedSelf?: boolean;
+}
+
+export type JoinConflictMode = 'group' | 'local' | 'merge';
+
+export interface PersistedSyncEngineState {
+  epoch: number;
+  seq: number;
+  hlc: Hlc;
+  configVersion: number;
+  categories: SyncCategorySettings;
+  versionVector: VersionVector;
+  peerAcks: Record<string, VersionVector>;
+  members: Record<string, SyncMember>;
+  registers: Record<string, RegisterState>;
+  recordLog: SyncRecordEnvelope[];
+}
+
+function envelopeAad(env: Pick<SyncRecordEnvelope, 'deviceId' | 'seq' | 'epoch' | 'hlc' | 'configVersion' | 'kind'>): string {
+  return canonicalJson({
+    deviceId: env.deviceId,
+    seq: env.seq,
+    epoch: env.epoch,
+    hlc: env.hlc,
+    configVersion: env.configVersion,
+    kind: env.kind,
+  });
+}
+
+function envelopeSignPayload(
+  env: Omit<SyncRecordEnvelope, 'signature'>,
+): Uint8Array<ArrayBuffer> {
+  return utf8Encode(
+    'kiwi-sync-record/v1:' +
+      canonicalJson({
+        deviceId: env.deviceId,
+        seq: env.seq,
+        epoch: env.epoch,
+        hlc: env.hlc,
+        configVersion: env.configVersion,
+        kind: env.kind,
+        signingPublic: env.signingPublic,
+        nonce: env.nonce,
+        ciphertext: env.ciphertext,
+      }),
+  );
+}
+
+export class SyncEngine {
+  private readonly device: DeviceKeys;
+  private readonly deviceName: string;
+  private readonly epochKeys = new Map<number, GroupKeys>();
+  private currentEpoch: number;
+  private seq: number;
+  private hlc: Hlc;
+  private configVersion: number;
+  private categories: SyncCategorySettings;
+  private versionVector: VersionVector;
+  private peerAcks: Record<string, VersionVector>;
+  private members: Record<string, SyncMember>;
+  private registers: Record<string, RegisterState>;
+  private recordLog: Map<string, SyncRecordEnvelope>;
+
+  constructor(params: {
+    device: DeviceKeys;
+    deviceName: string;
+    groupKeys: GroupKeys;
+    configVersion: number;
+    categories?: SyncCategorySettings;
+    persisted?: PersistedSyncEngineState;
+    nowMs?: number;
+  }) {
+    this.device = params.device;
+    this.deviceName = params.deviceName;
+    this.epochKeys.set(params.groupKeys.epoch, params.groupKeys);
+    this.configVersion = params.configVersion;
+
+    if (params.persisted) {
+      this.currentEpoch = params.persisted.epoch;
+      this.seq = params.persisted.seq;
+      this.hlc = { ...params.persisted.hlc };
+      this.categories = { ...DEFAULT_SYNC_CATEGORIES, ...params.persisted.categories };
+      this.versionVector = { ...params.persisted.versionVector };
+      this.peerAcks = structuredClone(params.persisted.peerAcks);
+      this.members = structuredClone(params.persisted.members);
+      this.registers = structuredClone(params.persisted.registers);
+      this.recordLog = new Map(params.persisted.recordLog.map((r) => [this.recordKeyId(r.deviceId, r.seq), r]));
+    } else {
+      const now = params.nowMs ?? Date.now();
+      this.currentEpoch = params.groupKeys.epoch;
+      this.seq = 0;
+      this.hlc = createHlc(params.device.deviceId, now);
+      this.categories = { ...DEFAULT_SYNC_CATEGORIES, ...params.categories };
+      this.versionVector = {};
+      this.peerAcks = {};
+      this.members = {
+        [params.device.deviceId]: {
+          deviceId: params.device.deviceId,
+          deviceName: params.deviceName,
+          signingPublic: toBase64Url(params.device.signingPublicRaw),
+          agreementPublic: toBase64Url(params.device.agreementPublicRaw),
+          joinedAt: now,
+          lastSeenAt: now,
+        },
+      };
+      this.registers = {};
+      this.recordLog = new Map();
+    }
+  }
+
+  private recordKeyId(deviceId: string, seq: number): string {
+    return `${deviceId}:${seq}`;
+  }
+
+  get deviceId(): string {
+    return this.device.deviceId;
+  }
+
+  get epoch(): number {
+    return this.currentEpoch;
+  }
+
+  getGroupKeys(epoch = this.currentEpoch): GroupKeys | undefined {
+    return this.epochKeys.get(epoch);
+  }
+
+  registerEpochKeys(keys: GroupKeys): void {
+    this.epochKeys.set(keys.epoch, keys);
+    if (keys.epoch > this.currentEpoch) {
+      this.currentEpoch = keys.epoch;
+    }
+  }
+
+  getCategories(): SyncCategorySettings {
+    return { ...this.categories };
+  }
+
+  setCategories(next: Partial<SyncCategorySettings>): SyncCategorySettings {
+    this.categories = { ...this.categories, ...next };
+    return this.getCategories();
+  }
+
+  getVersionVector(): VersionVector {
+    return { ...this.versionVector };
+  }
+
+  getMembers(): SyncMember[] {
+    return Object.values(this.members).map((m) => ({ ...m }));
+  }
+
+  getActiveMembers(): SyncMember[] {
+    return Object.values(this.members)
+      .filter((m) => m.removedAt === undefined)
+      .map((m) => ({ ...m }));
+  }
+
+  getRegisters(): Record<string, RegisterState> {
+    return structuredClone(this.registers);
+  }
+
+  getAllEnvelopes(): SyncRecordEnvelope[] {
+    return [...this.recordLog.values()];
+  }
+
+  exportState(): PersistedSyncEngineState {
+    return {
+      epoch: this.currentEpoch,
+      seq: this.seq,
+      hlc: { ...this.hlc },
+      configVersion: this.configVersion,
+      categories: { ...this.categories },
+      versionVector: { ...this.versionVector },
+      peerAcks: structuredClone(this.peerAcks),
+      members: structuredClone(this.members),
+      registers: structuredClone(this.registers),
+      recordLog: [...this.recordLog.values()],
+    };
+  }
+
+  recordPeerAck(peerDeviceId: string, remoteVector: VersionVector): void {
+    const existing = this.peerAcks[peerDeviceId] ?? {};
+    const merged: VersionVector = { ...existing };
+    for (const [dev, seq] of Object.entries(remoteVector)) {
+      if (typeof seq === 'number' && seq > (merged[dev] ?? 0)) {
+        merged[dev] = seq;
+      }
+    }
+    this.peerAcks[peerDeviceId] = merged;
+    const member = this.members[peerDeviceId];
+    if (member) member.lastSeenAt = Date.now();
+  }
+
+  missingRecordsFor(remoteVector: VersionVector): SyncRecordEnvelope[] {
+    const missing: SyncRecordEnvelope[] = [];
+    for (const env of this.recordLog.values()) {
+      const acked = remoteVector[env.deviceId] ?? 0;
+      if (env.seq > acked) {
+        missing.push(env);
+      }
+    }
+    missing.sort((a, b) => (a.deviceId === b.deviceId ? a.seq - b.seq : a.deviceId < b.deviceId ? -1 : 1));
+    return missing;
+  }
+
+  async createMemberJoinRecord(nowMs = Date.now()): Promise<SyncRecordEnvelope> {
+    return this.appendEnvelope(
+      'member-join',
+      {
+        kind: 'member-join',
+        deviceId: this.device.deviceId,
+        deviceName: this.deviceName,
+        signingPublic: toBase64Url(this.device.signingPublicRaw),
+        agreementPublic: toBase64Url(this.device.agreementPublicRaw),
+      },
+      nowMs,
+    );
+  }
+
+  async applyLocalChanges(changes: readonly LocalChangeInput[], nowMs = Date.now()): Promise<SyncRecordEnvelope[]> {
+    const emitted: SyncRecordEnvelope[] = [];
+    for (const change of changes) {
+      const category = classifySyncPath(change.path);
+      if (!isCategoryEnabled(this.categories, category)) continue;
+      const isTombstone = Boolean(change.tombstone);
+      if (!isTombstone) {
+        const checked = validateAndClampSyncValue(change.path, change.value);
+        if (!checked.ok) continue;
+        const env = await this.appendEnvelope(
+          'set',
+          { kind: 'set', path: change.path, value: checked.value },
+          nowMs,
+        );
+        this.registers[change.path] = {
+          path: change.path,
+          hlc: env.hlc,
+          deviceId: env.deviceId,
+          seq: env.seq,
+          tombstone: false,
+          value: checked.value,
+          configVersion: this.configVersion,
+          category,
+        };
+        emitted.push(env);
+      } else {
+        const env = await this.appendEnvelope('tombstone', { kind: 'tombstone', path: change.path }, nowMs);
+        this.registers[change.path] = {
+          path: change.path,
+          hlc: env.hlc,
+          deviceId: env.deviceId,
+          seq: env.seq,
+          tombstone: true,
+          value: undefined,
+          configVersion: this.configVersion,
+          category,
+        };
+        emitted.push(env);
+      }
+    }
+    return emitted;
+  }
+
+  async receiveRecords(
+    envelopes: readonly SyncRecordEnvelope[],
+    nowMs = Date.now(),
+  ): Promise<ReceiveRecordsResult> {
+    const result: ReceiveRecordsResult = {
+      accepted: 0,
+      duplicates: 0,
+      rejected: [],
+      applied: [],
+    };
+
+    for (const env of envelopes) {
+      const keyId = this.recordKeyId(env.deviceId, env.seq);
+      if (this.recordLog.has(keyId)) {
+        result.duplicates += 1;
+        continue;
+      }
+
+      if (!Number.isInteger(env.seq) || env.seq < 1) {
+        result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Invalid sequence number' });
+        continue;
+      }
+
+      if (!isHlcDriftAcceptable(env.hlc, nowMs)) {
+        result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Remote HLC exceeds 24h drift limit' });
+        continue;
+      }
+
+      // Check removed member seq cap before accepting anything further from that device.
+      const existingMember = this.members[env.deviceId];
+      if (
+        existingMember?.removedAt !== undefined &&
+        existingMember.removedMaxSeq !== undefined &&
+        env.seq > existingMember.removedMaxSeq
+      ) {
+        result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Device has been removed' });
+        continue;
+      }
+
+      // Verify deviceId matches signingPublic and verify Ed25519 signature.
+      let expectedDeviceId: string;
+      try {
+        expectedDeviceId = await deriveDeviceId(fromBase64Url(env.signingPublic));
+      } catch {
+        result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Malformed signingPublic' });
+        continue;
+      }
+      if (expectedDeviceId !== env.deviceId) {
+        result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'deviceId mismatch' });
+        continue;
+      }
+      if (existingMember && existingMember.signingPublic !== env.signingPublic) {
+        result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Signing key mismatch for known device' });
+        continue;
+      }
+
+      let sigValid = false;
+      try {
+        const pubKey = await importPeerSigningKey(env.signingPublic);
+        const { signature, ...unsigned } = env;
+        sigValid = await verifyEd25519(pubKey, fromBase64Url(signature), envelopeSignPayload(unsigned));
+      } catch {
+        sigValid = false;
+      }
+      if (!sigValid) {
+        result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Invalid Ed25519 signature' });
+        continue;
+      }
+
+      const keys = this.epochKeys.get(env.epoch);
+      if (!keys) {
+        result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: `Unknown epoch ${env.epoch}` });
+        continue;
+      }
+
+      let body: SyncRecordBody;
+      try {
+        body = await openRecordBody<SyncRecordBody>(keys.recordKey, envelopeAad(env), env.nonce, env.ciphertext);
+      } catch {
+        result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Failed to decrypt record body' });
+        continue;
+      }
+
+      if (body.kind !== env.kind) {
+        result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Record kind mismatch' });
+        continue;
+      }
+
+      // Accept record into log and advance HLC & version vector.
+      this.hlc = receiveHlc(this.hlc, env.hlc, this.device.deviceId, nowMs);
+      this.recordLog.set(keyId, env);
+      if (env.seq > (this.versionVector[env.deviceId] ?? 0)) {
+        this.versionVector[env.deviceId] = env.seq;
+      }
+      result.accepted += 1;
+
+      if (body.kind === 'member-join') {
+        const prev = this.members[body.deviceId];
+        this.members[body.deviceId] = {
+          deviceId: body.deviceId,
+          deviceName: body.deviceName,
+          signingPublic: body.signingPublic,
+          agreementPublic: body.agreementPublic,
+          joinedAt: prev?.joinedAt ?? env.hlc.ms,
+          lastSeenAt: nowMs,
+          removedAt: prev?.removedAt,
+          removedMaxSeq: prev?.removedMaxSeq,
+        };
+      } else if (body.kind === 'member-remove') {
+        const target = this.members[body.removedDeviceId];
+        if (target) {
+          target.removedAt = env.hlc.ms;
+          target.removedMaxSeq = body.maxSeq;
+        } else {
+          this.members[body.removedDeviceId] = {
+            deviceId: body.removedDeviceId,
+            deviceName: body.removedDeviceId,
+            signingPublic: '',
+            agreementPublic: '',
+            joinedAt: env.hlc.ms,
+            lastSeenAt: env.hlc.ms,
+            removedAt: env.hlc.ms,
+            removedMaxSeq: body.maxSeq,
+          };
+        }
+        if (body.removedDeviceId === this.device.deviceId) {
+          result.removedSelf = true;
+        } else {
+          const rotated = await this.tryUnwrapEpoch(body.newEpoch, body.wrappedSecrets);
+          if (rotated) result.epochRotatedTo = body.newEpoch;
+        }
+      } else if (body.kind === 'epoch-rotate') {
+        const rotated = await this.tryUnwrapEpoch(body.newEpoch, body.wrappedSecrets);
+        if (rotated) result.epochRotatedTo = body.newEpoch;
+      } else if (body.kind === 'set' || body.kind === 'tombstone') {
+        const migrated = migrateRecordEntry(
+          {
+            path: body.path,
+            value: body.kind === 'set' ? body.value : undefined,
+            tombstone: body.kind === 'tombstone',
+          },
+          env.configVersion,
+          this.configVersion,
+        );
+        const category = classifySyncPath(migrated.path);
+        const existing = this.registers[migrated.path];
+        if (existing && compareHlc(env.hlc, existing.hlc) <= 0) {
+          // Existing register has a newer or equal HLC; keep log entry for forwarding, do not overwrite.
+          continue;
+        }
+        if (!migrated.tombstone && category !== null) {
+          const checked = validateAndClampSyncValue(migrated.path, migrated.value);
+          if (!checked.ok) {
+            result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: checked.reason });
+            continue;
+          }
+          migrated.value = checked.value;
+        }
+        this.registers[migrated.path] = {
+          path: migrated.path,
+          hlc: env.hlc,
+          deviceId: env.deviceId,
+          seq: env.seq,
+          tombstone: Boolean(migrated.tombstone),
+          value: migrated.value,
+          configVersion: env.configVersion,
+          category,
+        };
+        // Unknown paths (category === null) are kept in registers & recordLog for forwarding, never applied locally.
+        // Disabled categories (e.g. keys=false by default) are also never applied locally.
+        if (category !== null && isCategoryEnabled(this.categories, category)) {
+          result.applied.push({
+            path: migrated.path,
+            value: migrated.value,
+            tombstone: Boolean(migrated.tombstone),
+            category,
+          });
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Removes a device from the group, rotates to epoch + 1 with newEntropy,
+   * and wraps newEntropy for every remaining active member using X25519.
+   */
+  async removeDevice(
+    removedDeviceId: string,
+    newEntropy: Uint8Array,
+    nowMs = Date.now(),
+  ): Promise<{ envelope: SyncRecordEnvelope; newGroupKeys: GroupKeys }> {
+    if (removedDeviceId === this.device.deviceId) {
+      throw new Error('Cannot remove the current device via removeDevice; use leave instead');
+    }
+    const maxSeq = this.versionVector[removedDeviceId] ?? 0;
+    const newEpoch = this.currentEpoch + 1;
+    const wrappedSecrets = await this.wrapForActiveMembers(newEpoch, newEntropy, removedDeviceId);
+
+    const envelope = await this.appendEnvelope(
+      'member-remove',
+      {
+        kind: 'member-remove',
+        removedDeviceId,
+        maxSeq,
+        newEpoch,
+        wrappedSecrets,
+      },
+      nowMs,
+    );
+
+    const target = this.members[removedDeviceId];
+    if (target) {
+      target.removedAt = nowMs;
+      target.removedMaxSeq = maxSeq;
+    }
+
+    const secret = await importGroupSecret(newEntropy);
+    const newGroupKeys = await deriveGroupKeys(secret, newEpoch);
+    this.registerEpochKeys(newGroupKeys);
+
+    return { envelope, newGroupKeys };
+  }
+
+  /**
+   * Rotates the recovery phrase / epoch without removing any active member.
+   */
+  async rotatePhrase(
+    newEntropy: Uint8Array,
+    nowMs = Date.now(),
+  ): Promise<{ envelope: SyncRecordEnvelope; newGroupKeys: GroupKeys }> {
+    const newEpoch = this.currentEpoch + 1;
+    const wrappedSecrets = await this.wrapForActiveMembers(newEpoch, newEntropy);
+
+    const envelope = await this.appendEnvelope(
+      'epoch-rotate',
+      {
+        kind: 'epoch-rotate',
+        newEpoch,
+        wrappedSecrets,
+      },
+      nowMs,
+    );
+
+    const secret = await importGroupSecret(newEntropy);
+    const newGroupKeys = await deriveGroupKeys(secret, newEpoch);
+    this.registerEpochKeys(newGroupKeys);
+
+    return { envelope, newGroupKeys };
+  }
+
+  /**
+   * Compacts superseded record envelopes and tombstones once every active member
+   * has acknowledged up to the winning/tombstone (deviceId, seq).
+   */
+  compact(): { removedEnvelopes: number; removedTombstones: number } {
+    const activeMemberIds = this.getActiveMembers()
+      .map((m) => m.deviceId)
+      .filter((id) => id !== this.device.deviceId);
+
+    if (activeMemberIds.length === 0) {
+      return { removedEnvelopes: 0, removedTombstones: 0 };
+    }
+
+    const isAckedByAll = (deviceId: string, seq: number): boolean => {
+      for (const peerId of activeMemberIds) {
+        const peerVec = this.peerAcks[peerId];
+        if (!peerVec || (peerVec[deviceId] ?? 0) < seq) return false;
+      }
+      return true;
+    };
+
+    const winningKeys = new Set<string>();
+    let removedTombstones = 0;
+
+    for (const [path, reg] of Object.entries(this.registers)) {
+      if (reg.tombstone && isAckedByAll(reg.deviceId, reg.seq)) {
+        delete this.registers[path];
+        removedTombstones += 1;
+      } else {
+        winningKeys.add(this.recordKeyId(reg.deviceId, reg.seq));
+      }
+    }
+
+    let removedEnvelopes = 0;
+    for (const [keyId, env] of this.recordLog) {
+      if (env.kind !== 'set' && env.kind !== 'tombstone') continue;
+      if (winningKeys.has(keyId)) continue;
+      if (isAckedByAll(env.deviceId, env.seq)) {
+        this.recordLog.delete(keyId);
+        removedEnvelopes += 1;
+      }
+    }
+
+    return { removedEnvelopes, removedTombstones };
+  }
+
+  /**
+   * Resolves initial settings when a device with existing local settings joins a group:
+   * - 'group' (default): apply group registers to local device, emit nothing
+   * - 'local': publish local entries with fresh HLCs so local values win
+   * - 'merge': keep group scalar values, publish local membership additions not in group, apply group registers
+   */
+  async resolveJoinConflict(
+    mode: JoinConflictMode,
+    localEntries: readonly LocalChangeInput[],
+    nowMs = Date.now(),
+  ): Promise<{ toApplyLocally: AppliedChange[]; emitted: SyncRecordEnvelope[] }> {
+    const groupApplied: AppliedChange[] = [];
+    for (const reg of Object.values(this.registers)) {
+      if (reg.category === null || !isCategoryEnabled(this.categories, reg.category)) continue;
+      groupApplied.push({
+        path: reg.path,
+        value: reg.value,
+        tombstone: reg.tombstone,
+        category: reg.category,
+      });
+    }
+
+    if (mode === 'group') {
+      return { toApplyLocally: groupApplied, emitted: [] };
+    }
+
+    if (mode === 'local') {
+      const emitted = await this.applyLocalChanges(localEntries, nowMs);
+      return { toApplyLocally: [], emitted };
+    }
+
+    // 'merge': union membership sets + keep group scalars (and publish local scalars only if group has no register for them)
+    const toPublish: LocalChangeInput[] = [];
+    for (const entry of localEntries) {
+      const existing = this.registers[entry.path];
+      if (parseMembershipElementPath(entry.path)) {
+        if (!entry.tombstone && (!existing || existing.tombstone)) {
+          toPublish.push(entry);
+        }
+      } else if (!existing) {
+        toPublish.push(entry);
+      }
+    }
+    const emitted = await this.applyLocalChanges(toPublish, nowMs);
+    return { toApplyLocally: groupApplied, emitted };
+  }
+
+  private async appendEnvelope(
+    kind: SyncRecordKind,
+    body: SyncRecordBody,
+    nowMs: number,
+  ): Promise<SyncRecordEnvelope> {
+    const keys = this.epochKeys.get(this.currentEpoch);
+    if (!keys) throw new Error(`Missing keys for current epoch ${this.currentEpoch}`);
+
+    this.seq += 1;
+    this.hlc = tickHlc(this.hlc, this.device.deviceId, nowMs);
+
+    const header = {
+      deviceId: this.device.deviceId,
+      seq: this.seq,
+      epoch: this.currentEpoch,
+      hlc: this.hlc,
+      configVersion: this.configVersion,
+      kind,
+    };
+
+    const { nonce, ciphertext } = await sealRecordBody(keys.recordKey, envelopeAad(header), body);
+    const unsigned: Omit<SyncRecordEnvelope, 'signature'> = {
+      ...header,
+      signingPublic: toBase64Url(this.device.signingPublicRaw),
+      nonce,
+      ciphertext,
+    };
+    const sig = await signEd25519(this.device.signing.privateKey, envelopeSignPayload(unsigned));
+    const envelope: SyncRecordEnvelope = { ...unsigned, signature: toBase64Url(sig) };
+
+    this.recordLog.set(this.recordKeyId(envelope.deviceId, envelope.seq), envelope);
+    this.versionVector[envelope.deviceId] = envelope.seq;
+    return envelope;
+  }
+
+  private async wrapForActiveMembers(
+    newEpoch: number,
+    newEntropy: Uint8Array,
+    excludeDeviceId?: string,
+  ): Promise<WrappedEpochSecret[]> {
+    const wrapped: WrappedEpochSecret[] = [];
+    for (const member of this.getActiveMembers()) {
+      if (member.deviceId === this.device.deviceId || member.deviceId === excludeDeviceId) continue;
+      if (!member.agreementPublic) continue;
+      wrapped.push(
+        await wrapGroupEntropyForPeer(
+          this.device,
+          member.deviceId,
+          member.agreementPublic,
+          newEpoch,
+          newEntropy,
+        ),
+      );
+    }
+    return wrapped;
+  }
+
+  private async tryUnwrapEpoch(newEpoch: number, wrappedSecrets: readonly WrappedEpochSecret[]): Promise<boolean> {
+    const mine = wrappedSecrets.find((w) => w.recipientDeviceId === this.device.deviceId);
+    if (!mine) return false;
+    try {
+      const entropy = await unwrapGroupEntropyFromPeer(this.device, mine);
+      const secret = await importGroupSecret(entropy);
+      const nextKeys = await deriveGroupKeys(secret, newEpoch);
+      this.registerEpochKeys(nextKeys);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
