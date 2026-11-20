@@ -33,7 +33,9 @@ class FakeWebSocket {
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
   onclose: ((event: CloseEvent) => void) | null = null;
-  send = vi.fn((_data: unknown) => {});
+  send = vi.fn((_data: unknown) => {
+    if (this.readyState !== FakeWebSocket.OPEN) throw new Error('WebSocket is not open');
+  });
 
   constructor(readonly url: string) {
     FakeWebSocket.instances.push(this);
@@ -254,6 +256,41 @@ describe('SyncTransportCore', () => {
     expect((core as unknown as { ws: FakeWebSocket | null }).ws).toBe(reconnectedSocket);
     reconnectedSocket.open();
     await vi.waitFor(() => expect(reconnectedSocket.send).toHaveBeenCalled());
+    core.stop();
+  });
+
+  it('drops a relay frame when the socket closes during sealing', async () => {
+    const { core, keys, ws } = await createRelayCore();
+    const originalEncrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+    let releaseSeal = () => {};
+    const sealPending = new Promise<void>((resolve) => {
+      releaseSeal = resolve;
+    });
+    let markSealStarted = () => {};
+    const sealStarted = new Promise<void>((resolve) => {
+      markSealStarted = resolve;
+    });
+    vi.spyOn(crypto.subtle, 'encrypt').mockImplementation(async (algorithm, key, data) => {
+      markSealStarted();
+      await sealPending;
+      return originalEncrypt(algorithm, key, data);
+    });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const sendSignal = (
+      core as unknown as {
+        sendSignal: (message: { t: string; from: string; epoch: number }) => Promise<void>;
+      }
+    ).sendSignal.bind(core);
+    const sendsBefore = ws.send.mock.calls.length;
+    const send = sendSignal({ t: 'hello', from: 'device-a', epoch: keys.epoch });
+
+    await sealStarted;
+    ws.close();
+    releaseSeal();
+
+    await expect(send).resolves.toBeUndefined();
+    expect(ws.send).toHaveBeenCalledTimes(sendsBefore);
+    expect(consoleError).not.toHaveBeenCalled();
     core.stop();
   });
 

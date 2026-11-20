@@ -716,7 +716,13 @@ export class SyncTransportCore {
       payload: msg,
     };
     const frame = await sealRelayFrame(keys, wrapped);
-    socket.send(frame);
+    const activeSocket = epoch === this.config?.epoch ? this.ws : this.legacySockets.get(epoch);
+    if (socket !== activeSocket || socket.readyState !== WebSocket.OPEN) return;
+    try {
+      socket.send(frame);
+    } catch {
+      return;
+    }
   }
 
   private async handleRelayFrame(bytes: Uint8Array): Promise<void> {
