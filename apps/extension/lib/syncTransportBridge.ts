@@ -4,7 +4,7 @@ import { SyncTransportCore, type TransportConfig, type TransportEvent } from './
 export interface SyncTransport {
   start(config: TransportConfig): Promise<void>;
   stop(): Promise<void>;
-  sendToPeer(peerId: string, payload: string): Promise<boolean>;
+  sendToPeer(peerId: string, payload: string, epoch?: number): Promise<boolean>;
   broadcast(payload: string): Promise<void>;
   createOfferCode(): Promise<string>;
   createAnswerCode(offerCode: string): Promise<string>;
@@ -170,14 +170,14 @@ export class ExtensionSyncTransport implements SyncTransport {
     this.directCore?.stop();
   }
 
-  async sendToPeer(peerId: string, payload: string): Promise<boolean> {
+  async sendToPeer(peerId: string, payload: string, epoch?: number): Promise<boolean> {
     if (this.useOffscreen()) {
       if (!this.offscreenPort) return false;
-      const res = await this.sendOffscreenCommand({ cmd: 'send', peerId, payload });
+      const res = await this.sendOffscreenCommand({ cmd: 'send', peerId, payload, epoch });
       return Boolean(res.sent);
     }
     if (!this.directCore) return false;
-    return this.directCore.sendToPeer(peerId, payload);
+    return this.directCore.sendToPeer(peerId, payload, epoch);
   }
 
   async broadcast(payload: string): Promise<void> {

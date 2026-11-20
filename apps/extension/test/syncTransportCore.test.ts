@@ -12,6 +12,7 @@ import {
 const mockStorage = vi.hoisted(() => ({ record: null as unknown }));
 
 vi.mock('../lib/syncDb', () => ({
+  PREVIOUS_GROUP_SECRET_MAX_AGE_MS: 30 * 24 * 60 * 60 * 1_000,
   createDefaultSyncStorage: () => ({
     load: async () => mockStorage.record,
   }),
@@ -142,6 +143,7 @@ function makeConfig(relayUrl = ''): TransportConfig {
     relayUrl,
     stunEnabled: false,
     stunUrls: [],
+    legacyEpochs: [],
   };
 }
 
@@ -209,10 +211,11 @@ describe('SyncTransportCore', () => {
 
     await core.start(config);
     const peers = (core as unknown as {
-      peers: Map<string, { peerId: string; peerName: string; channel: 'webrtc'; connectedEmitted: boolean }>;
+      peers: Map<string, { peerId: string; epoch: number; peerName: string; channel: 'webrtc'; connectedEmitted: boolean }>;
     }).peers;
     peers.set('peer-b', {
       peerId: 'peer-b',
+      epoch: 1,
       peerName: 'Peer B',
       channel: 'webrtc',
       connectedEmitted: true,
@@ -254,6 +257,223 @@ describe('SyncTransportCore', () => {
     core.stop();
   });
 
+  it('opens a relay-only beacon for a retained epoch and sends with its keys', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    vi.stubGlobal('RTCPeerConnection', FakeRTCPeerConnection);
+    const previousSecret = await importGroupSecret(new Uint8Array(32).fill(2));
+    const currentSecret = await importGroupSecret(new Uint8Array(32).fill(3));
+    const previousKeys = await deriveGroupKeys(previousSecret, 2);
+    const currentKeys = await deriveGroupKeys(currentSecret, 3);
+    mockStorage.record = {
+      groupKeys: currentKeys,
+      previousGroupSecrets: [{ epoch: 2, secret: previousSecret, rotatedAt: Date.now() }],
+    };
+    const events: import('../lib/syncTransportCore').TransportEvent[] = [];
+    const core = new SyncTransportCore((event) => events.push(event));
+
+    await core.start({ ...makeConfig('wss://relay.example'), epoch: 3, legacyEpochs: [2] });
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    const currentWs = FakeWebSocket.instances[0]!;
+    const legacyWs = FakeWebSocket.instances[1]!;
+    currentWs.open();
+    legacyWs.open();
+    await vi.waitFor(() => expect(legacyWs.send).toHaveBeenCalled());
+
+    await receiveRelaySignal(legacyWs, previousKeys, {
+      t: 'hello',
+      from: 'device-z',
+      fromName: 'Device Z',
+      epoch: 2,
+    });
+    await vi.waitFor(() =>
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: 'peer-connected', peerId: 'device-z', epoch: 2, channel: 'relay' }),
+      ),
+    );
+    expect(FakeRTCPeerConnection.instances).toHaveLength(0);
+    expect(await core.sendToPeer('device-z', '{"type":"vv"}', 2)).toBe(true);
+    const legacySignals = await readSentSignals(legacyWs, previousKeys);
+    expect(legacySignals).toContainEqual(expect.objectContaining({ t: 'relay-data', to: 'device-z' }));
+
+    await core.start({ ...makeConfig('wss://relay.example'), epoch: 3, legacyEpochs: [] });
+    expect(legacyWs.readyState).toBe(FakeWebSocket.CLOSED);
+    core.stop();
+  });
+
+  it('announces authenticated legacy peers when their relay socket reconnects', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-20T12:00:00.000Z'));
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    const previousSecret = await importGroupSecret(new Uint8Array(32).fill(7));
+    const currentSecret = await importGroupSecret(new Uint8Array(32).fill(8));
+    const previousKeys = await deriveGroupKeys(previousSecret, 2);
+    const currentKeys = await deriveGroupKeys(currentSecret, 3);
+    mockStorage.record = {
+      groupKeys: currentKeys,
+      previousGroupSecrets: [{ epoch: 2, secret: previousSecret, rotatedAt: Date.now() }],
+    };
+    const events: import('../lib/syncTransportCore').TransportEvent[] = [];
+    const core = new SyncTransportCore((event) => events.push(event));
+    await core.start({ ...makeConfig('wss://relay.example'), epoch: 3, legacyEpochs: [2] });
+
+    const oldLegacySocket = FakeWebSocket.instances[1]!;
+    oldLegacySocket.open();
+    await receiveRelaySignal(oldLegacySocket, previousKeys, {
+      t: 'hello',
+      from: 'device-z',
+      epoch: 2,
+    });
+    await vi.waitFor(() =>
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: 'peer-connected', peerId: 'device-z', epoch: 2 }),
+      ),
+    );
+    oldLegacySocket.close();
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    const reconnectedSocket = FakeWebSocket.instances[2]!;
+    expect(reconnectedSocket).toBeDefined();
+    reconnectedSocket.open();
+    await vi.waitFor(() =>
+      expect(events).toContainEqual({
+        type: 'peer-channel',
+        peerId: 'device-z',
+        epoch: 2,
+        channel: 'relay',
+      }),
+    );
+    core.stop();
+  });
+
+  it('rolls a retained legacy topic at UTC midnight', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-20T23:59:50.000Z'));
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    const previousSecret = await importGroupSecret(new Uint8Array(32).fill(11));
+    const currentSecret = await importGroupSecret(new Uint8Array(32).fill(12));
+    const previousKeys = await deriveGroupKeys(previousSecret, 2);
+    const currentKeys = await deriveGroupKeys(currentSecret, 3);
+    mockStorage.record = {
+      groupKeys: currentKeys,
+      previousGroupSecrets: [{ epoch: 2, secret: previousSecret, rotatedAt: Date.now() }],
+    };
+    const core = new SyncTransportCore(() => {});
+    await core.start({ ...makeConfig('wss://relay.example'), epoch: 3, legacyEpochs: [2] });
+    const oldLegacySocket = FakeWebSocket.instances[1]!;
+    oldLegacySocket.open();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(oldLegacySocket.readyState).toBe(FakeWebSocket.CLOSED);
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(4));
+    const legacyTopicId = await deriveTopicId(previousKeys.topicKey);
+    expect(FakeWebSocket.instances.filter((socket) => socket.url.includes(legacyTopicId))).toHaveLength(1);
+    core.stop();
+  });
+
+  it('closes an expired legacy beacon after the 30-day retention window', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-20T00:00:00.000Z'));
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    const previousSecret = await importGroupSecret(new Uint8Array(32).fill(4));
+    const currentSecret = await importGroupSecret(new Uint8Array(32).fill(5));
+    const previousKeys = await deriveGroupKeys(previousSecret, 2);
+    const currentKeys = await deriveGroupKeys(currentSecret, 3);
+    mockStorage.record = {
+      groupKeys: currentKeys,
+      previousGroupSecrets: [
+        {
+          epoch: 2,
+          secret: previousSecret,
+          rotatedAt: Date.now() - 30 * 24 * 60 * 60 * 1_000 + 500,
+        },
+      ],
+    };
+    const core = new SyncTransportCore(() => {});
+
+    await core.start({ ...makeConfig('wss://relay.example'), epoch: 3, legacyEpochs: [2] });
+    const legacyWs = FakeWebSocket.instances[1]!;
+    expect(legacyWs).toBeDefined();
+
+    await vi.advanceTimersByTimeAsync(501);
+
+    expect(legacyWs.readyState).toBe(FakeWebSocket.CLOSED);
+    core.stop();
+  });
+
+  it('expires an idle relay peer after 90 seconds with bounded hello keepalives', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    vi.stubGlobal('RTCPeerConnection', undefined);
+    const keys = await deriveGroupKeys(await importGroupSecret(new Uint8Array(32).fill(6)));
+    mockStorage.record = { groupKeys: keys };
+    const events: import('../lib/syncTransportCore').TransportEvent[] = [];
+    const core = new SyncTransportCore((event) => events.push(event));
+
+    await core.start(makeConfig('wss://relay.example'));
+    const ws = FakeWebSocket.instances[0]!;
+    ws.open();
+    await vi.waitFor(() => expect(ws.send).toHaveBeenCalled());
+    await receiveRelaySignal(ws, keys, { t: 'hello', from: 'device-b', epoch: 1 });
+    await vi.waitFor(() =>
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: 'peer-connected', peerId: 'device-b', epoch: 1, channel: 'relay' }),
+      ),
+    );
+
+    const lastSeenAt = (core as unknown as { peers: Map<string, { lastSeenAt: number }> }).peers.get('device-b')!
+      .lastSeenAt;
+    const remainingMs = 90_000 - (Date.now() - lastSeenAt);
+    await vi.advanceTimersByTimeAsync(remainingMs - 1);
+    expect(events).not.toContainEqual({ type: 'peer-disconnected', peerId: 'device-b', epoch: 1 });
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(events).toContainEqual({ type: 'peer-disconnected', peerId: 'device-b', epoch: 1 });
+    const helloCount = (await readSentSignals(ws, keys)).filter((signal) => signal.t === 'hello').length;
+    expect(helloCount).toBeLessThanOrEqual(6);
+    core.stop();
+  });
+
+  it('expires an idle peer on a legacy relay socket after 90 seconds', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    vi.stubGlobal('RTCPeerConnection', undefined);
+    const previousSecret = await importGroupSecret(new Uint8Array(32).fill(9));
+    const currentSecret = await importGroupSecret(new Uint8Array(32).fill(10));
+    const previousKeys = await deriveGroupKeys(previousSecret, 2);
+    const currentKeys = await deriveGroupKeys(currentSecret, 3);
+    mockStorage.record = {
+      groupKeys: currentKeys,
+      previousGroupSecrets: [{ epoch: 2, secret: previousSecret, rotatedAt: Date.now() }],
+    };
+    const events: import('../lib/syncTransportCore').TransportEvent[] = [];
+    const core = new SyncTransportCore((event) => events.push(event));
+    await core.start({ ...makeConfig('wss://relay.example'), epoch: 3, legacyEpochs: [2] });
+    const ws = FakeWebSocket.instances[1]!;
+    ws.open();
+    await receiveRelaySignal(ws, previousKeys, { t: 'hello', from: 'device-z', epoch: 2 });
+    await vi.waitFor(() =>
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: 'peer-connected', peerId: 'device-z', epoch: 2, channel: 'relay' }),
+      ),
+    );
+
+    const lastSeenAt = (
+      core as unknown as { legacyPeers: Map<number, Map<string, { lastSeenAt: number }>> }
+    ).legacyPeers.get(2)!.get('device-z')!.lastSeenAt;
+    const remainingMs = 90_000 - (Date.now() - lastSeenAt);
+    await vi.advanceTimersByTimeAsync(remainingMs - 1);
+    expect(events).not.toContainEqual({ type: 'peer-disconnected', peerId: 'device-z', epoch: 2 });
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(events).toContainEqual({ type: 'peer-disconnected', peerId: 'device-z', epoch: 2 });
+    const helloCount = (await readSentSignals(ws, previousKeys)).filter((signal) => signal.t === 'hello').length;
+    expect(helloCount).toBeLessThanOrEqual(6);
+    core.stop();
+  });
+
   it('replaces a peer slot when a relay hello carries a changed certificate', async () => {
     const { core, events, keys, ws } = await createRelayCore();
     await receiveRelaySignal(ws, keys, { t: 'hello', from: 'device-b', fromName: 'Peer B', certHash: 'bc:07:82' });
@@ -271,7 +491,7 @@ describe('SyncTransportCore', () => {
     expect(oldDc.readyState).toBe('closed');
     expect(slot?.peerCertHash).toBe('36:0a:50');
     expect(slot?.pc).toBe(FakeRTCPeerConnection.instances[1]);
-    expect(events).toContainEqual({ type: 'peer-disconnected', peerId: 'device-b' });
+    expect(events).toContainEqual({ type: 'peer-disconnected', peerId: 'device-b', epoch: 1 });
     core.stop();
   });
 
@@ -311,8 +531,8 @@ describe('SyncTransportCore', () => {
     const slots = (core as unknown as { peers: Map<string, { channel: string; connectedEmitted: boolean }> }).peers;
     expect(pc.closed).toBe(true);
     expect(slots.get('device-b')).toMatchObject({ channel: 'relay', connectedEmitted: true });
-    expect(events).toContainEqual({ type: 'peer-channel', peerId: 'device-b', channel: 'relay' });
-    expect(events).not.toContainEqual({ type: 'peer-disconnected', peerId: 'device-b' });
+    expect(events).toContainEqual({ type: 'peer-channel', peerId: 'device-b', epoch: 1, channel: 'relay' });
+    expect(events).not.toContainEqual({ type: 'peer-disconnected', peerId: 'device-b', epoch: 1 });
     expect(await helloCount()).toBe(previousHelloCount);
     core.stop();
   });
@@ -331,8 +551,8 @@ describe('SyncTransportCore', () => {
     }).peers;
     expect(slots.get('device-b')).toMatchObject({ channel: 'relay', connectedEmitted: true, pc: null });
     expect(pc.closed).toBe(true);
-    expect(events).toContainEqual({ type: 'peer-channel', peerId: 'device-b', channel: 'relay' });
-    expect(events).not.toContainEqual({ type: 'peer-disconnected', peerId: 'device-b' });
+    expect(events).toContainEqual({ type: 'peer-channel', peerId: 'device-b', epoch: 1, channel: 'relay' });
+    expect(events).not.toContainEqual({ type: 'peer-disconnected', peerId: 'device-b', epoch: 1 });
     core.stop();
   });
 

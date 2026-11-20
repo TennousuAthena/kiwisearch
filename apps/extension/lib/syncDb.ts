@@ -3,6 +3,32 @@ import type { SyncJoinConflictMode } from '@kiwi-search/protocol';
 
 export const SYNC_DB_NAME = 'kiwi-sync';
 export const SYNC_DB_VERSION = 1;
+export const PREVIOUS_GROUP_SECRET_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1_000;
+export const MAX_PREVIOUS_GROUP_SECRETS = 3;
+
+export interface PreviousGroupSecret {
+  epoch: number;
+  secret: CryptoKey;
+  rotatedAt: number;
+}
+
+export function prunePreviousGroupSecrets(
+  entries: readonly PreviousGroupSecret[] | undefined,
+  nowMs = Date.now(),
+): PreviousGroupSecret[] {
+  const cutoff = nowMs - PREVIOUS_GROUP_SECRET_MAX_AGE_MS;
+  return (entries ?? [])
+    .filter(
+      (entry) =>
+        Number.isInteger(entry.epoch) &&
+        entry.epoch > 0 &&
+        Number.isFinite(entry.rotatedAt) &&
+        entry.rotatedAt >= cutoff &&
+        entry.rotatedAt <= nowMs,
+    )
+    .sort((a, b) => b.rotatedAt - a.rotatedAt)
+    .slice(0, MAX_PREVIOUS_GROUP_SECRETS);
+}
 
 export interface SyncLocalSettings {
   deviceName: string;
@@ -20,6 +46,7 @@ export interface StoredSyncRecord {
   groupSecret: CryptoKey;
   groupKeys: GroupKeys;
   epochKeys: Record<number, CryptoKey>;
+  previousGroupSecrets: PreviousGroupSecret[];
   certificate?: RTCCertificate;
   settings: SyncLocalSettings;
   engineState: PersistedSyncEngineState;
@@ -66,6 +93,7 @@ interface StoredKeyMaterial {
   groupSecret: CryptoKey;
   groupKeys: GroupKeys;
   epochKeys: Record<number, CryptoKey>;
+  previousGroupSecrets?: PreviousGroupSecret[];
   certificate?: RTCCertificate;
 }
 
@@ -83,6 +111,8 @@ interface StoredStateMaterial {
 export class IndexedDbSyncStorage implements SyncStorageAdapter {
   async load(): Promise<StoredSyncRecord | null> {
     const db = await openSyncIdb();
+    let record: StoredSyncRecord | null = null;
+    let needsPruning = false;
     try {
       const tx = db.transaction(['keys', 'state'], 'readonly');
       const [keys, state] = await Promise.all([
@@ -91,11 +121,14 @@ export class IndexedDbSyncStorage implements SyncStorageAdapter {
       ]);
       await txDone(tx);
       if (!keys || !state) return null;
-      return {
+      const previousGroupSecrets = prunePreviousGroupSecrets(keys.previousGroupSecrets);
+      needsPruning = previousGroupSecrets.length !== (keys.previousGroupSecrets ?? []).length;
+      record = {
         device: keys.device,
         groupSecret: keys.groupSecret,
         groupKeys: keys.groupKeys,
         epochKeys: keys.epochKeys ?? {},
+        previousGroupSecrets,
         certificate: keys.certificate,
         settings: state.settings,
         engineState: state.engineState,
@@ -103,6 +136,8 @@ export class IndexedDbSyncStorage implements SyncStorageAdapter {
     } finally {
       db.close();
     }
+    if (record && needsPruning) await this.save(record);
+    return record;
   }
 
   async save(record: StoredSyncRecord): Promise<void> {
@@ -114,6 +149,7 @@ export class IndexedDbSyncStorage implements SyncStorageAdapter {
         groupSecret: record.groupSecret,
         groupKeys: record.groupKeys,
         epochKeys: record.epochKeys,
+        previousGroupSecrets: prunePreviousGroupSecrets(record.previousGroupSecrets),
         certificate: record.certificate,
       };
       const stateMaterial: StoredStateMaterial = {
@@ -146,11 +182,15 @@ export class MemorySyncStorage implements SyncStorageAdapter {
   private value: StoredSyncRecord | null = null;
 
   async load(): Promise<StoredSyncRecord | null> {
+    if (this.value) this.value.previousGroupSecrets = prunePreviousGroupSecrets(this.value.previousGroupSecrets);
     return this.value;
   }
 
   async save(record: StoredSyncRecord): Promise<void> {
-    this.value = record;
+    this.value = {
+      ...record,
+      previousGroupSecrets: prunePreviousGroupSecrets(record.previousGroupSecrets),
+    };
   }
 
   async clear(): Promise<void> {

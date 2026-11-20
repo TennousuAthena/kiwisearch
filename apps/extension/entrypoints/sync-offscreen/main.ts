@@ -5,7 +5,7 @@ import { ReconnectingPortClient } from '../../lib/syncTransportPort';
 type TransportCommand =
   | { id?: string; cmd: 'start'; config: TransportConfig }
   | { id?: string; cmd: 'stop' }
-  | { id?: string; cmd: 'send'; peerId: string; payload: string }
+  | { id?: string; cmd: 'send'; peerId: string; payload: string; epoch?: number }
   | { id?: string; cmd: 'broadcast'; payload: string }
   | { id: string; cmd: 'create-offer-code' }
   | { id: string; cmd: 'create-answer-code'; offerCode: string }
@@ -41,7 +41,7 @@ function handleCommand(raw: unknown): void {
     core.stop();
     reply(true);
   } else if (msg.cmd === 'send') {
-    void core.sendToPeer(msg.peerId, msg.payload).then(
+    void core.sendToPeer(msg.peerId, msg.payload, msg.epoch).then(
       (sent) => reply(true, { sent }),
       (err) => reply(false, { error: err instanceof Error ? err.message : String(err) }),
     );

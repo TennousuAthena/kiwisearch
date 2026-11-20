@@ -38,6 +38,8 @@ import type {
 import { browser } from 'wxt/browser';
 import {
   createDefaultSyncStorage,
+  prunePreviousGroupSecrets,
+  type PreviousGroupSecret,
   type StoredSyncRecord,
   type SyncLocalSettings,
   type SyncStorageAdapter,
@@ -85,6 +87,9 @@ type PeerWireMessage = PeerWireHello | PeerWireProof | PeerWireVv | PeerWireReco
 
 interface LivePeerSession {
   peerId: string;
+  epoch: number;
+  groupKeys: GroupKeys;
+  legacy: boolean;
   peerName: string;
   channel: SyncPeerChannel;
   ownCertHash: string;
@@ -94,7 +99,12 @@ interface LivePeerSession {
   authenticated: boolean;
   proofSent: boolean;
   rehandshakePending: boolean;
+  remoteVector?: VersionVector;
   lastSeenAt: number;
+}
+
+function peerSessionKey(peerId: string, epoch: number): string {
+  return `${epoch}:${peerId}`;
 }
 
 export interface SyncServiceDeps {
@@ -119,6 +129,8 @@ export class SyncService {
   private device: DeviceKeys | null = null;
   private groupSecret: CryptoKey | null = null;
   private groupKeys: GroupKeys | null = null;
+  private epochGroupKeys = new Map<number, GroupKeys>();
+  private previousGroupSecrets: PreviousGroupSecret[] = [];
   private epochKeys: Record<number, CryptoKey> = {};
   private settings: SyncLocalSettings | null = null;
 
@@ -158,6 +170,13 @@ export class SyncService {
           this.device = stored.device;
           this.groupSecret = stored.groupSecret;
           this.groupKeys = stored.groupKeys;
+          this.previousGroupSecrets = prunePreviousGroupSecrets(stored.previousGroupSecrets);
+          this.epochGroupKeys.clear();
+          this.epochGroupKeys.set(stored.groupKeys.epoch, stored.groupKeys);
+          const previousKeys = await Promise.all(
+            this.previousGroupSecrets.map((entry) => deriveGroupKeys(entry.secret, entry.epoch)),
+          );
+          for (const keys of previousKeys) this.epochGroupKeys.set(keys.epoch, keys);
           this.epochKeys = { ...stored.epochKeys };
           this.settings = {
             ...stored.settings,
@@ -172,6 +191,7 @@ export class SyncService {
             categories: stored.settings.categories,
             persisted: stored.engineState,
           });
+          for (const keys of previousKeys) await this.engine.registerEpochKeys(keys);
           await this.startTransport();
         }
       } catch (error) {
@@ -191,10 +211,19 @@ export class SyncService {
       groupSecret: this.groupSecret,
       groupKeys: this.groupKeys,
       epochKeys: { ...this.epochKeys, [this.groupKeys.epoch]: this.groupKeys.recordKey },
+      previousGroupSecrets: this.previousGroupSecrets,
       settings: this.settings,
       engineState: this.engine.exportState(),
     };
     await this.storage.save(record);
+  }
+
+  private retainPreviousGroupSecret(epoch: number, secret: CryptoKey): void {
+    if (this.groupKeys?.epoch === epoch) this.epochGroupKeys.set(epoch, this.groupKeys);
+    this.previousGroupSecrets = prunePreviousGroupSecrets([
+      ...this.previousGroupSecrets.filter((entry) => entry.epoch !== epoch),
+      { epoch, secret, rotatedAt: Date.now() },
+    ]);
   }
 
   private enqueueMutation<T>(work: () => Promise<T>): Promise<T> {
@@ -208,6 +237,19 @@ export class SyncService {
 
   private async startTransport(): Promise<void> {
     if (!this.device || !this.groupKeys || !this.settings) return;
+    const retainedSecrets = prunePreviousGroupSecrets(this.previousGroupSecrets);
+    const secretsWerePruned = retainedSecrets.length !== this.previousGroupSecrets.length;
+    this.previousGroupSecrets = retainedSecrets;
+    const retainedEpochs = new Set([this.groupKeys.epoch, ...retainedSecrets.map((entry) => entry.epoch)]);
+    for (const epoch of this.epochGroupKeys.keys()) {
+      if (!retainedEpochs.has(epoch)) this.epochGroupKeys.delete(epoch);
+    }
+    this.epochGroupKeys.set(this.groupKeys.epoch, this.groupKeys);
+    for (const peer of this.livePeers.values()) {
+      peer.legacy =
+        peer.epoch !== this.groupKeys.epoch && retainedSecrets.some((entry) => entry.epoch === peer.epoch);
+    }
+    if (secretsWerePruned) await this.persist();
     await this.transport.start({
       deviceId: this.device.deviceId,
       deviceName: this.settings.deviceName,
@@ -215,6 +257,7 @@ export class SyncService {
       relayUrl: this.settings.relayUrl,
       stunEnabled: this.settings.stunEnabled,
       stunUrls: this.settings.stunUrls,
+      legacyEpochs: this.previousGroupSecrets.map((entry) => entry.epoch),
     });
   }
 
@@ -225,6 +268,7 @@ export class SyncService {
     if (epoch > previousEpoch) {
       const keys = await deriveGroupKeys(this.groupSecret, epoch);
       this.groupKeys = keys;
+      this.epochGroupKeys.set(epoch, keys);
       this.epochKeys[epoch] = keys.recordKey;
       await this.engine.registerEpochKeys(keys);
     }
@@ -255,7 +299,11 @@ export class SyncService {
     const peerList: SyncPeerStatus[] = [];
     for (const member of Object.values(state.members)) {
       if (member.deviceId === this.device.deviceId) continue;
-      const live = this.livePeers.get(member.deviceId);
+      const live =
+        this.livePeers.get(peerSessionKey(member.deviceId, this.groupKeys.epoch)) ??
+        [...this.livePeers.values()]
+          .filter((peer) => peer.peerId === member.deviceId)
+          .sort((a, b) => b.lastSeenAt - a.lastSeenAt)[0];
       peerList.push({
         deviceId: member.deviceId,
         deviceName: live?.peerName || member.deviceName || member.deviceId.slice(0, 8),
@@ -265,8 +313,10 @@ export class SyncService {
         certFingerprint: live?.peerCertHash || undefined,
       });
     }
+    const listedPeerIds = new Set(peerList.map((peer) => peer.deviceId));
     for (const live of this.livePeers.values()) {
-      if (state.members[live.peerId]) continue;
+      if (state.members[live.peerId] || listedPeerIds.has(live.peerId)) continue;
+      listedPeerIds.add(live.peerId);
       peerList.push({
         deviceId: live.peerId,
         deviceName: live.peerName,
@@ -331,17 +381,84 @@ export class SyncService {
 
   private async broadcastEnvelopes(envelopes: readonly SyncRecordEnvelope[]): Promise<void> {
     if (!this.engine || !envelopes.length) return;
-    const msg: PeerWireRecords = {
-      type: 'records',
-      envelopes: [...envelopes],
-      vector: this.engine.getVersionVector(),
-    };
-    const json = JSON.stringify(msg);
     for (const peer of this.livePeers.values()) {
-      if (peer.authenticated) {
-        await this.transport.sendToPeer(peer.peerId, json).catch(() => {});
-      }
+      if (!peer.authenticated) continue;
+      const peerEnvelopes = peer.legacy
+        ? this.legacyControlCatchup(
+            peer,
+            peer.remoteVector ?? {},
+            envelopes.filter(
+              (record) =>
+                record.epoch === peer.epoch && (record.kind === 'epoch-rotate' || record.kind === 'member-remove'),
+            ),
+          )
+        : [...envelopes];
+      if (!peerEnvelopes.length) continue;
+      const message: PeerWireRecords = {
+        type: 'records',
+        envelopes: peerEnvelopes,
+        vector: this.engine.getVersionVector(),
+      };
+      await this.sendPeerPayload(peer, JSON.stringify(message)).catch(() => {});
     }
+  }
+
+  private legacyControlCatchup(
+    peer: LivePeerSession,
+    remoteVector: VersionVector,
+    controls?: readonly SyncRecordEnvelope[],
+  ): SyncRecordEnvelope[] {
+    if (!this.engine || !peer.legacy) return [];
+    const allRecords = this.engine.getAllEnvelopes();
+    const controlRecords =
+      controls ??
+      allRecords.filter(
+        (record) =>
+          record.epoch === peer.epoch && (record.kind === 'epoch-rotate' || record.kind === 'member-remove'),
+      );
+    if (!controlRecords.length) return [];
+    const missing = this.engine.missingRecordsFor(remoteVector);
+    return missing.filter(
+      (record) =>
+        record.epoch === peer.epoch &&
+        record.kind !== 'snapshot' &&
+        controlRecords.some((control) => control.deviceId === record.deviceId && record.seq <= control.seq),
+    );
+  }
+
+  private async pruneAcknowledgedPreviousSecrets(): Promise<void> {
+    if (!this.engine || !this.device || !this.groupKeys) return;
+    const state = this.engine.exportState();
+    const activeMembers = this.engine
+      .getActiveMembers()
+      .filter((member) => member.deviceId === this.device!.deviceId || member.agreementAttested);
+    const retained = this.previousGroupSecrets.filter((entry) => {
+      const controls = state.recordLog.filter(
+        (record) =>
+          record.epoch === entry.epoch &&
+          (record.kind === 'epoch-rotate' || record.kind === 'member-remove'),
+      );
+      if (!controls.length) return true;
+      return !activeMembers.every(
+        (member) =>
+          member.deviceId === this.device!.deviceId ||
+          controls.every(
+            (record) => (state.peerAcks[member.deviceId]?.[record.deviceId] ?? 0) >= record.seq,
+          ),
+      );
+    });
+    if (retained.length === this.previousGroupSecrets.length) return;
+    const retainedEpochs = new Set(retained.map((entry) => entry.epoch));
+    for (const entry of this.previousGroupSecrets) {
+      if (!retainedEpochs.has(entry.epoch)) this.epochGroupKeys.delete(entry.epoch);
+    }
+    this.previousGroupSecrets = retained;
+    await this.persist();
+    await this.startTransport();
+  }
+
+  private sendPeerPayload(peer: LivePeerSession, payload: string): Promise<boolean> {
+    return this.transport.sendToPeer(peer.peerId, payload, peer.epoch);
   }
 
   private async sendVersionVector(peer?: LivePeerSession): Promise<void> {
@@ -351,7 +468,7 @@ export class SyncService {
     const peers = peer ? [peer] : [...this.livePeers.values()];
     for (const livePeer of peers) {
       if (livePeer.authenticated) {
-        await this.transport.sendToPeer(livePeer.peerId, json).catch(() => {});
+        await this.sendPeerPayload(livePeer, json).catch(() => {});
       }
     }
   }
@@ -367,9 +484,9 @@ export class SyncService {
     if (event.type === 'snapshot') {
       this.transportState = event.state;
       this.transportError = event.error;
-      const peerIds = new Set(event.peers.map((peer) => peer.peerId));
-      for (const peerId of this.livePeers.keys()) {
-        if (!peerIds.has(peerId)) this.livePeers.delete(peerId);
+      const sessionKeys = new Set(event.peers.map((peer) => peerSessionKey(peer.peerId, peer.epoch)));
+      for (const key of this.livePeers.keys()) {
+        if (!sessionKeys.has(key)) this.livePeers.delete(key);
       }
       for (const peer of event.peers) {
         await this.handlePeerConnected(peer);
@@ -384,11 +501,11 @@ export class SyncService {
       return;
     }
     if (event.type === 'peer-disconnected') {
-      this.livePeers.delete(event.peerId);
+      this.livePeers.delete(peerSessionKey(event.peerId, event.epoch));
       return;
     }
     if (event.type === 'peer-channel') {
-      const peer = this.livePeers.get(event.peerId);
+      const peer = this.livePeers.get(peerSessionKey(event.peerId, event.epoch));
       if (peer) {
         peer.channel = event.channel;
         if (peer.authenticated) await this.sendVersionVector(peer);
@@ -400,7 +517,7 @@ export class SyncService {
       return;
     }
     if (event.type === 'peer-message') {
-      await this.handlePeerMessage(event.peerId, event.payload);
+      await this.handlePeerMessage(event.peerId, event.epoch, event.payload);
     }
   }
 
@@ -410,8 +527,13 @@ export class SyncService {
       | Extract<TransportEvent, { type: 'snapshot' }>['peers'][number],
   ): Promise<void> {
     if (!this.device || !this.groupKeys || !this.settings) return;
+    const sessionKeys = this.epochGroupKeys.get(event.epoch);
+    if (!sessionKeys) return;
     const session: LivePeerSession = {
       peerId: event.peerId,
+      epoch: event.epoch,
+      groupKeys: sessionKeys,
+      legacy: event.epoch !== this.groupKeys.epoch && this.previousGroupSecrets.some((entry) => entry.epoch === event.epoch),
       peerName: event.peerName,
       channel: event.channel,
       ownCertHash: event.ownCertHash,
@@ -421,20 +543,20 @@ export class SyncService {
       rehandshakePending: false,
       lastSeenAt: Date.now(),
     };
-    this.livePeers.set(event.peerId, session);
+    this.livePeers.set(peerSessionKey(event.peerId, event.epoch), session);
     const hello = this.buildOwnHello(session);
     session.ownHello = hello;
-    await this.transport.sendToPeer(event.peerId, JSON.stringify({ type: 'hello', hello } satisfies PeerWireHello));
+    await this.sendPeerPayload(session, JSON.stringify({ type: 'hello', hello }));
   }
 
   private buildOwnHello(peer: LivePeerSession): HandshakeHello {
-    if (!this.device || !this.groupKeys || !this.settings) {
+    if (!this.device || !this.settings) {
       throw new Error('Sync is not initialized');
     }
     return buildHandshakeHello({
       device: this.device,
       deviceName: this.settings.deviceName,
-      epoch: this.groupKeys.epoch,
+      epoch: peer.groupKeys.epoch,
       epochEstablished: this.settings.epochEstablished ?? true,
       ownCertHash: peer.ownCertHash,
       peerCertHash: peer.peerCertHash,
@@ -447,7 +569,21 @@ export class SyncService {
     peer.rehandshakePending = true;
     const hello = this.buildOwnHello(peer);
     peer.ownHello = hello;
-    await this.transport.sendToPeer(peer.peerId, JSON.stringify({ type: 'hello', hello } satisfies PeerWireHello));
+    await this.sendPeerPayload(peer, JSON.stringify({ type: 'hello', hello } satisfies PeerWireHello));
+  }
+
+  private removePeerSessions(peerId: string): void {
+    for (const [key, peer] of this.livePeers) {
+      if (peer.peerId === peerId) this.livePeers.delete(key);
+    }
+  }
+
+  private rekeyPeerSession(peer: LivePeerSession, epoch: number, keys: GroupKeys): void {
+    this.livePeers.delete(peerSessionKey(peer.peerId, peer.epoch));
+    peer.epoch = epoch;
+    peer.groupKeys = keys;
+    peer.legacy = false;
+    this.livePeers.set(peerSessionKey(peer.peerId, epoch), peer);
   }
 
   private async getCertifiedCurrentMemberJoin(): Promise<SyncRecordEnvelope | null> {
@@ -503,9 +639,9 @@ export class SyncService {
     }
   }
 
-  private async handlePeerMessage(peerId: string, raw: string): Promise<void> {
+  private async handlePeerMessage(peerId: string, epoch: number, raw: string): Promise<void> {
     if (!this.engine || !this.device || !this.groupKeys) return;
-    const peer = this.livePeers.get(peerId);
+    const peer = this.livePeers.get(peerSessionKey(peerId, epoch));
     if (!peer) return;
     peer.lastSeenAt = Date.now();
 
@@ -519,9 +655,14 @@ export class SyncService {
     if (msg.type === 'hello') {
       const remoteHello = msg.hello;
       if (!remoteHello || remoteHello.deviceId !== peerId) return;
+      const knownMember = this.engine.getMembers().find((member) => member.deviceId === peerId);
+      if (knownMember?.removedAt) {
+        this.livePeers.delete(peerSessionKey(peerId, peer.epoch));
+        return;
+      }
       // Verify DTLS certificate channel binding when fingerprints are available.
       if (peer.peerCertHash && remoteHello.ownCertHash && peer.peerCertHash !== remoteHello.ownCertHash) {
-        this.livePeers.delete(peerId);
+        this.livePeers.delete(peerSessionKey(peerId, peer.epoch));
         return;
       }
       const remoteHelloChanged =
@@ -535,15 +676,14 @@ export class SyncService {
       peer.peerName = remoteHello.deviceName || peer.peerName;
       if (peer.ownHello && !peer.proofSent) {
         peer.proofSent = true;
-        const knownMember = this.engine.getMembers().find((m) => m.deviceId === peerId);
         const proof = await createHandshakeProof({
           localHello: peer.ownHello,
           remoteHello,
           device: this.device,
-          groupKeys: this.groupKeys,
+          groupKeys: peer.groupKeys,
           knownPeer: Boolean(knownMember && !knownMember.removedAt),
         });
-        await this.transport.sendToPeer(peerId, JSON.stringify({ type: 'proof', proof } satisfies PeerWireProof));
+        await this.sendPeerPayload(peer, JSON.stringify({ type: 'proof', proof } satisfies PeerWireProof));
       }
       return;
     }
@@ -552,7 +692,7 @@ export class SyncService {
       if (!peer.ownHello || !peer.remoteHello) return;
       const knownMember = this.engine.getMembers().find((m) => m.deviceId === peerId);
       if (knownMember?.removedAt) {
-        this.livePeers.delete(peerId);
+        this.livePeers.delete(peerSessionKey(peerId, peer.epoch));
         return;
       }
 
@@ -560,38 +700,59 @@ export class SyncService {
         localHello: peer.ownHello,
         remoteHello: peer.remoteHello,
         remoteProof: msg.proof,
-        groupKeys: this.groupKeys,
+        groupKeys: peer.groupKeys,
         knownPeerSigningPublic: knownMember?.signingPublic,
       });
       if (!check.ok) {
-        this.livePeers.delete(peerId);
+        this.livePeers.delete(peerSessionKey(peerId, peer.epoch));
         return;
       }
 
       await this.promoteGroupEpoch(peer.remoteHello.epoch, peer.remoteHello.epochEstablished !== false);
+      if (!peer.legacy && this.groupKeys && peer.epoch !== this.groupKeys.epoch) {
+        this.rekeyPeerSession(peer, this.groupKeys.epoch, this.groupKeys);
+      }
       peer.authenticated = true;
       peer.rehandshakePending = false;
-      const memberJoin =
-        (await this.getCertifiedCurrentMemberJoin()) ?? (await this.engine.createMemberJoinRecord());
       await this.persist();
 
-      const joinMessage: PeerWireRecords = {
-        type: 'records',
-        envelopes: [memberJoin],
-        vector: this.engine.getVersionVector(),
-      };
-      await this.transport.sendToPeer(peerId, JSON.stringify(joinMessage));
+      if (!peer.legacy) {
+        const memberJoin =
+          (await this.getCertifiedCurrentMemberJoin()) ?? (await this.engine.createMemberJoinRecord());
+        const joinMessage: PeerWireRecords = {
+          type: 'records',
+          envelopes: [memberJoin],
+          vector: this.engine.getVersionVector(),
+        };
+        await this.sendPeerPayload(peer, JSON.stringify(joinMessage));
+      }
 
       // Immediately exchange version vectors.
       const vv: PeerWireVv = { type: 'vv', vector: this.engine.getVersionVector() };
-      await this.transport.sendToPeer(peerId, JSON.stringify(vv));
+      await this.sendPeerPayload(peer, JSON.stringify(vv));
       return;
     }
 
     if (!peer.authenticated) return;
 
     if (msg.type === 'vv') {
+      peer.remoteVector = { ...msg.vector };
       await this.engine.recordPeerAck(peerId, msg.vector);
+      await this.pruneAcknowledgedPreviousSecrets();
+      if (peer.legacy) {
+        const envelopes = this.legacyControlCatchup(peer, msg.vector);
+        if (envelopes.length) {
+          const response: PeerWireRecords = {
+            type: 'records',
+            envelopes,
+            vector: this.engine.getVersionVector(),
+          };
+          await this.sendPeerPayload(peer, JSON.stringify(response));
+        }
+        await this.engine.compact();
+        await this.persist();
+        return;
+      }
       const missing = this.engine.missingRecordsFor(msg.vector);
       const localVector = this.engine.getVersionVector();
       const remoteJoinEpoch = this.engine.getMemberJoinEpoch(peerId) ?? peer.remoteHello?.epoch;
@@ -628,36 +789,50 @@ export class SyncService {
         vector: coveredVector,
         coveredVector,
       };
-      await this.transport.sendToPeer(peerId, JSON.stringify(payload));
+      await this.sendPeerPayload(peer, JSON.stringify(payload));
       await this.engine.compact();
       await this.persist();
       return;
     }
 
     if (msg.type === 'records') {
-      const result = await this.engine.receiveRecords(msg.envelopes);
-      if (msg.coveredVector) await this.engine.adoptCoveredVector(msg.coveredVector);
+      peer.remoteVector = { ...msg.vector };
+      const incomingEnvelopes = peer.legacy
+        ? msg.envelopes.filter((record) => record.epoch === peer.epoch && record.kind !== 'snapshot')
+        : msg.envelopes;
+      const result = await this.engine.receiveRecords(incomingEnvelopes);
+      if (msg.coveredVector && !peer.legacy) await this.engine.adoptCoveredVector(msg.coveredVector);
       await this.engine.recordPeerAck(peerId, msg.vector);
-      if (msg.coveredVector) {
+      await this.pruneAcknowledgedPreviousSecrets();
+      if (msg.coveredVector && !peer.legacy) {
         const missing = this.engine.missingRecordsFor(msg.vector);
         if (missing.length) {
-          const response: PeerWireRecords = {
-            type: 'records',
-            envelopes: missing,
-            vector: this.engine.getVersionVector(),
-          };
-          await this.transport.sendToPeer(peerId, JSON.stringify(response)).catch(() => {});
+          const envelopes = peer.legacy
+            ? this.legacyControlCatchup(peer, msg.vector)
+            : missing;
+          if (envelopes.length) {
+            const response: PeerWireRecords = {
+              type: 'records',
+              envelopes,
+              vector: this.engine.getVersionVector(),
+            };
+            await this.sendPeerPayload(peer, JSON.stringify(response)).catch(() => {});
+          }
         }
       }
 
-      if (result.groupSecret) this.groupSecret = result.groupSecret;
       if (result.epochRotatedTo !== undefined) {
+        if (result.groupSecret && this.groupSecret && this.groupKeys) {
+          this.retainPreviousGroupSecret(this.groupKeys.epoch, this.groupSecret);
+        }
         const rotatedKeys = this.engine.getGroupKeys(result.epochRotatedTo);
         if (rotatedKeys) {
           this.groupKeys = rotatedKeys;
+          this.epochGroupKeys.set(rotatedKeys.epoch, rotatedKeys);
           this.epochKeys[rotatedKeys.epoch] = rotatedKeys.recordKey;
         }
       }
+      if (result.groupSecret) this.groupSecret = result.groupSecret;
 
       if (this.pendingInitialJoinSync && this.settings && msg.coveredVector) {
         this.pendingInitialJoinSync = false;
@@ -681,7 +856,7 @@ export class SyncService {
       await this.persist();
 
       const ack: PeerWireAck = { type: 'ack', vector: this.engine.getVersionVector() };
-      await this.transport.sendToPeer(peerId, JSON.stringify(ack));
+      await this.sendPeerPayload(peer, JSON.stringify(ack));
 
       if (result.epochRotatedTo !== undefined) {
         await this.startTransport();
@@ -690,7 +865,9 @@ export class SyncService {
     }
 
     if (msg.type === 'ack') {
+      peer.remoteVector = { ...msg.vector };
       await this.engine.recordPeerAck(peerId, msg.vector);
+      await this.pruneAcknowledgedPreviousSecrets();
       await this.engine.compact();
       this.lastSyncAt = Date.now();
       await this.persist();
@@ -749,6 +926,9 @@ export class SyncService {
         this.device = device;
         this.groupSecret = groupSecret;
         this.groupKeys = groupKeys;
+        this.epochGroupKeys.clear();
+        this.epochGroupKeys.set(groupKeys.epoch, groupKeys);
+        this.previousGroupSecrets = [];
         this.epochKeys = { 1: groupKeys.recordKey };
         this.settings = settings;
         this.livePeers.clear();
@@ -797,6 +977,9 @@ export class SyncService {
         this.device = device;
         this.groupSecret = groupSecret;
         this.groupKeys = groupKeys;
+        this.epochGroupKeys.clear();
+        this.epochGroupKeys.set(groupKeys.epoch, groupKeys);
+        this.previousGroupSecrets = [];
         this.epochKeys = { 1: groupKeys.recordKey };
         this.settings = settings;
         this.livePeers.clear();
@@ -821,6 +1004,8 @@ export class SyncService {
         this.device = null;
         this.groupSecret = null;
         this.groupKeys = null;
+        this.epochGroupKeys.clear();
+        this.previousGroupSecrets = [];
         this.epochKeys = {};
         this.settings = null;
         this.livePeers.clear();
@@ -898,7 +1083,7 @@ export class SyncService {
         const json = JSON.stringify(vv);
         for (const peer of this.livePeers.values()) {
           if (peer.authenticated) {
-            await this.transport.sendToPeer(peer.peerId, json).catch(() => {});
+            await this.sendPeerPayload(peer, json).catch(() => {});
           } else {
             await this.restartPeerHandshake(peer).catch(() => {});
           }
@@ -907,26 +1092,30 @@ export class SyncService {
       }
 
       if (message.type === 'kiwi:sync:remove-device') {
-        if (!this.engine || !this.groupKeys) return { ok: false, error: 'Sync is not enabled' };
+        if (!this.engine || !this.groupSecret || !this.groupKeys) return { ok: false, error: 'Sync is not enabled' };
         const { phrase, entropy } = await generateRecoveryPhrase();
         const { envelope, newGroupKeys } = await this.engine.removeDevice(message.deviceId, entropy);
         await this.broadcastEnvelopes([envelope]);
+        this.retainPreviousGroupSecret(this.groupKeys.epoch, this.groupSecret);
         this.groupSecret = await importGroupSecret(entropy);
         this.groupKeys = newGroupKeys;
+        this.epochGroupKeys.set(newGroupKeys.epoch, newGroupKeys);
         this.epochKeys[newGroupKeys.epoch] = newGroupKeys.recordKey;
-        this.livePeers.delete(message.deviceId);
+        this.removePeerSessions(message.deviceId);
         await this.persist();
         await this.startTransport();
         return { ok: true, phrase, status: this.getStatus() };
       }
 
       if (message.type === 'kiwi:sync:rotate-phrase') {
-        if (!this.engine || !this.groupKeys) return { ok: false, error: 'Sync is not enabled' };
+        if (!this.engine || !this.groupSecret || !this.groupKeys) return { ok: false, error: 'Sync is not enabled' };
         const { phrase, entropy } = await generateRecoveryPhrase();
         const { envelope, newGroupKeys } = await this.engine.rotatePhrase(entropy);
         await this.broadcastEnvelopes([envelope]);
+        this.retainPreviousGroupSecret(this.groupKeys.epoch, this.groupSecret);
         this.groupSecret = await importGroupSecret(entropy);
         this.groupKeys = newGroupKeys;
+        this.epochGroupKeys.set(newGroupKeys.epoch, newGroupKeys);
         this.epochKeys[newGroupKeys.epoch] = newGroupKeys.recordKey;
         await this.persist();
         await this.startTransport();

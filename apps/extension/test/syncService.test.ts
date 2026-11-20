@@ -4,6 +4,8 @@ import {
   canonicalJson,
   classifySyncPath,
   decodeConnectionCode,
+  deriveGroupKeys,
+  deriveTopicId,
   encodeConnectionCode,
   openRecordBody,
   sealRecordBody,
@@ -48,13 +50,24 @@ import type { SyncTransport } from '../lib/syncTransportBridge';
 import type { TransportConfig, TransportEvent } from '../lib/syncTransportCore';
 
 class MockMeshBus {
-  private nodes = new Map<string, { onEvent: (ev: TransportEvent) => void; connected: Set<string> }>();
+  private nodes = new Map<
+    string,
+    {
+      onEvent: (ev: TransportEvent) => void;
+      connected: Map<string, number>;
+      topicEpochs: Map<string, number>;
+    }
+  >();
   private offlineDevices = new Set<string>();
-  readonly sentMessages: Array<{ from: string; to: string; payload: string }> = [];
+  readonly sentMessages: Array<{ from: string; to: string; epoch?: number; payload: string }> = [];
   holdCoveredRecords = false;
   private heldCoveredMessages: Array<{ from: string; to: string; payload: string }> = [];
 
-  createTransport(onEvent: (ev: TransportEvent) => void, shouldStart: (config: TransportConfig) => boolean = () => true): SyncTransport {
+  createTransport(
+    onEvent: (ev: TransportEvent) => void,
+    storage?: MemorySyncStorage,
+    shouldStart: (config: TransportConfig) => boolean = () => true,
+  ): SyncTransport {
     let myId = '';
     const bus = this;
     return {
@@ -62,9 +75,30 @@ class MockMeshBus {
         if (!shouldStart(config)) return;
         myId = config.deviceId;
         bus.offlineDevices.delete(myId);
+        const record = await storage?.load();
+        const topicEpochs = new Map<string, number>();
+        if (record) {
+          topicEpochs.set(await deriveTopicId(record.groupKeys.topicKey), config.epoch);
+          for (const previous of record.previousGroupSecrets ?? []) {
+            const keys = await deriveGroupKeys(previous.secret, previous.epoch);
+            topicEpochs.set(await deriveTopicId(keys.topicKey), previous.epoch);
+          }
+        } else {
+          for (const epoch of [config.epoch, ...config.legacyEpochs]) {
+            topicEpochs.set(String(epoch), epoch);
+          }
+        }
         const existing = bus.nodes.get(myId);
-        if (existing) existing.onEvent = onEvent;
-        else bus.nodes.set(myId, { onEvent, connected: new Set() });
+        if (existing) {
+          existing.onEvent = onEvent;
+          existing.topicEpochs = topicEpochs;
+        } else {
+          bus.nodes.set(myId, {
+            onEvent,
+            connected: new Map(),
+            topicEpochs,
+          });
+        }
         onEvent({ type: 'state', state: 'connected' });
         // Connect to all existing peers on the bus.
         for (const [peerId, peer] of bus.nodes) {
@@ -77,22 +111,29 @@ class MockMeshBus {
         if (!myId) return;
         const self = bus.nodes.get(myId);
         if (self) {
-          for (const peerId of self.connected) {
+          for (const peerId of self.connected.keys()) {
             const peer = bus.nodes.get(peerId);
+            const peerEpoch = peer?.connected.get(myId);
             peer?.connected.delete(myId);
-            peer?.onEvent({ type: 'peer-disconnected', peerId: myId });
+            if (peerEpoch !== undefined) peer?.onEvent({ type: 'peer-disconnected', peerId: myId, epoch: peerEpoch });
           }
         }
         bus.nodes.delete(myId);
         bus.offlineDevices.delete(myId);
         onEvent({ type: 'state', state: 'idle' });
       },
-      async sendToPeer(peerId: string, payload: string) {
-        bus.sentMessages.push({ from: myId, to: peerId, payload });
+      async sendToPeer(peerId: string, payload: string, epoch?: number) {
+        const self = bus.nodes.get(myId);
         const peer = bus.nodes.get(peerId);
+        const sourceEpoch = self?.connected.get(peerId);
+        bus.sentMessages.push({ from: myId, to: peerId, epoch: epoch ?? sourceEpoch, payload });
+        const targetEpoch = peer?.connected.get(myId);
         if (
+          !self ||
           !peer ||
+          targetEpoch === undefined ||
           !peer.connected.has(myId) ||
+          (epoch !== undefined && self.connected.get(peerId) !== epoch) ||
           bus.offlineDevices.has(myId) ||
           bus.offlineDevices.has(peerId)
         ) return false;
@@ -101,15 +142,20 @@ class MockMeshBus {
           bus.heldCoveredMessages.push({ from: myId, to: peerId, payload });
           return true;
         }
-        queueMicrotask(() => peer.onEvent({ type: 'peer-message', peerId: myId, payload }));
+        queueMicrotask(() => peer.onEvent({ type: 'peer-message', peerId: myId, epoch: targetEpoch, payload }));
         return true;
       },
       async broadcast(payload: string) {
         const self = bus.nodes.get(myId);
         if (!self) return;
-        for (const peerId of self.connected) {
+        for (const peerId of self.connected.keys()) {
           const peer = bus.nodes.get(peerId);
-          if (peer) queueMicrotask(() => peer.onEvent({ type: 'peer-message', peerId: myId, payload }));
+          const sourceEpoch = self.connected.get(peerId);
+          const targetEpoch = peer?.connected.get(myId);
+          if (peer && targetEpoch !== undefined) {
+            bus.sentMessages.push({ from: myId, to: peerId, epoch: sourceEpoch, payload });
+            queueMicrotask(() => peer.onEvent({ type: 'peer-message', peerId: myId, epoch: targetEpoch, payload }));
+          }
         }
       },
       async createOfferCode() {
@@ -126,18 +172,38 @@ class MockMeshBus {
   connectPair(aId: string, bId: string): void {
     const a = this.nodes.get(aId);
     const b = this.nodes.get(bId);
-    if (!a || !b || a.connected.has(bId)) return;
-    a.connected.add(bId);
-    b.connected.add(aId);
-    a.onEvent({ type: 'peer-connected', peerId: bId, peerName: bId, channel: 'webrtc', ownCertHash: `cert-${aId}`, peerCertHash: `cert-${bId}` });
-    b.onEvent({ type: 'peer-connected', peerId: aId, peerName: aId, channel: 'webrtc', ownCertHash: `cert-${bId}`, peerCertHash: `cert-${aId}` });
+    if (!a || !b || this.offlineDevices.has(aId) || this.offlineDevices.has(bId)) return;
+    const match = [...a.topicEpochs.entries()]
+      .flatMap(([topicId, epochA]) => {
+        const epochB = b.topicEpochs.get(topicId);
+        return epochB === undefined ? [] : [{ epochA, epochB }];
+      })
+      .sort(
+        (left, right) =>
+          Math.min(right.epochA, right.epochB) - Math.min(left.epochA, left.epochB) ||
+          Math.max(right.epochA, right.epochB) - Math.max(left.epochA, left.epochB),
+      )[0];
+    if (!match) return;
+    const { epochA, epochB } = match;
+    if (a.connected.get(bId) === epochA && b.connected.get(aId) === epochB) return;
+    if (a.connected.has(bId) || b.connected.has(aId)) {
+      const previousA = a.connected.get(bId);
+      const previousB = b.connected.get(aId);
+      if (previousA !== undefined) a.onEvent({ type: 'peer-disconnected', peerId: bId, epoch: previousA });
+      if (previousB !== undefined) b.onEvent({ type: 'peer-disconnected', peerId: aId, epoch: previousB });
+    }
+    a.connected.set(bId, epochA);
+    b.connected.set(aId, epochB);
+    a.onEvent({ type: 'peer-connected', peerId: bId, epoch: epochA, peerName: bId, channel: 'webrtc', ownCertHash: `cert-${aId}`, peerCertHash: `cert-${bId}` });
+    b.onEvent({ type: 'peer-connected', peerId: aId, epoch: epochB, peerName: aId, channel: 'webrtc', ownCertHash: `cert-${bId}`, peerCertHash: `cert-${aId}` });
   }
 
   releaseCoveredRecords(): void {
     for (const { from, to, payload } of this.heldCoveredMessages.splice(0)) {
       const peer = this.nodes.get(to);
-      if (peer?.connected.has(from)) {
-        queueMicrotask(() => peer.onEvent({ type: 'peer-message', peerId: from, payload }));
+      const targetEpoch = peer?.connected.get(from);
+      if (peer && targetEpoch !== undefined) {
+        queueMicrotask(() => peer.onEvent({ type: 'peer-message', peerId: from, epoch: targetEpoch, payload }));
       }
     }
   }
@@ -148,8 +214,22 @@ class MockMeshBus {
     if (online) {
       this.offlineDevices.delete(deviceId);
       node.onEvent({ type: 'state', state: 'connected' });
+      for (const peerId of this.nodes.keys()) {
+        if (peerId !== deviceId) this.connectPair(deviceId, peerId);
+      }
     } else {
       this.offlineDevices.add(deviceId);
+      for (const peerId of [...node.connected.keys()]) {
+        const peer = this.nodes.get(peerId);
+        const peerEpoch = peer?.connected.get(deviceId);
+        if (peerEpoch !== undefined) {
+          peer?.connected.delete(deviceId);
+          peer?.onEvent({ type: 'peer-disconnected', peerId: deviceId, epoch: peerEpoch });
+        }
+        const nodeEpoch = node.connected.get(peerId);
+        if (nodeEpoch !== undefined) node.onEvent({ type: 'peer-disconnected', peerId, epoch: nodeEpoch });
+        node.connected.delete(peerId);
+      }
       node.onEvent({ type: 'state', state: 'offline' });
     }
   }
@@ -307,12 +387,12 @@ describe('SyncService multi-device integration', () => {
     const stateD = { config: structuredClone(DEFAULT_CONFIG) };
     const svcA = new SyncService({
       storage: storeA,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
       applyRemoteConfigPatches: async () => {},
     });
     const svcD = new SyncService({
       storage: storeD,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeD),
       applyRemoteConfigPatches: async (patches) => {
         stateD.config = applySettingsPatch(stateD.config, patches);
       },
@@ -350,13 +430,13 @@ describe('SyncService multi-device integration', () => {
       storage: storeA,
       transportFactory: (cb) => {
         onAEvent = cb;
-        return bus.createTransport(cb);
+        return bus.createTransport(cb, storeA);
       },
       applyRemoteConfigPatches: async () => {},
     });
     const svcD = new SyncService({
       storage: storeD,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeD),
       applyRemoteConfigPatches: async () => {},
     });
     const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: '' });
@@ -370,7 +450,7 @@ describe('SyncService multi-device integration', () => {
       (JSON.parse(payload) as { type?: string }).type === 'vv').length;
     const before = countVv();
 
-    onAEvent?.({ type: 'peer-channel', peerId: deviceD, channel: 'relay' });
+    onAEvent?.({ type: 'peer-channel', peerId: deviceD, epoch: 1, channel: 'relay' });
     await flushMicrotasks();
 
     expect(countVv()).toBe(before + 1);
@@ -380,7 +460,7 @@ describe('SyncService multi-device integration', () => {
     const store = new MemorySyncStorage();
     const service = new SyncService({
       storage: store,
-      transportFactory: (cb) => new MockMeshBus().createTransport(cb),
+      transportFactory: (cb) => new MockMeshBus().createTransport(cb, store),
       applyRemoteConfigPatches: async () => {},
     });
 
@@ -396,7 +476,7 @@ describe('SyncService multi-device integration', () => {
     const store = new MemorySyncStorage();
     const service = new SyncService({
       storage: store,
-      transportFactory: (cb) => new MockMeshBus().createTransport(cb),
+      transportFactory: (cb) => new MockMeshBus().createTransport(cb, store),
       applyRemoteConfigPatches: async () => {},
     });
 
@@ -412,12 +492,12 @@ describe('SyncService multi-device integration', () => {
     const stateD = { config: structuredClone(DEFAULT_CONFIG) };
     const svcA = new SyncService({
       storage: storeA,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
       applyRemoteConfigPatches: async () => {},
     });
     const svcD = new SyncService({
       storage: storeD,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeD),
       applyRemoteConfigPatches: async (patches) => {
         stateD.config = applySettingsPatch(stateD.config, patches);
       },
@@ -444,7 +524,7 @@ describe('SyncService multi-device integration', () => {
       storage: storeD,
       transportFactory: (cb) => {
         onRestartedDEvent = cb;
-        return bus.createTransport(cb);
+        return bus.createTransport(cb, storeD);
       },
       applyRemoteConfigPatches: async (patches) => {
         stateD.config = applySettingsPatch(stateD.config, patches);
@@ -459,6 +539,7 @@ describe('SyncService multi-device integration', () => {
       state: 'connected',
       peers: [{
         peerId: deviceA,
+        epoch: 1,
         peerName: 'Device A',
         channel: 'webrtc',
         ownCertHash: `cert-${deviceD}`,
@@ -482,13 +563,13 @@ describe('SyncService multi-device integration', () => {
     let transportB: SyncTransport | undefined;
     const serviceA = new SyncService({
       storage: storeA,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
       applyRemoteConfigPatches: async () => {},
     });
     const serviceB = new SyncService({
       storage: storeB,
       transportFactory: (cb) => {
-        const transport = bus.createTransport(cb);
+        const transport = bus.createTransport(cb, storeB);
         transportB = transport;
         return transport;
       },
@@ -526,7 +607,7 @@ describe('SyncService multi-device integration', () => {
     const sentFromB = bus.sentMessages.length;
     const restartedB = new SyncService({
       storage: storeB,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
       applyRemoteConfigPatches: async () => {},
     });
     await restartedB.init();
@@ -577,7 +658,7 @@ describe('SyncService multi-device integration', () => {
     const svcA = new SyncService({
       storage: storeA,
       transportFactory: (cb) => {
-        transportA = bus.createTransport(cb);
+        transportA = bus.createTransport(cb, storeA);
         return transportA;
       },
       applyRemoteConfigPatches: async () => {},
@@ -594,12 +675,12 @@ describe('SyncService multi-device integration', () => {
     const storeC = new MemorySyncStorage();
     const svcB = new SyncService({
       storage: storeB,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
       applyRemoteConfigPatches: async () => {},
     });
     const svcC = new SyncService({
       storage: storeC,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeC),
       applyRemoteConfigPatches: async () => {},
     });
     expect((await svcB.handleMessage({
@@ -618,7 +699,7 @@ describe('SyncService multi-device integration', () => {
 
     const restoredA = new SyncService({
       storage: storeA,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
       applyRemoteConfigPatches: async () => {},
     });
     await restoredA.init();
@@ -636,7 +717,7 @@ describe('SyncService multi-device integration', () => {
     const storeA = new MemorySyncStorage();
     const svcA = new SyncService({
       storage: storeA,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
       applyRemoteConfigPatches: async () => {},
     });
     const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: '' });
@@ -649,7 +730,7 @@ describe('SyncService multi-device integration', () => {
     const storeD = new MemorySyncStorage();
     const svcD = new SyncService({
       storage: storeD,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeD),
       applyRemoteConfigPatches: async (patches) => {
         storage.value.config = applySettingsPatch(storage.value.config as typeof DEFAULT_CONFIG, patches);
       },
@@ -682,7 +763,7 @@ describe('SyncService multi-device integration', () => {
       storage: store,
       transportFactory: (cb) => {
         onTransportEvent = cb;
-        return bus.createTransport(cb);
+        return bus.createTransport(cb, store);
       },
       applyRemoteConfigPatches: async () => {},
     });
@@ -697,6 +778,7 @@ describe('SyncService multi-device integration', () => {
       state: 'connected',
       peers: [{
         peerId: 'offline-peer',
+        epoch: 1,
         peerName: 'Offline peer',
         channel: 'webrtc',
         ownCertHash: 'local-cert',
@@ -726,7 +808,7 @@ describe('SyncService multi-device integration', () => {
 
     const svcA = new SyncService({
       storage: storeA,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
       applyRemoteConfigPatches: async (patches) => {
         stateA.remoteWrites++;
         stateA.config = applySettingsPatch(stateA.config, patches);
@@ -734,7 +816,7 @@ describe('SyncService multi-device integration', () => {
     });
     const svcB = new SyncService({
       storage: storeB,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
       applyRemoteConfigPatches: async (patches) => {
         stateB.remoteWrites++;
         stateB.config = applySettingsPatch(stateB.config, patches);
@@ -742,7 +824,7 @@ describe('SyncService multi-device integration', () => {
     });
     const svcC = new SyncService({
       storage: storeC,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeC),
       applyRemoteConfigPatches: async (patches) => {
         stateC.remoteWrites++;
         stateC.config = applySettingsPatch(stateC.config, patches);
@@ -832,14 +914,14 @@ describe('SyncService multi-device integration', () => {
     const stateD = { config: structuredClone(DEFAULT_CONFIG) };
     const svcA = new SyncService({
       storage: storeA,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
       applyRemoteConfigPatches: async (patches) => {
         storage.value.config = applySettingsPatch(storage.value.config as typeof DEFAULT_CONFIG, patches);
       },
     });
     const svcD = new SyncService({
       storage: storeD,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeD),
       applyRemoteConfigPatches: async (patches) => {
         stateD.config = applySettingsPatch(stateD.config, patches);
       },
@@ -886,7 +968,7 @@ describe('SyncService multi-device integration', () => {
     const stateD = { config: structuredClone(DEFAULT_CONFIG) };
     const svcA = new SyncService({
       storage: storeA,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
       applyRemoteConfigPatches: async (patches) => {
         storage.value.config = applySettingsPatch(storage.value.config as typeof DEFAULT_CONFIG, patches);
       },
@@ -894,7 +976,7 @@ describe('SyncService multi-device integration', () => {
     const svcD = new SyncService({
       storage: storeD,
       transportFactory: (cb) => {
-        const transport = bus.createTransport(cb, (config) => config.epoch >= 2);
+        const transport = bus.createTransport(cb, storeD, (config) => config.epoch >= 2);
         return {
           ...transport,
           async createAnswerCode() {
@@ -963,6 +1045,138 @@ describe('SyncService multi-device integration', () => {
     expect(stateD.config.summary.enabled).toBe(false);
   });
 
+  it('catches an offline epoch-2 member up through a retained relay topic', async () => {
+    const bus = new MockMeshBus();
+    const stores = {
+      x: new MemorySyncStorage(),
+      y: new MemorySyncStorage(),
+      z: new MemorySyncStorage(),
+      w: new MemorySyncStorage(),
+    };
+    const states = Object.fromEntries(
+      Object.keys(stores).map((id) => [id, { config: structuredClone(DEFAULT_CONFIG) }]),
+    ) as Record<string, { config: typeof DEFAULT_CONFIG }>;
+    const makeService = (id: keyof typeof stores) =>
+      new SyncService({
+        storage: stores[id],
+        transportFactory: (cb) => bus.createTransport(cb, stores[id]),
+        applyRemoteConfigPatches: async (patches) => {
+          states[id].config = applySettingsPatch(states[id].config, patches);
+        },
+      });
+    const serviceX = makeService('x');
+    const serviceY = makeService('y');
+    const serviceZ = makeService('z');
+    const created = await serviceX.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: 'wss://relay.local' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await serviceY.handleMessage({
+      type: 'kiwi:sync:join-group',
+      phrase: created.phrase!,
+      relayUrl: 'wss://relay.local',
+    });
+    await serviceZ.handleMessage({
+      type: 'kiwi:sync:join-group',
+      phrase: created.phrase!,
+      relayUrl: 'wss://relay.local',
+    });
+    await flushMicrotasks();
+
+    const removed = await serviceX.handleMessage({
+      type: 'kiwi:sync:remove-device',
+      deviceId: serviceY.getStatus().deviceId!,
+    });
+    expect(removed.ok).toBe(true);
+    if (!removed.ok) return;
+    await vi.waitFor(() => expect(serviceZ.getStatus().epoch).toBe(2));
+    const deviceZ = serviceZ.getStatus().deviceId!;
+    bus.setOnline(deviceZ, false);
+
+    const serviceW = makeService('w');
+    const joinedW = await serviceW.handleMessage({
+      type: 'kiwi:sync:join-group',
+      phrase: removed.phrase!,
+      relayUrl: 'wss://relay.local',
+    });
+    expect(joinedW.ok).toBe(true);
+    await vi.waitFor(() => expect(serviceW.getStatus().epoch).toBe(2));
+
+    const rotated = await serviceW.handleMessage({ type: 'kiwi:sync:rotate-phrase' });
+    expect(rotated.ok).toBe(true);
+    await vi.waitFor(() => expect(serviceX.getStatus().epoch).toBe(3));
+    expect(serviceZ.getStatus().epoch).toBe(2);
+
+    const restartedZ = makeService('z');
+    await restartedZ.init();
+    await vi.waitFor(() => expect(restartedZ.getStatus().epoch).toBe(3));
+    const legacyRecords = bus.sentMessages
+      .filter(({ from, to, epoch }) => from === serviceW.getStatus().deviceId && to === deviceZ && epoch === 2)
+      .map(({ payload }) => JSON.parse(payload) as { type?: string; envelopes?: SyncRecordEnvelope[] })
+      .filter((message) => message.type === 'records');
+    expect(legacyRecords.length).toBeGreaterThan(0);
+    const legacyEnvelopes = legacyRecords.flatMap((message) => message.envelopes ?? []);
+    expect(legacyEnvelopes.some((record) => record.kind === 'epoch-rotate')).toBe(true);
+    expect(
+      legacyEnvelopes.every((record) => record.epoch === 2 && record.kind !== 'snapshot'),
+    ).toBe(true);
+    const deviceW = serviceW.getStatus().deviceId!;
+    await vi.waitFor(() =>
+      expect(
+        bus.sentMessages.some(
+          ({ from, to, epoch, payload }) =>
+            from === deviceW &&
+            to === deviceZ &&
+            epoch === 3 &&
+            (JSON.parse(payload) as { type?: string }).type === 'vv',
+        ),
+      ).toBe(true),
+    );
+    await serviceW.recordLocalChanges([{ path: 'config.summary.enabled', value: false }]);
+    await vi.waitFor(() => expect(states.z!.config.summary.enabled).toBe(false));
+  });
+
+  it('does not authenticate or send records to a removed member on a legacy topic', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeY = new MemorySyncStorage();
+    const serviceA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const serviceY = new SyncService({
+      storage: storeY,
+      transportFactory: (cb) => bus.createTransport(cb, storeY),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const created = await serviceA.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: 'wss://relay.local' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await serviceY.handleMessage({
+      type: 'kiwi:sync:join-group',
+      phrase: created.phrase!,
+      relayUrl: 'wss://relay.local',
+    });
+    await flushMicrotasks();
+    const deviceY = serviceY.getStatus().deviceId!;
+    bus.setOnline(deviceY, false);
+    const removed = await serviceA.handleMessage({ type: 'kiwi:sync:remove-device', deviceId: deviceY });
+    expect(removed.ok).toBe(true);
+
+    const sentBeforeReconnect = bus.sentMessages.length;
+    bus.setOnline(deviceY, true);
+    await flushMicrotasks();
+
+    const fromA = bus.sentMessages
+      .slice(sentBeforeReconnect)
+      .filter(({ from, to }) => from === serviceA.getStatus().deviceId && to === deviceY)
+      .map(({ payload }) => (JSON.parse(payload) as { type?: string }).type);
+    expect(fromA).toContain('hello');
+    expect(fromA).not.toContain('proof');
+    expect(fromA).not.toContain('records');
+    expect(serviceA.getStatus().peers.find((peer) => peer.deviceId === deviceY)?.status).toBe('removed');
+  });
+
   it('starts transport with full config when a group has no relay', async () => {
     const store = new MemorySyncStorage();
     const start = vi.fn(async (_config: TransportConfig) => {});
@@ -1010,7 +1224,7 @@ describe('SyncService multi-device integration', () => {
     const store = new MemorySyncStorage();
     const service = new SyncService({
       storage: store,
-      transportFactory: (cb) => bus.createTransport(cb),
+      transportFactory: (cb) => bus.createTransport(cb, store),
       applyRemoteConfigPatches: async () => {},
     });
     const created = await service.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: '' });

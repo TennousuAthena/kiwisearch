@@ -1,6 +1,7 @@
 import {
   ReplayGuard,
   decodeConnectionCode,
+  deriveGroupKeys,
   deriveTopicId,
   encodeConnectionCode,
   openRelayFrame,
@@ -10,7 +11,11 @@ import {
   utcDayString,
 } from '@kiwi-search/sync';
 import type { SyncPeerChannel, SyncTransportState } from '@kiwi-search/protocol';
-import { createDefaultSyncStorage } from './syncDb';
+import {
+  createDefaultSyncStorage,
+  PREVIOUS_GROUP_SECRET_MAX_AGE_MS,
+  type PreviousGroupSecret,
+} from './syncDb';
 
 export interface TransportConfig {
   deviceId: string;
@@ -19,6 +24,7 @@ export interface TransportConfig {
   relayUrl: string;
   stunEnabled: boolean;
   stunUrls: string[];
+  legacyEpochs: number[];
 }
 
 export type TransportEvent =
@@ -29,6 +35,7 @@ export type TransportEvent =
       error?: string;
       peers: Array<{
         peerId: string;
+        epoch: number;
         peerName: string;
         channel: SyncPeerChannel;
         ownCertHash: string;
@@ -38,14 +45,15 @@ export type TransportEvent =
   | {
       type: 'peer-connected';
       peerId: string;
+      epoch: number;
       peerName: string;
       channel: SyncPeerChannel;
       ownCertHash: string;
       peerCertHash: string;
     }
-  | { type: 'peer-disconnected'; peerId: string }
-  | { type: 'peer-channel'; peerId: string; channel: SyncPeerChannel }
-  | { type: 'peer-message'; peerId: string; payload: string };
+  | { type: 'peer-disconnected'; peerId: string; epoch: number }
+  | { type: 'peer-channel'; peerId: string; epoch: number; channel: SyncPeerChannel }
+  | { type: 'peer-message'; peerId: string; epoch: number; payload: string };
 
 interface SignalEnvelope {
   t: 'hello' | 'offer' | 'answer' | 'ice' | 'bye' | 'relay-data';
@@ -66,6 +74,7 @@ interface SignalEnvelope {
 
 interface PeerSlot {
   peerId: string;
+  epoch: number;
   peerName: string;
   peerCertHash: string;
   pc: RTCPeerConnection | null;
@@ -75,12 +84,17 @@ interface PeerSlot {
   connectedEmitted: boolean;
   fallbackTimer: ReturnType<typeof setTimeout> | null;
   disconnectedTimer: ReturnType<typeof setTimeout> | null;
+  presenceTimer: ReturnType<typeof setTimeout> | null;
+  lastSeenAt: number;
   pendingIce: Array<{ offerId: string | null; candidate: RTCIceCandidateInit }>;
   restartedIce: boolean;
 }
 
 const WEBRTC_FALLBACK_TIMEOUT_MS = 6_000;
 const PEER_DISCONNECTED_TIMEOUT_MS = 5_000;
+const RELAY_KEEPALIVE_MS = 30_000;
+const RELAY_PEER_EXPIRY_MS = 90_000;
+const MAX_TIMEOUT_MS = 2_147_483_647;
 const RELAY_CHUNK_CHARS = 9_000;
 const RECONNECT_BASE_MS = 2_000;
 const RECONNECT_MAX_MS = 30_000;
@@ -155,11 +169,21 @@ export class SyncTransportCore {
   private certificate: RTCCertificate | null = null;
   private ownCertHash = '';
   private ws: WebSocket | null = null;
+  private legacyGroupKeys = new Map<number, GroupKeys>();
+  private legacyRotatedAt = new Map<number, number>();
+  private legacySockets = new Map<number, WebSocket>();
   private replayGuard = new ReplayGuard();
   private peers = new Map<string, PeerSlot>();
+  private legacyPeers = new Map<number, Map<string, PeerSlot>>();
   private relayChunks = new Map<string, { total: number; parts: string[]; createdAt: number }>();
+  private legacyRelayChunks = new Map<string, { total: number; parts: string[]; createdAt: number }>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private midnightTimer: ReturnType<typeof setTimeout> | null = null;
+  private legacyReconnectTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  private legacyMidnightTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  private legacyExpiryTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  private legacyReconnectAttempts = new Map<number, number>();
+  private keepaliveTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private stopped = true;
   private transportState: SyncTransportState = 'idle';
@@ -180,11 +204,21 @@ export class SyncTransportCore {
     }
   }
 
-  private async ensureKeysAndCertificate(): Promise<GroupKeys> {
+  private async ensureKeysAndCertificate(config = this.config): Promise<GroupKeys> {
     const storage = createDefaultSyncStorage();
     const record = await storage.load();
     if (!record) throw new Error('Sync group is not configured');
     this.groupKeys = record.groupKeys;
+    this.legacyGroupKeys.clear();
+    this.legacyRotatedAt.clear();
+    const retainedSecrets: readonly PreviousGroupSecret[] = record.previousGroupSecrets ?? [];
+    for (const epoch of new Set(config?.legacyEpochs ?? [])) {
+      if (epoch === record.groupKeys.epoch) continue;
+      const previous = retainedSecrets.find((entry) => entry.epoch === epoch);
+      if (!previous || Date.now() - previous.rotatedAt > PREVIOUS_GROUP_SECRET_MAX_AGE_MS) continue;
+      this.legacyGroupKeys.set(epoch, await deriveGroupKeys(previous.secret, epoch));
+      this.legacyRotatedAt.set(epoch, previous.rotatedAt);
+    }
 
     if (!this.certificate) {
       if (record.certificate && record.certificate.expires > Date.now() + 3600_000) {
@@ -200,7 +234,7 @@ export class SyncTransportCore {
       const fp = this.certificate.getFingerprints().find((f) => f.algorithm?.toLowerCase() === 'sha-256');
       if (fp?.value) this.ownCertHash = fp.value.toLowerCase();
     }
-    if (!this.ownCertHash) this.ownCertHash = this.config?.deviceId ?? 'kiwi-sync';
+    if (!this.ownCertHash) this.ownCertHash = config?.deviceId ?? 'kiwi-sync';
     return this.groupKeys;
   }
 
@@ -218,7 +252,7 @@ export class SyncTransportCore {
     if (transportSettingsMatch && previousKeys) {
       const previousTopicId = await deriveTopicId(previousKeys.topicKey);
       try {
-        await this.ensureKeysAndCertificate();
+        await this.ensureKeysAndCertificate(config);
       } catch (error) {
         this.groupKeys = previousKeys;
         this.emit({ type: 'state', state: 'error', error: error instanceof Error ? error.message : String(error) });
@@ -227,6 +261,7 @@ export class SyncTransportCore {
       const nextTopicId = await deriveTopicId(this.groupKeys!.topicKey);
       if (previousTopicId === nextTopicId) {
         this.config = config;
+        if (previousConfig.epoch !== config.epoch) this.rebindCurrentPeerEpoch(config.epoch);
         if (
           this.ws?.readyState === WebSocket.OPEN &&
           (previousConfig.epoch !== config.epoch || previousConfig.deviceName !== config.deviceName)
@@ -239,6 +274,7 @@ export class SyncTransportCore {
             certHash: this.ownCertHash,
           });
         }
+        await this.reconcileLegacySockets();
         return;
       }
       this.groupKeys = previousKeys;
@@ -250,7 +286,7 @@ export class SyncTransportCore {
     this.replayGuard = new ReplayGuard();
 
     try {
-      await this.ensureKeysAndCertificate();
+      await this.ensureKeysAndCertificate(config);
     } catch (error) {
       this.emit({ type: 'state', state: 'error', error: error instanceof Error ? error.message : String(error) });
       return;
@@ -262,6 +298,29 @@ export class SyncTransportCore {
     }
 
     await this.connectWebSocket();
+    await this.reconcileLegacySockets();
+    this.scheduleRelayKeepalives();
+  }
+
+  private rebindCurrentPeerEpoch(epoch: number): void {
+    for (const slot of this.peers.values()) {
+      if (slot.epoch === epoch) continue;
+      const previousEpoch = slot.epoch;
+      const wasConnected = slot.connectedEmitted;
+      slot.epoch = epoch;
+      if (!wasConnected) continue;
+      this.emit({ type: 'peer-disconnected', peerId: slot.peerId, epoch: previousEpoch });
+      this.emit({
+        type: 'peer-connected',
+        peerId: slot.peerId,
+        epoch,
+        peerName: slot.peerName,
+        channel: slot.channel,
+        ownCertHash: this.ownCertHash,
+        peerCertHash: slot.peerCertHash || this.ownCertHash,
+      });
+      this.refreshRelayPresence(slot);
+    }
   }
 
   getReconnectSnapshot(): Extract<TransportEvent, { type: 'snapshot' }> {
@@ -269,10 +328,14 @@ export class SyncTransportCore {
       type: 'snapshot',
       state: this.transportState,
       error: this.transportError,
-      peers: [...this.peers.values()]
+      peers: [
+        ...this.peers.values(),
+        ...[...this.legacyPeers.values()].flatMap((peers) => [...peers.values()]),
+      ]
         .filter((slot) => slot.connectedEmitted)
         .map((slot) => ({
           peerId: slot.peerId,
+          epoch: slot.epoch,
           peerName: slot.peerName,
           channel: slot.channel,
           ownCertHash: this.ownCertHash,
@@ -291,6 +354,10 @@ export class SyncTransportCore {
       clearTimeout(this.midnightTimer);
       this.midnightTimer = null;
     }
+    if (this.keepaliveTimer) {
+      clearTimeout(this.keepaliveTimer);
+      this.keepaliveTimer = null;
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.config && this.groupKeys) {
       void this.sendSignal({
         t: 'bye',
@@ -307,10 +374,23 @@ export class SyncTransportCore {
       this.ws = null;
     }
     for (const slot of this.peers.values()) {
-      this.cleanupPeerSlot(slot, false);
+      this.cleanupPeerSlot(slot, true);
     }
     this.peers.clear();
+    for (const epoch of [...this.legacySockets.keys(), ...this.legacyPeers.keys()]) {
+      this.closeLegacyEpoch(epoch);
+    }
+    for (const timer of this.legacyReconnectTimers.values()) clearTimeout(timer);
+    this.legacyReconnectTimers.clear();
+    for (const timer of this.legacyMidnightTimers.values()) clearTimeout(timer);
+    this.legacyMidnightTimers.clear();
+    for (const timer of this.legacyExpiryTimers.values()) clearTimeout(timer);
+    this.legacyExpiryTimers.clear();
+    this.legacyReconnectAttempts.clear();
+    this.legacyGroupKeys.clear();
+    this.legacyRotatedAt.clear();
     this.relayChunks.clear();
+    this.legacyRelayChunks.clear();
     if (this.manualOfferSlot) {
       try {
         this.manualOfferSlot.pc.close();
@@ -338,6 +418,7 @@ export class SyncTransportCore {
       if (this.ws !== ws || this.stopped) return;
       this.reconnectAttempts = 0;
       this.emit({ type: 'state', state: 'connected' });
+      this.scheduleRelayKeepalives();
       void this.sendSignal({
         t: 'hello',
         from: this.config!.deviceId,
@@ -370,6 +451,225 @@ export class SyncTransportCore {
         void this.connectWebSocket();
       }, delay);
     };
+  }
+
+  private async reconcileLegacySockets(): Promise<void> {
+    if (!this.config?.relayUrl.trim()) {
+      for (const epoch of new Set([...this.legacySockets.keys(), ...this.legacyPeers.keys()])) {
+        this.closeLegacyEpoch(epoch);
+      }
+      return;
+    }
+
+    const wanted = new Set(
+      (this.config.legacyEpochs ?? []).filter(
+        (epoch) => epoch !== this.config!.epoch && this.legacyGroupKeys.has(epoch),
+      ),
+    );
+    for (const epoch of new Set([...this.legacySockets.keys(), ...this.legacyPeers.keys()])) {
+      if (!wanted.has(epoch)) this.closeLegacyEpoch(epoch);
+    }
+    for (const epoch of wanted) {
+      this.scheduleLegacyExpiry(epoch);
+      if (!this.legacySockets.has(epoch)) await this.connectLegacyWebSocket(epoch);
+    }
+  }
+
+  private async connectLegacyWebSocket(epoch: number): Promise<void> {
+    const config = this.config;
+    if (this.stopped || !config?.relayUrl.trim()) return;
+    const keys = this.legacyGroupKeys.get(epoch);
+    if (!keys) return;
+    this.scheduleLegacyMidnightRollover(epoch);
+
+    const topicId = await deriveTopicId(keys.topicKey);
+    if (
+      this.stopped ||
+      this.config !== config ||
+      !config.relayUrl.trim() ||
+      this.legacyGroupKeys.get(epoch) !== keys ||
+      Date.now() - (this.legacyRotatedAt.get(epoch) ?? 0) > PREVIOUS_GROUP_SECRET_MAX_AGE_MS
+    ) {
+      return;
+    }
+    const ws = new WebSocket(normalizeRelayWsUrl(config.relayUrl, topicId));
+    ws.binaryType = 'arraybuffer';
+    this.legacySockets.set(epoch, ws);
+
+    ws.onopen = () => {
+      if (this.legacySockets.get(epoch) !== ws || this.stopped || !this.config) return;
+      this.legacyReconnectAttempts.set(epoch, 0);
+      this.scheduleRelayKeepalives();
+      void this.sendSignal(
+        {
+          t: 'hello',
+          from: this.config.deviceId,
+          fromName: this.config.deviceName,
+          epoch,
+          certHash: this.ownCertHash,
+        },
+        epoch,
+      );
+      for (const slot of this.legacyPeers.get(epoch)?.values() ?? []) {
+        if (slot.connectedEmitted) {
+          this.emit({ type: 'peer-channel', peerId: slot.peerId, epoch, channel: 'relay' });
+        }
+      }
+    };
+
+    ws.onmessage = (event) => {
+      if (this.legacySockets.get(epoch) !== ws || this.stopped) return;
+      if (!(event.data instanceof ArrayBuffer)) return;
+      void this.handleLegacyRelayFrame(epoch, new Uint8Array(event.data));
+    };
+
+    ws.onclose = () => {
+      if (this.legacySockets.get(epoch) !== ws) return;
+      this.legacySockets.delete(epoch);
+      if (this.stopped) return;
+      this.scheduleLegacyReconnect(epoch);
+    };
+  }
+
+  private scheduleLegacyReconnect(epoch: number): void {
+    if (this.stopped || this.legacyReconnectTimers.has(epoch)) return;
+    const attempts = this.legacyReconnectAttempts.get(epoch) ?? 0;
+    const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, attempts), RECONNECT_MAX_MS);
+    this.legacyReconnectAttempts.set(epoch, attempts + 1);
+    const timer = setTimeout(() => {
+      this.legacyReconnectTimers.delete(epoch);
+      void this.connectLegacyWebSocket(epoch);
+    }, delay);
+    this.legacyReconnectTimers.set(epoch, timer);
+  }
+
+  private scheduleLegacyMidnightRollover(epoch: number): void {
+    const oldTimer = this.legacyMidnightTimers.get(epoch);
+    if (oldTimer) clearTimeout(oldTimer);
+    const now = Date.now();
+    const nextMidnight = Date.parse(`${utcDayString(now)}T00:00:00.000Z`) + 86_400_000;
+    const jitter = Math.floor(Math.random() * (MIDNIGHT_JITTER_MAX_MS + 1));
+    const timer = setTimeout(() => {
+      this.legacyMidnightTimers.delete(epoch);
+      if (this.stopped || !this.config?.relayUrl.trim() || !this.legacyGroupKeys.has(epoch)) return;
+      const previous = this.legacySockets.get(epoch);
+      this.legacySockets.delete(epoch);
+      const reconnect = this.legacyReconnectTimers.get(epoch);
+      if (reconnect) clearTimeout(reconnect);
+      this.legacyReconnectTimers.delete(epoch);
+      this.legacyReconnectAttempts.set(epoch, 0);
+      if (previous) {
+        previous.onopen = null;
+        previous.onmessage = null;
+        previous.onclose = null;
+        try {
+          previous.close(1000, 'topic rollover');
+        } catch {
+          // ignore
+        }
+      }
+      void this.connectLegacyWebSocket(epoch);
+    }, Math.max(0, nextMidnight - now + jitter));
+    this.legacyMidnightTimers.set(epoch, timer);
+  }
+
+  private scheduleLegacyExpiry(epoch: number): void {
+    const previousTimer = this.legacyExpiryTimers.get(epoch);
+    if (previousTimer) clearTimeout(previousTimer);
+    const rotatedAt = this.legacyRotatedAt.get(epoch);
+    if (rotatedAt === undefined) return;
+    const expiryAt = rotatedAt + PREVIOUS_GROUP_SECRET_MAX_AGE_MS + 1;
+    const timer = setTimeout(() => {
+      this.legacyExpiryTimers.delete(epoch);
+      if (Date.now() < expiryAt) {
+        this.scheduleLegacyExpiry(epoch);
+      } else {
+        this.closeLegacyEpoch(epoch);
+      }
+    }, Math.min(MAX_TIMEOUT_MS, Math.max(0, expiryAt - Date.now())));
+    this.legacyExpiryTimers.set(epoch, timer);
+  }
+
+  private closeLegacyEpoch(epoch: number): void {
+    const reconnect = this.legacyReconnectTimers.get(epoch);
+    if (reconnect) clearTimeout(reconnect);
+    this.legacyReconnectTimers.delete(epoch);
+    const midnight = this.legacyMidnightTimers.get(epoch);
+    if (midnight) clearTimeout(midnight);
+    this.legacyMidnightTimers.delete(epoch);
+    const expiry = this.legacyExpiryTimers.get(epoch);
+    if (expiry) clearTimeout(expiry);
+    this.legacyExpiryTimers.delete(epoch);
+    const ws = this.legacySockets.get(epoch);
+    this.legacySockets.delete(epoch);
+    if (ws) {
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      try {
+        ws.close(1000, 'legacy epoch closed');
+      } catch {
+        // ignore
+      }
+    }
+    const peers = this.legacyPeers.get(epoch);
+    if (peers) {
+      for (const slot of peers.values()) this.cleanupPeerSlot(slot, true);
+      peers.clear();
+      this.legacyPeers.delete(epoch);
+    }
+    this.legacyRelayChunks.clear();
+    this.legacyReconnectAttempts.delete(epoch);
+    this.legacyGroupKeys.delete(epoch);
+    this.legacyRotatedAt.delete(epoch);
+  }
+
+  private scheduleRelayKeepalives(): void {
+    if (this.stopped || this.keepaliveTimer) return;
+    this.keepaliveTimer = setTimeout(() => {
+      this.keepaliveTimer = null;
+      if (this.stopped) return;
+      for (const slot of this.peers.values()) {
+        if (slot.channel === 'relay' && slot.connectedEmitted) void this.sendRelayKeepalive(slot);
+      }
+      for (const peers of this.legacyPeers.values()) {
+        for (const slot of peers.values()) {
+          if (slot.connectedEmitted) void this.sendRelayKeepalive(slot);
+        }
+      }
+      this.scheduleRelayKeepalives();
+    }, RELAY_KEEPALIVE_MS);
+  }
+
+  private async sendRelayKeepalive(slot: PeerSlot): Promise<void> {
+    if (!this.config) return;
+    await this.sendSignal(
+      {
+        t: 'hello',
+        from: this.config.deviceId,
+        fromName: this.config.deviceName,
+        to: slot.peerId,
+        epoch: slot.epoch,
+        certHash: this.ownCertHash,
+      },
+      slot.epoch,
+    );
+  }
+
+  private refreshRelayPresence(slot: PeerSlot): void {
+    slot.lastSeenAt = Date.now();
+    if (slot.channel !== 'relay') return;
+    if (slot.presenceTimer) clearTimeout(slot.presenceTimer);
+    slot.presenceTimer = setTimeout(() => {
+      slot.presenceTimer = null;
+      if (slot.channel !== 'relay' || Date.now() - slot.lastSeenAt < RELAY_PEER_EXPIRY_MS) return;
+      if (slot.epoch === this.config?.epoch) {
+        this.removePeerSlot(slot, true);
+      } else {
+        this.removeLegacyPeerSlot(slot, true);
+      }
+    }, RELAY_PEER_EXPIRY_MS);
   }
 
   private scheduleMidnightRollover(): void {
@@ -405,15 +705,18 @@ export class SyncTransportCore {
     }, Math.max(0, nextMidnight - now + jitter));
   }
 
-  private async sendSignal(msg: SignalEnvelope): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.groupKeys) return;
+  private async sendSignal(msg: SignalEnvelope, epoch = msg.epoch): Promise<void> {
+    const isCurrentEpoch = epoch === this.config?.epoch;
+    const socket = isCurrentEpoch ? this.ws : this.legacySockets.get(epoch);
+    const keys = isCurrentEpoch ? this.groupKeys : this.legacyGroupKeys.get(epoch);
+    if (!socket || socket.readyState !== WebSocket.OPEN || !keys) return;
     const wrapped = {
       id: crypto.randomUUID(),
       ts: Date.now(),
       payload: msg,
     };
-    const frame = await sealRelayFrame(this.groupKeys, wrapped);
-    this.ws.send(frame);
+    const frame = await sealRelayFrame(keys, wrapped);
+    socket.send(frame);
   }
 
   private async handleRelayFrame(bytes: Uint8Array): Promise<void> {
@@ -428,6 +731,8 @@ export class SyncTransportCore {
     const msg = opened.payload;
     if (!msg || typeof msg !== 'object' || msg.from === this.config.deviceId) return;
     if (msg.to && msg.to !== this.config.deviceId) return;
+    const existing = this.peers.get(msg.from);
+    if (existing?.channel === 'relay') this.refreshRelayPresence(existing);
 
     if (msg.t === 'hello') {
       await this.handlePeerHello(msg);
@@ -448,11 +753,132 @@ export class SyncTransportCore {
     }
   }
 
+  private async handleLegacyRelayFrame(epoch: number, bytes: Uint8Array): Promise<void> {
+    const keys = this.legacyGroupKeys.get(epoch);
+    const config = this.config;
+    if (!keys || !config) return;
+    let opened: { id: string; ts: number; payload: SignalEnvelope };
+    try {
+      opened = await openRelayFrame<{ id: string; ts: number; payload: SignalEnvelope }>(keys, bytes);
+    } catch {
+      return;
+    }
+    if (!opened || !this.replayGuard.accept(opened.id, opened.ts)) return;
+    const msg = opened.payload;
+    if (!msg || typeof msg !== 'object' || msg.from === config.deviceId) return;
+    if (msg.to && msg.to !== config.deviceId) return;
+
+    const existing = this.legacyPeers.get(epoch)?.get(msg.from);
+    if (existing) this.refreshRelayPresence(existing);
+    if (msg.t === 'hello') {
+      await this.handleLegacyPeerHello(epoch, msg);
+    } else if (msg.t === 'relay-data') {
+      this.handleLegacyRelayDataChunk(epoch, msg);
+    } else if (msg.t === 'bye') {
+      const slot = this.legacyPeers.get(epoch)?.get(msg.from);
+      if (slot) this.removeLegacyPeerSlot(slot);
+    }
+  }
+
+  private async handleLegacyPeerHello(epoch: number, msg: SignalEnvelope): Promise<void> {
+    if (!this.config || !this.legacyGroupKeys.has(epoch)) return;
+    const existing = this.legacyPeers.get(epoch)?.get(msg.from);
+    if (
+      existing &&
+      msg.certHash &&
+      existing.peerCertHash &&
+      msg.certHash !== existing.peerCertHash
+    ) {
+      this.removeLegacyPeerSlot(existing);
+    }
+    const slot = this.getOrCreateLegacySlot(epoch, msg.from, msg.fromName, msg.certHash);
+    this.refreshRelayPresence(slot);
+    if (!msg.to) {
+      await this.sendSignal(
+        {
+          t: 'hello',
+          from: this.config.deviceId,
+          fromName: this.config.deviceName,
+          to: msg.from,
+          epoch,
+          certHash: this.ownCertHash,
+        },
+        epoch,
+      );
+    }
+  }
+
+  private getOrCreateLegacySlot(epoch: number, peerId: string, peerName?: string, peerCertHash?: string): PeerSlot {
+    let peers = this.legacyPeers.get(epoch);
+    if (!peers) {
+      peers = new Map();
+      this.legacyPeers.set(epoch, peers);
+    }
+    let slot = peers.get(peerId);
+    if (!slot) {
+      slot = {
+        peerId,
+        epoch,
+        peerName: peerName || peerId.slice(0, 8),
+        peerCertHash: peerCertHash || '',
+        pc: null,
+        dc: null,
+        offerId: null,
+        channel: 'relay',
+        connectedEmitted: true,
+        fallbackTimer: null,
+        disconnectedTimer: null,
+        presenceTimer: null,
+        lastSeenAt: Date.now(),
+        pendingIce: [],
+        restartedIce: false,
+      };
+      peers.set(peerId, slot);
+      this.emit({
+        type: 'peer-connected',
+        peerId,
+        epoch,
+        peerName: slot.peerName,
+        channel: 'relay',
+        ownCertHash: this.ownCertHash,
+        peerCertHash: slot.peerCertHash || this.ownCertHash,
+      });
+    } else {
+      if (peerName) slot.peerName = peerName;
+      if (peerCertHash) slot.peerCertHash = peerCertHash;
+    }
+    return slot;
+  }
+
+  private handleLegacyRelayDataChunk(epoch: number, msg: SignalEnvelope): void {
+    if (!msg.msgId || typeof msg.idx !== 'number' || typeof msg.total !== 'number' || typeof msg.chunk !== 'string') {
+      return;
+    }
+    const slot = this.getOrCreateLegacySlot(epoch, msg.from, msg.fromName, msg.certHash);
+    this.refreshRelayPresence(slot);
+    if (msg.total === 1) {
+      this.emit({ type: 'peer-message', peerId: msg.from, epoch, payload: msg.chunk });
+      return;
+    }
+    const key = `${epoch}:${msg.from}:${msg.msgId}`;
+    let entry = this.legacyRelayChunks.get(key);
+    if (!entry) {
+      entry = { total: msg.total, parts: new Array<string>(msg.total), createdAt: Date.now() };
+      this.legacyRelayChunks.set(key, entry);
+    }
+    entry.parts[msg.idx] = msg.chunk;
+    if (entry.parts.filter((part) => typeof part === 'string').length === entry.total) {
+      this.legacyRelayChunks.delete(key);
+      this.emit({ type: 'peer-message', peerId: msg.from, epoch, payload: entry.parts.join('') });
+    }
+  }
+
   private getOrCreateSlot(peerId: string, peerName?: string, peerCertHash?: string): PeerSlot {
     let slot = this.peers.get(peerId);
     if (!slot) {
       slot = {
         peerId,
+        epoch: this.config?.epoch ?? 0,
         peerName: peerName || peerId.slice(0, 8),
         peerCertHash: peerCertHash || '',
         pc: null,
@@ -462,6 +888,8 @@ export class SyncTransportCore {
         connectedEmitted: false,
         fallbackTimer: null,
         disconnectedTimer: null,
+        presenceTimer: null,
+        lastSeenAt: Date.now(),
         pendingIce: [],
         restartedIce: false,
       };
@@ -516,10 +944,14 @@ export class SyncTransportCore {
 
   private cleanupPeerSlot(slot: PeerSlot, notify: boolean): void {
     this.cleanupPeerConnection(slot);
+    if (slot.presenceTimer) {
+      clearTimeout(slot.presenceTimer);
+      slot.presenceTimer = null;
+    }
     slot.channel = 'none';
     if (notify && slot.connectedEmitted) {
       slot.connectedEmitted = false;
-      this.emit({ type: 'peer-disconnected', peerId: slot.peerId });
+      this.emit({ type: 'peer-disconnected', peerId: slot.peerId, epoch: slot.epoch });
     }
   }
 
@@ -528,6 +960,26 @@ export class SyncTransportCore {
     this.cleanupPeerSlot(slot, true);
     this.peers.delete(slot.peerId);
     if (resendHello) void this.sendRelayHello().catch(() => {});
+  }
+
+  private removeLegacyPeerSlot(slot: PeerSlot, resendHello = false): void {
+    const peers = this.legacyPeers.get(slot.epoch);
+    if (peers?.get(slot.peerId) !== slot) return;
+    this.cleanupPeerSlot(slot, true);
+    peers.delete(slot.peerId);
+    if (peers.size === 0) this.legacyPeers.delete(slot.epoch);
+    if (resendHello && this.config) {
+      void this.sendSignal(
+        {
+          t: 'hello',
+          from: this.config.deviceId,
+          fromName: this.config.deviceName,
+          epoch: slot.epoch,
+          certHash: this.ownCertHash,
+        },
+        slot.epoch,
+      ).catch(() => {});
+    }
   }
 
   private handleDirectConnectionFailure(slot: PeerSlot): void {
@@ -641,6 +1093,7 @@ export class SyncTransportCore {
       this.emit({
         type: 'peer-connected',
         peerId: slot.peerId,
+        epoch: slot.epoch,
         peerName: slot.peerName,
         channel: 'webrtc',
         ownCertHash: localFp,
@@ -649,7 +1102,7 @@ export class SyncTransportCore {
     };
     dc.onmessage = (ev) => {
       if (typeof ev.data === 'string') {
-        this.emit({ type: 'peer-message', peerId: slot.peerId, payload: ev.data });
+        this.emit({ type: 'peer-message', peerId: slot.peerId, epoch: slot.epoch, payload: ev.data });
       }
     };
     dc.onclose = () => {
@@ -672,12 +1125,14 @@ export class SyncTransportCore {
     this.cleanupPeerConnection(slot);
     slot.channel = 'relay';
     slot.connectedEmitted = true;
+    this.refreshRelayPresence(slot);
     if (wasConnected) {
-      this.emit({ type: 'peer-channel', peerId: slot.peerId, channel: 'relay' });
+      this.emit({ type: 'peer-channel', peerId: slot.peerId, epoch: slot.epoch, channel: 'relay' });
     } else {
       this.emit({
         type: 'peer-connected',
         peerId: slot.peerId,
+        epoch: slot.epoch,
         peerName: slot.peerName,
         channel: 'relay',
         ownCertHash: this.ownCertHash,
@@ -690,6 +1145,7 @@ export class SyncTransportCore {
   private async handlePeerHello(msg: SignalEnvelope): Promise<void> {
     if (!this.config) return;
     const existing = this.peers.get(msg.from);
+    if (existing?.channel === 'relay') this.refreshRelayPresence(existing);
     if (existing && msg.certHash && existing.peerCertHash && msg.certHash !== existing.peerCertHash) {
       this.removePeerSlot(existing, false);
     }
@@ -815,11 +1271,12 @@ export class SyncTransportCore {
     if (!slot.connectedEmitted) {
       this.activateRelayFallback(slot);
     }
+    this.refreshRelayPresence(slot);
     if (msg.total === 1) {
-      this.emit({ type: 'peer-message', peerId: msg.from, payload: msg.chunk });
+      this.emit({ type: 'peer-message', peerId: msg.from, epoch: slot.epoch, payload: msg.chunk });
       return;
     }
-    const key = `${msg.from}:${msg.msgId}`;
+    const key = `${slot.epoch}:${msg.from}:${msg.msgId}`;
     let entry = this.relayChunks.get(key);
     if (!entry) {
       entry = { total: msg.total, parts: new Array<string>(msg.total), createdAt: Date.now() };
@@ -828,18 +1285,23 @@ export class SyncTransportCore {
     entry.parts[msg.idx] = msg.chunk;
     if (entry.parts.filter((p) => typeof p === 'string').length === entry.total) {
       this.relayChunks.delete(key);
-      this.emit({ type: 'peer-message', peerId: msg.from, payload: entry.parts.join('') });
+      this.emit({ type: 'peer-message', peerId: msg.from, epoch: slot.epoch, payload: entry.parts.join('') });
     }
   }
 
-  async sendToPeer(peerId: string, payload: string): Promise<boolean> {
-    const slot = this.peers.get(peerId);
+  async sendToPeer(peerId: string, payload: string, epoch = this.config?.epoch): Promise<boolean> {
+    if (epoch === undefined) return false;
+    const hasLegacyEpoch = epoch !== this.config?.epoch && this.legacyGroupKeys.has(epoch);
+    const isCurrentEpoch = epoch === this.config?.epoch || (!hasLegacyEpoch && this.peers.has(peerId));
+    const slot = isCurrentEpoch ? this.peers.get(peerId) : this.legacyPeers.get(epoch)?.get(peerId);
     if (!slot) return false;
-    if (slot.channel === 'webrtc' && slot.dc && slot.dc.readyState === 'open') {
+    const signalEpoch = isCurrentEpoch ? (this.config?.epoch ?? epoch) : epoch;
+    if (isCurrentEpoch && slot.channel === 'webrtc' && slot.dc && slot.dc.readyState === 'open') {
       slot.dc.send(payload);
       return true;
     }
-    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.config) {
+    const socket = isCurrentEpoch ? this.ws : this.legacySockets.get(epoch);
+    if (socket && socket.readyState === WebSocket.OPEN && this.config) {
       const msgId = crypto.randomUUID().slice(0, 12);
       const total = Math.max(1, Math.ceil(payload.length / RELAY_CHUNK_CHARS));
       for (let idx = 0; idx < total; idx += 1) {
@@ -849,13 +1311,13 @@ export class SyncTransportCore {
           from: this.config.deviceId,
           fromName: this.config.deviceName,
           to: peerId,
-          epoch: this.config.epoch,
+          epoch: signalEpoch,
           certHash: this.ownCertHash,
           msgId,
           idx,
           total,
           chunk,
-        });
+        }, signalEpoch);
       }
       return true;
     }
@@ -865,6 +1327,11 @@ export class SyncTransportCore {
   async broadcast(payload: string): Promise<void> {
     for (const peerId of this.peers.keys()) {
       await this.sendToPeer(peerId, payload).catch(() => {});
+    }
+    for (const [epoch, peers] of this.legacyPeers) {
+      for (const peerId of peers.keys()) {
+        await this.sendToPeer(peerId, payload, epoch).catch(() => {});
+      }
     }
   }
 
