@@ -73,11 +73,13 @@ interface PeerSlot {
   channel: SyncPeerChannel;
   connectedEmitted: boolean;
   fallbackTimer: ReturnType<typeof setTimeout> | null;
+  disconnectedTimer: ReturnType<typeof setTimeout> | null;
   pendingIce: RTCIceCandidateInit[];
   restartedIce: boolean;
 }
 
 const WEBRTC_FALLBACK_TIMEOUT_MS = 6_000;
+const PEER_DISCONNECTED_TIMEOUT_MS = 5_000;
 const RELAY_CHUNK_CHARS = 9_000;
 const RECONNECT_BASE_MS = 2_000;
 const RECONNECT_MAX_MS = 30_000;
@@ -458,6 +460,7 @@ export class SyncTransportCore {
         channel: 'none',
         connectedEmitted: false,
         fallbackTimer: null,
+        disconnectedTimer: null,
         pendingIce: [],
         restartedIce: false,
       };
@@ -474,23 +477,63 @@ export class SyncTransportCore {
       clearTimeout(slot.fallbackTimer);
       slot.fallbackTimer = null;
     }
-    try {
-      slot.dc?.close();
-    } catch {
-      // ignore
+    if (slot.disconnectedTimer) {
+      clearTimeout(slot.disconnectedTimer);
+      slot.disconnectedTimer = null;
     }
-    try {
-      slot.pc?.close();
-    } catch {
-      // ignore
-    }
+
+    const dc = slot.dc;
     slot.dc = null;
+    if (dc) {
+      dc.onopen = null;
+      dc.onmessage = null;
+      dc.onclose = null;
+      try {
+        dc.close();
+      } catch {
+        // ignore
+      }
+    }
+
+    const pc = slot.pc;
     slot.pc = null;
+    if (pc) {
+      pc.onicecandidate = null;
+      pc.oniceconnectionstatechange = null;
+      pc.onconnectionstatechange = null;
+      pc.ondatachannel = null;
+      try {
+        pc.close();
+      } catch {
+        // ignore
+      }
+    }
     slot.channel = 'none';
+    slot.offerId = null;
+    slot.pendingIce = [];
+    slot.restartedIce = false;
     if (notify && slot.connectedEmitted) {
       slot.connectedEmitted = false;
       this.emit({ type: 'peer-disconnected', peerId: slot.peerId });
     }
+  }
+
+  private removePeerSlot(slot: PeerSlot, resendHello: boolean): void {
+    if (this.peers.get(slot.peerId) !== slot) return;
+    this.cleanupPeerSlot(slot, true);
+    this.peers.delete(slot.peerId);
+    if (resendHello) void this.sendRelayHello().catch(() => {});
+  }
+
+  private async sendRelayHello(): Promise<void> {
+    if (!this.config) return;
+    await this.sendSignal({
+      t: 'hello',
+      from: this.config.deviceId,
+      fromName: this.config.deviceName,
+      epoch: this.config.epoch,
+      certHash: this.ownCertHash,
+    });
   }
 
   private createPeerConnection(slot: PeerSlot): RTCPeerConnection {
@@ -528,6 +571,26 @@ export class SyncTransportCore {
         }
       } else if (pc.iceConnectionState === 'closed' && slot.channel === 'webrtc') {
         this.activateRelayFallback(slot);
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (slot.pc !== pc) return;
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        this.removePeerSlot(slot, true);
+        return;
+      }
+      if (pc.connectionState === 'disconnected') {
+        if (slot.disconnectedTimer) clearTimeout(slot.disconnectedTimer);
+        slot.disconnectedTimer = setTimeout(() => {
+          slot.disconnectedTimer = null;
+          if (slot.pc === pc && pc.connectionState === 'disconnected') {
+            this.removePeerSlot(slot, true);
+          }
+        }, PEER_DISCONNECTED_TIMEOUT_MS);
+      } else if (slot.disconnectedTimer) {
+        clearTimeout(slot.disconnectedTimer);
+        slot.disconnectedTimer = null;
       }
     };
 
@@ -574,16 +637,7 @@ export class SyncTransportCore {
     };
     dc.onclose = () => {
       if (slot.dc !== dc) return;
-      slot.dc = null;
-      if (slot.channel === 'webrtc') {
-        slot.channel = 'none';
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.activateRelayFallback(slot);
-        } else if (slot.connectedEmitted) {
-          slot.connectedEmitted = false;
-          this.emit({ type: 'peer-disconnected', peerId: slot.peerId });
-        }
-      }
+      this.removePeerSlot(slot, true);
     };
   }
 
@@ -608,6 +662,10 @@ export class SyncTransportCore {
 
   private async handlePeerHello(msg: SignalEnvelope): Promise<void> {
     if (!this.config) return;
+    const existing = this.peers.get(msg.from);
+    if (existing && msg.certHash && existing.peerCertHash && msg.certHash !== existing.peerCertHash) {
+      this.removePeerSlot(existing, false);
+    }
     const slot = this.getOrCreateSlot(msg.from, msg.fromName, msg.certHash);
 
     // Reply with directed hello if we haven't connected yet so the newcomer learns our presence.
@@ -655,7 +713,15 @@ export class SyncTransportCore {
 
   private async handlePeerOffer(msg: SignalEnvelope): Promise<void> {
     if (!this.config || !msg.sdp || !msg.offerId) return;
+    const existing = this.peers.get(msg.from);
+    const certChanged =
+      existing && msg.certHash && existing.peerCertHash && msg.certHash !== existing.peerCertHash;
+    const negotiationChanged = existing && existing.offerId !== msg.offerId;
+    if (existing && (certChanged || negotiationChanged)) {
+      this.removePeerSlot(existing, false);
+    }
     const slot = this.getOrCreateSlot(msg.from, msg.fromName, msg.certHash);
+    if (slot.offerId === msg.offerId && slot.pc) return;
     if (typeof RTCPeerConnection === 'undefined') {
       this.activateRelayFallback(slot);
       return;
