@@ -357,21 +357,109 @@ describe('SyncEngine multi-device synchronization', () => {
       persisted: snapshotState,
     });
     const snapshots = await snapshotEngine.createSnapshotRecords(now + 300);
-    expect(snapshots.length).toBeGreaterThan(1);
-    expect(snapshots.every((record) => utf8Encode(JSON.stringify(record)).byteLength <= MAX_RELAY_FRAME_BYTES)).toBe(true);
+    expect(snapshots.records.length).toBeGreaterThan(1);
+    expect(snapshots.records.every((record) => utf8Encode(JSON.stringify(record)).byteLength <= MAX_RELAY_FRAME_BYTES)).toBe(true);
     const D = await makePeer('D', newGroupKeys, now);
 
-    const received = await D.engine.receiveRecords(snapshots, now + 400);
-    expect(received.accepted).toBe(snapshots.length);
+    const received = await D.engine.receiveRecords(snapshots.records, now + 400);
+    expect(received.accepted).toBe(snapshots.records.length);
     expect(D.engine.getRegisters()['config.defaultMode']?.value).toBe('academic');
     expect(D.engine.getRegisters()['config.llm.apiKey']?.value).toBe('sk-snapshot-test');
     expect(received.applied.some((change) => change.path === 'config.llm.apiKey')).toBe(false);
     expect(D.engine.getVersionVector()[A.device.deviceId]).toBe(snapshotEngine.getVersionVector()[A.device.deviceId]);
 
     const B = await makePeer('B', oldKeys, now);
-    const oldEpochResult = await B.engine.receiveRecords(snapshots, now + 400);
+    const oldEpochResult = await B.engine.receiveRecords(snapshots.records, now + 400);
     expect(oldEpochResult.accepted).toBe(0);
     expect(oldEpochResult.rejected[0]!.reason).toMatch(/Unknown epoch/i);
+  });
+
+  it('bootstraps active and removed member identities and enforces removals', async () => {
+    const oldKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', oldKeys, now);
+    const B = await makePeer('B', oldKeys, now);
+    await A.engine.receiveRecords(B.engine.getAllEnvelopes(), now + 10);
+
+    const { entropy } = await generateRecoveryPhrase();
+    const { newGroupKeys } = await A.engine.removeDevice(B.device.deviceId, entropy, now + 20);
+    const snapshotState = A.engine.exportState();
+    const snapshotEngine = new SyncEngine({
+      device: A.device,
+      deviceName: 'A',
+      groupKeys: newGroupKeys,
+      configVersion: 5,
+      persisted: snapshotState,
+    });
+    const snapshots = await snapshotEngine.createSnapshotRecords(now + 30);
+    const D = await makePeer('D', newGroupKeys, now);
+    D.engine.registerEpochKeys(oldKeys);
+
+    const result = await D.engine.receiveRecords(snapshots.records, now + 40);
+    expect(result.accepted).toBe(snapshots.records.length);
+    const restoredMembers = D.engine.getMembers();
+    expect(restoredMembers.find((member) => member.deviceId === A.device.deviceId)?.signingPublic)
+      .toBe(toBase64Url(A.device.signingPublicRaw));
+    expect(restoredMembers.find((member) => member.deviceId === B.device.deviceId)).toMatchObject({
+      signingPublic: toBase64Url(B.device.signingPublicRaw),
+      agreementPublic: toBase64Url(B.device.agreementPublicRaw),
+      removedAt: expect.any(Number),
+    });
+
+    const rogue = await B.engine.applyLocalChanges([{ path: 'config.defaultMode', value: 'video' }], now + 50);
+    const rejected = await D.engine.receiveRecords(rogue, now + 60);
+    expect(rejected.accepted).toBe(0);
+    expect(rejected.rejected[0]!.reason).toMatch(/removed/i);
+  });
+
+  it('rejects snapshot member metadata that fails the device signing-key identity check', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', groupKeys, now);
+    const state = A.engine.exportState();
+    state.members['forged-device'] = {
+      deviceId: 'forged-device',
+      deviceName: 'Forged',
+      signingPublic: toBase64Url(A.device.signingPublicRaw),
+      agreementPublic: toBase64Url(A.device.agreementPublicRaw),
+      joinedAt: now,
+      lastSeenAt: now,
+    };
+    const snapshotEngine = new SyncEngine({
+      device: A.device,
+      deviceName: 'A',
+      groupKeys,
+      configVersion: 5,
+      persisted: state,
+    });
+    const snapshot = await snapshotEngine.createSnapshotRecords(now + 10);
+    const D = await makePeer('D', groupKeys, now);
+    const result = await D.engine.receiveRecords(snapshot.records, now + 20);
+
+    expect(result.accepted).toBe(0);
+    expect(result.rejected[0]?.reason).toMatch(/snapshot member identity/i);
+    expect(D.engine.getMembers().some((member) => member.deviceId === 'forged-device')).toBe(false);
+  });
+
+  it('skips and reports a single oversized register while continuing snapshot creation', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', groupKeys, now);
+    const oversizedPath = 'config.defaultMode';
+    await A.engine.applyLocalChanges([
+      { path: oversizedPath, value: 'x'.repeat(MAX_RELAY_FRAME_BYTES - 1_000) },
+      { path: 'config.summary.enabled', value: false },
+    ], now + 10);
+
+    const snapshot = await A.engine.createSnapshotRecords(now + 20);
+    expect(snapshot.skippedPaths).toContain(oversizedPath);
+    expect(snapshot.records.length).toBeGreaterThan(0);
+    expect(snapshot.records.every((record) => utf8Encode(JSON.stringify(record)).byteLength <= MAX_RELAY_FRAME_BYTES)).toBe(true);
+    const D = await makePeer('D', groupKeys, now);
+    const received = await D.engine.receiveRecords(snapshot.records, now + 30);
+    expect(received.accepted).toBe(snapshot.records.length);
+    expect(D.engine.getRegisters()['config.summary.enabled']?.value).toBe(false);
+    expect(D.engine.getRegisters()[oversizedPath]).toBeUndefined();
   });
 
   it('rejects forged member joins that name another device or change a known agreement key', async () => {

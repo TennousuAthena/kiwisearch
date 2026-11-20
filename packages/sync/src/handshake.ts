@@ -19,6 +19,7 @@ export interface HandshakeHello {
   deviceId: string;
   deviceName: string;
   epoch: number;
+  epochEstablished?: boolean;
   signingPublic: string;
   agreementPublic: string;
   ownCertHash: string;
@@ -35,6 +36,7 @@ export function buildHandshakeHello(params: {
   device: DeviceKeys;
   deviceName: string;
   epoch: number;
+  epochEstablished?: boolean;
   ownCertHash: string;
   peerCertHash: string;
 }): HandshakeHello {
@@ -43,6 +45,7 @@ export function buildHandshakeHello(params: {
     deviceId: params.device.deviceId,
     deviceName: params.deviceName,
     epoch: params.epoch,
+    ...(params.epochEstablished === undefined ? {} : { epochEstablished: params.epochEstablished }),
     signingPublic: toBase64Url(params.device.signingPublicRaw),
     agreementPublic: toBase64Url(params.device.agreementPublicRaw),
     ownCertHash: params.ownCertHash,

@@ -121,7 +121,7 @@ class FakeRTCPeerConnection {
     this.signalingState = description.type === 'offer' ? 'have-remote-offer' : 'stable';
   }
 
-  async addIceCandidate(): Promise<void> {}
+  addIceCandidate = vi.fn(async () => {});
 
   setConnectionState(state: RTCPeerConnectionState): void {
     this.connectionState = state;
@@ -162,7 +162,17 @@ async function createRelayCore() {
 async function receiveRelaySignal(
   ws: FakeWebSocket,
   keys: GroupKeys,
-  payload: { t: string; from: string; fromName?: string; epoch?: number; certHash?: string },
+  payload: {
+    t: string;
+    from: string;
+    fromName?: string;
+    epoch?: number;
+    certHash?: string;
+    offerId?: string;
+    re?: string;
+    sdp?: string;
+    candidate?: RTCIceCandidateInit;
+  },
 ): Promise<void> {
   const frame = await sealRelayFrame(keys, {
     id: crypto.randomUUID(),
@@ -287,24 +297,68 @@ describe('SyncTransportCore', () => {
     core.stop();
   });
 
-  it('removes a peer slot and sends a relay hello when its data channel closes', async () => {
+  it('keeps the peer on relay fallback when its direct data channel closes', async () => {
     const { core, events, keys, ws } = await createRelayCore();
     await receiveRelaySignal(ws, keys, { t: 'hello', from: 'device-b', fromName: 'Peer B', certHash: 'bc:07:82' });
     await vi.waitFor(() => expect(FakeRTCPeerConnection.instances).toHaveLength(1));
+    const pc = FakeRTCPeerConnection.instances[0]!;
     const dc = FakeRTCPeerConnection.instances[0]!.dataChannels[0]!;
     dc.open();
     const helloCount = async () => (await readSentSignals(ws, keys)).filter((signal) => signal.t === 'hello').length;
     const previousHelloCount = await helloCount();
-
     dc.close();
-    await vi.waitFor(async () => expect(await helloCount()).toBe(previousHelloCount + 1));
 
-    const slots = (core as unknown as { peers: Map<string, unknown> }).peers;
-    const signals = await readSentSignals(ws, keys);
-    expect(events).toContainEqual({ type: 'peer-disconnected', peerId: 'device-b' });
-    expect(slots.has('device-b')).toBe(false);
-    expect(signals.at(-1)).toMatchObject({ t: 'hello' });
-    expect(signals.at(-1)?.to).toBeUndefined();
+    const slots = (core as unknown as { peers: Map<string, { channel: string; connectedEmitted: boolean }> }).peers;
+    expect(pc.closed).toBe(true);
+    expect(slots.get('device-b')).toMatchObject({ channel: 'relay', connectedEmitted: true });
+    expect(events).toContainEqual({ type: 'peer-channel', peerId: 'device-b', channel: 'relay' });
+    expect(events).not.toContainEqual({ type: 'peer-disconnected', peerId: 'device-b' });
+    expect(await helloCount()).toBe(previousHelloCount);
+    core.stop();
+  });
+
+  it('preserves a connected relay fallback when the direct peer connection fails', async () => {
+    const { core, events, keys, ws } = await createRelayCore();
+    await receiveRelaySignal(ws, keys, { t: 'hello', from: 'device-b', fromName: 'Peer B', certHash: 'bc:07:82' });
+    await vi.waitFor(() => expect(FakeRTCPeerConnection.instances).toHaveLength(1));
+    const pc = FakeRTCPeerConnection.instances[0]!;
+    pc.dataChannels[0]!.open();
+
+    pc.setConnectionState('failed');
+
+    const slots = (core as unknown as {
+      peers: Map<string, { channel: string; connectedEmitted: boolean; pc: RTCPeerConnection | null }>;
+    }).peers;
+    expect(slots.get('device-b')).toMatchObject({ channel: 'relay', connectedEmitted: true, pc: null });
+    expect(pc.closed).toBe(true);
+    expect(events).toContainEqual({ type: 'peer-channel', peerId: 'device-b', channel: 'relay' });
+    expect(events).not.toContainEqual({ type: 'peer-disconnected', peerId: 'device-b' });
+    core.stop();
+  });
+
+  it('keeps queued ICE candidates for the matching offer that arrives later', async () => {
+    const { core, keys, ws } = await createRelayCore();
+    await receiveRelaySignal(ws, keys, { t: 'hello', from: 'device-0', fromName: 'Peer 0', certHash: 'peer-fp' });
+    await receiveRelaySignal(ws, keys, {
+      t: 'ice',
+      from: 'device-0',
+      certHash: 'peer-fp',
+      re: 'offer-123',
+      candidate: { candidate: 'candidate:1 1 udp 1 127.0.0.1 9 typ host' },
+    });
+    await receiveRelaySignal(ws, keys, {
+      t: 'offer',
+      from: 'device-0',
+      fromName: 'Peer 0',
+      certHash: 'peer-fp',
+      offerId: 'offer-123',
+      sdp: 'a=fingerprint:sha-256 AA:BB:CC\r\n',
+    });
+
+    await vi.waitFor(() => expect(FakeRTCPeerConnection.instances).toHaveLength(1));
+    const pc = FakeRTCPeerConnection.instances[0]!;
+    expect(pc.remoteDescription?.type).toBe('offer');
+    expect(pc.addIceCandidate).toHaveBeenCalledWith({ candidate: 'candidate:1 1 udp 1 127.0.0.1 9 typ host' });
     core.stop();
   });
 });

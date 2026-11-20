@@ -37,6 +37,8 @@ import type { TransportConfig, TransportEvent } from '../lib/syncTransportCore';
 class MockMeshBus {
   private nodes = new Map<string, { onEvent: (ev: TransportEvent) => void; connected: Set<string> }>();
   readonly sentMessages: Array<{ from: string; to: string; payload: string }> = [];
+  holdCoveredRecords = false;
+  private heldCoveredMessages: Array<{ from: string; to: string; payload: string }> = [];
 
   createTransport(onEvent: (ev: TransportEvent) => void, shouldStart: (config: TransportConfig) => boolean = () => true): SyncTransport {
     let myId = '';
@@ -73,6 +75,11 @@ class MockMeshBus {
         bus.sentMessages.push({ from: myId, to: peerId, payload });
         const peer = bus.nodes.get(peerId);
         if (!peer || !peer.connected.has(myId)) return false;
+        const message = JSON.parse(payload) as { type?: string; coveredVector?: unknown };
+        if (bus.holdCoveredRecords && message.type === 'records' && message.coveredVector) {
+          bus.heldCoveredMessages.push({ from: myId, to: peerId, payload });
+          return true;
+        }
         queueMicrotask(() => peer.onEvent({ type: 'peer-message', peerId: myId, payload }));
         return true;
       },
@@ -103,6 +110,19 @@ class MockMeshBus {
     b.connected.add(aId);
     a.onEvent({ type: 'peer-connected', peerId: bId, peerName: bId, channel: 'webrtc', ownCertHash: `cert-${aId}`, peerCertHash: `cert-${bId}` });
     b.onEvent({ type: 'peer-connected', peerId: aId, peerName: aId, channel: 'webrtc', ownCertHash: `cert-${bId}`, peerCertHash: `cert-${aId}` });
+  }
+
+  releaseCoveredRecords(): void {
+    for (const { from, to, payload } of this.heldCoveredMessages.splice(0)) {
+      const peer = this.nodes.get(to);
+      if (peer?.connected.has(from)) {
+        queueMicrotask(() => peer.onEvent({ type: 'peer-message', peerId: from, payload }));
+      }
+    }
+  }
+
+  get heldCoveredCount(): number {
+    return this.heldCoveredMessages.length;
   }
 }
 
@@ -305,6 +325,110 @@ describe('SyncService multi-device integration', () => {
 
     expect(stateD.config.summary.enabled).toBe(false);
     expect(helloCount() - previousHelloCount).toBe(2);
+  });
+
+  it('lets an established peer promote provisional joiners after they exchange member records', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    let transportA: SyncTransport | undefined;
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => {
+        transportA = bus.createTransport(cb);
+        return transportA;
+      },
+      applyRemoteConfigPatches: async () => {},
+    });
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: '' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const rotated = await svcA.handleMessage({ type: 'kiwi:sync:rotate-phrase' });
+    expect(rotated.ok).toBe(true);
+    if (!rotated.ok) return;
+    await transportA?.stop();
+
+    const storeB = new MemorySyncStorage();
+    const storeC = new MemorySyncStorage();
+    const svcB = new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => bus.createTransport(cb),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const svcC = new SyncService({
+      storage: storeC,
+      transportFactory: (cb) => bus.createTransport(cb),
+      applyRemoteConfigPatches: async () => {},
+    });
+    expect((await svcB.handleMessage({
+      type: 'kiwi:sync:join-group',
+      phrase: rotated.phrase!,
+      relayUrl: '',
+    })).ok).toBe(true);
+    expect((await svcC.handleMessage({
+      type: 'kiwi:sync:join-group',
+      phrase: rotated.phrase!,
+      relayUrl: '',
+    })).ok).toBe(true);
+    await flushMicrotasks();
+    expect((await storeB.load())?.settings.epochEstablished).toBe(false);
+    expect((await storeC.load())?.settings.epochEstablished).toBe(false);
+
+    const restoredA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb),
+      applyRemoteConfigPatches: async () => {},
+    });
+    await restoredA.init();
+    await flushMicrotasks();
+
+    expect(svcB.getStatus().epoch).toBe(2);
+    expect(svcC.getStatus().epoch).toBe(2);
+    expect((await storeB.load())?.settings.epochEstablished).toBe(true);
+    expect((await storeC.load())?.settings.epochEstablished).toBe(true);
+  });
+
+  it('defers applying live values until the first covered join batch resolves local preferences', async () => {
+    const bus = new MockMeshBus();
+    bus.holdCoveredRecords = true;
+    const storeA = new MemorySyncStorage();
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: '' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const localConfig = structuredClone(DEFAULT_CONFIG);
+    localConfig.summary.enabled = false;
+    storage.value.config = localConfig;
+    const storeD = new MemorySyncStorage();
+    const svcD = new SyncService({
+      storage: storeD,
+      transportFactory: (cb) => bus.createTransport(cb),
+      applyRemoteConfigPatches: async (patches) => {
+        storage.value.config = applySettingsPatch(storage.value.config as typeof DEFAULT_CONFIG, patches);
+      },
+    });
+    const joined = await svcD.handleMessage({
+      type: 'kiwi:sync:join-group',
+      phrase: created.phrase!,
+      relayUrl: '',
+      conflictMode: 'local',
+    });
+    expect(joined.ok).toBe(true);
+    await flushMicrotasks();
+    await vi.waitFor(() => expect(bus.heldCoveredCount).toBeGreaterThan(0));
+
+    await svcA.recordLocalChanges([{ path: 'config.summary.enabled', value: true }]);
+    await flushMicrotasks();
+    expect((storage.value.config as typeof DEFAULT_CONFIG).summary.enabled).toBe(false);
+
+    bus.releaseCoveredRecords();
+    await flushMicrotasks();
+    expect((storage.value.config as typeof DEFAULT_CONFIG).summary.enabled).toBe(false);
+    expect((await storeD.load())?.settings.pendingInitialJoinSync).toBe(false);
   });
 
   it('restarts the handshake for unauthenticated peers when sync now is requested', async () => {

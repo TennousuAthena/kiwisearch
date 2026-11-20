@@ -11,6 +11,8 @@ export interface SyncLocalSettings {
   stunUrls: string[];
   categories: SyncCategorySettings;
   joinConflictMode: SyncJoinConflictMode;
+  epochEstablished?: boolean;
+  pendingInitialJoinSync?: boolean;
 }
 
 export interface StoredSyncRecord {

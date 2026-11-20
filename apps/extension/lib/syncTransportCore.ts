@@ -44,6 +44,7 @@ export type TransportEvent =
       peerCertHash: string;
     }
   | { type: 'peer-disconnected'; peerId: string }
+  | { type: 'peer-channel'; peerId: string; channel: SyncPeerChannel }
   | { type: 'peer-message'; peerId: string; payload: string };
 
 interface SignalEnvelope {
@@ -74,7 +75,7 @@ interface PeerSlot {
   connectedEmitted: boolean;
   fallbackTimer: ReturnType<typeof setTimeout> | null;
   disconnectedTimer: ReturnType<typeof setTimeout> | null;
-  pendingIce: RTCIceCandidateInit[];
+  pendingIce: Array<{ offerId: string | null; candidate: RTCIceCandidateInit }>;
   restartedIce: boolean;
 }
 
@@ -472,7 +473,7 @@ export class SyncTransportCore {
     return slot;
   }
 
-  private cleanupPeerSlot(slot: PeerSlot, notify: boolean): void {
+  private cleanupPeerConnection(slot: PeerSlot, clearPendingIce = true): void {
     if (slot.fallbackTimer) {
       clearTimeout(slot.fallbackTimer);
       slot.fallbackTimer = null;
@@ -508,10 +509,14 @@ export class SyncTransportCore {
         // ignore
       }
     }
-    slot.channel = 'none';
     slot.offerId = null;
-    slot.pendingIce = [];
+    if (clearPendingIce) slot.pendingIce = [];
     slot.restartedIce = false;
+  }
+
+  private cleanupPeerSlot(slot: PeerSlot, notify: boolean): void {
+    this.cleanupPeerConnection(slot);
+    slot.channel = 'none';
     if (notify && slot.connectedEmitted) {
       slot.connectedEmitted = false;
       this.emit({ type: 'peer-disconnected', peerId: slot.peerId });
@@ -523,6 +528,14 @@ export class SyncTransportCore {
     this.cleanupPeerSlot(slot, true);
     this.peers.delete(slot.peerId);
     if (resendHello) void this.sendRelayHello().catch(() => {});
+  }
+
+  private handleDirectConnectionFailure(slot: PeerSlot): void {
+    if (slot.channel === 'relay') {
+      this.cleanupPeerConnection(slot);
+      return;
+    }
+    if (!this.activateRelayFallback(slot)) this.removePeerSlot(slot, true);
   }
 
   private async sendRelayHello(): Promise<void> {
@@ -562,22 +575,26 @@ export class SyncTransportCore {
 
     pc.oniceconnectionstatechange = () => {
       if (slot.pc !== pc) return;
+      if (slot.channel === 'relay') {
+        this.cleanupPeerConnection(slot);
+        return;
+      }
       if (pc.iceConnectionState === 'failed') {
         if (!slot.restartedIce && typeof pc.restartIce === 'function') {
           slot.restartedIce = true;
           pc.restartIce();
         } else {
-          this.activateRelayFallback(slot);
+          this.handleDirectConnectionFailure(slot);
         }
       } else if (pc.iceConnectionState === 'closed' && slot.channel === 'webrtc') {
-        this.activateRelayFallback(slot);
+        this.handleDirectConnectionFailure(slot);
       }
     };
 
     pc.onconnectionstatechange = () => {
       if (slot.pc !== pc) return;
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-        this.removePeerSlot(slot, true);
+        this.handleDirectConnectionFailure(slot);
         return;
       }
       if (pc.connectionState === 'disconnected') {
@@ -585,7 +602,7 @@ export class SyncTransportCore {
         slot.disconnectedTimer = setTimeout(() => {
           slot.disconnectedTimer = null;
           if (slot.pc === pc && pc.connectionState === 'disconnected') {
-            this.removePeerSlot(slot, true);
+            this.handleDirectConnectionFailure(slot);
           }
         }, PEER_DISCONNECTED_TIMEOUT_MS);
       } else if (slot.disconnectedTimer) {
@@ -602,7 +619,7 @@ export class SyncTransportCore {
     if (slot.fallbackTimer) clearTimeout(slot.fallbackTimer);
     slot.fallbackTimer = setTimeout(() => {
       if (slot.channel !== 'webrtc' && !this.stopped) {
-        this.activateRelayFallback(slot);
+        if (!this.activateRelayFallback(slot)) this.removePeerSlot(slot, true);
       }
     }, WEBRTC_FALLBACK_TIMEOUT_MS);
 
@@ -637,27 +654,37 @@ export class SyncTransportCore {
     };
     dc.onclose = () => {
       if (slot.dc !== dc) return;
-      this.removePeerSlot(slot, true);
+      this.handleDirectConnectionFailure(slot);
     };
   }
 
-  private activateRelayFallback(slot: PeerSlot): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    if (slot.channel === 'webrtc') return;
+  private activateRelayFallback(slot: PeerSlot): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    if (slot.channel === 'relay') {
+      this.cleanupPeerConnection(slot);
+      return true;
+    }
     if (slot.fallbackTimer) {
       clearTimeout(slot.fallbackTimer);
       slot.fallbackTimer = null;
     }
+    const wasConnected = slot.connectedEmitted;
+    this.cleanupPeerConnection(slot);
     slot.channel = 'relay';
     slot.connectedEmitted = true;
-    this.emit({
-      type: 'peer-connected',
-      peerId: slot.peerId,
-      peerName: slot.peerName,
-      channel: 'relay',
-      ownCertHash: this.ownCertHash,
-      peerCertHash: slot.peerCertHash || this.ownCertHash,
-    });
+    if (wasConnected) {
+      this.emit({ type: 'peer-channel', peerId: slot.peerId, channel: 'relay' });
+    } else {
+      this.emit({
+        type: 'peer-connected',
+        peerId: slot.peerId,
+        peerName: slot.peerName,
+        channel: 'relay',
+        ownCertHash: this.ownCertHash,
+        peerCertHash: slot.peerCertHash || this.ownCertHash,
+      });
+    }
+    return true;
   }
 
   private async handlePeerHello(msg: SignalEnvelope): Promise<void> {
@@ -681,7 +708,7 @@ export class SyncTransportCore {
     }
 
     // If WebRTC is already open to this peer, keep the existing connection intact!
-    if (slot.channel === 'webrtc' && slot.dc?.readyState === 'open') return;
+    if (slot.channel === 'relay' || (slot.channel === 'webrtc' && slot.dc?.readyState === 'open')) return;
 
     // Deterministic initiator: lexicographically smaller deviceId sends the offer.
     if (this.config.deviceId < msg.from) {
@@ -716,22 +743,25 @@ export class SyncTransportCore {
     const existing = this.peers.get(msg.from);
     const certChanged =
       existing && msg.certHash && existing.peerCertHash && msg.certHash !== existing.peerCertHash;
-    const negotiationChanged = existing && existing.offerId !== msg.offerId;
+    const negotiationChanged = existing && existing.offerId !== null && existing.offerId !== msg.offerId;
     if (existing && (certChanged || negotiationChanged)) {
       this.removePeerSlot(existing, false);
     }
     const slot = this.getOrCreateSlot(msg.from, msg.fromName, msg.certHash);
+    if (slot.channel === 'relay') return;
     if (slot.offerId === msg.offerId && slot.pc) return;
     if (typeof RTCPeerConnection === 'undefined') {
       this.activateRelayFallback(slot);
       return;
     }
-    this.cleanupPeerSlot(slot, false);
+    if (slot.pc) this.cleanupPeerConnection(slot, false);
     const pc = this.createPeerConnection(slot);
     slot.offerId = msg.offerId;
     await pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
-    for (const c of slot.pendingIce) {
-      await pc.addIceCandidate(c).catch(() => {});
+    for (const queued of slot.pendingIce) {
+      if (!queued.offerId || queued.offerId === msg.offerId) {
+        await pc.addIceCandidate(queued.candidate).catch(() => {});
+      }
     }
     slot.pendingIce = [];
     const answer = await pc.createAnswer();
@@ -756,8 +786,10 @@ export class SyncTransportCore {
     if (slot.pc.signalingState !== 'have-local-offer') return;
     if (msg.certHash) slot.peerCertHash = msg.certHash;
     await slot.pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
-    for (const c of slot.pendingIce) {
-      await slot.pc.addIceCandidate(c).catch(() => {});
+    for (const queued of slot.pendingIce) {
+      if (!queued.offerId || queued.offerId === slot.offerId) {
+        await slot.pc.addIceCandidate(queued.candidate).catch(() => {});
+      }
     }
     slot.pendingIce = [];
   }
@@ -766,11 +798,12 @@ export class SyncTransportCore {
     if (!msg.candidate) return;
     const slot = this.peers.get(msg.from);
     if (!slot) return;
+    if (slot.channel === 'relay') return;
     if (msg.re && slot.offerId && msg.re !== slot.offerId) return;
     if (slot.pc && slot.pc.remoteDescription) {
       await slot.pc.addIceCandidate(msg.candidate).catch(() => {});
     } else {
-      slot.pendingIce.push(msg.candidate);
+      slot.pendingIce.push({ offerId: msg.re ?? null, candidate: msg.candidate });
     }
   }
 

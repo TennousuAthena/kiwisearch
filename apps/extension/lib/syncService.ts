@@ -152,7 +152,11 @@ export class SyncService {
           this.groupSecret = stored.groupSecret;
           this.groupKeys = stored.groupKeys;
           this.epochKeys = { ...stored.epochKeys };
-          this.settings = stored.settings;
+          this.settings = {
+            ...stored.settings,
+            epochEstablished: stored.settings.epochEstablished ?? true,
+          };
+          this.pendingInitialJoinSync = stored.settings.pendingInitialJoinSync ?? false;
           this.engine = new SyncEngine({
             device: stored.device,
             deviceName: stored.settings.deviceName,
@@ -207,15 +211,19 @@ export class SyncService {
     });
   }
 
-  private async promoteGroupEpoch(epoch: number): Promise<void> {
-    if (!this.engine || !this.groupSecret || !this.groupKeys || epoch <= this.groupKeys.epoch) return;
-    if (this.engine.hasAcceptedRecords()) return;
-    const keys = await deriveGroupKeys(this.groupSecret, epoch);
-    this.groupKeys = keys;
-    this.epochKeys[epoch] = keys.recordKey;
-    this.engine.registerEpochKeys(keys);
+  private async promoteGroupEpoch(epoch: number, remoteEpochEstablished = true): Promise<void> {
+    if (!this.engine || !this.groupSecret || !this.groupKeys || !this.settings || !remoteEpochEstablished) return;
+    if (this.settings.epochEstablished !== false) return;
+    const previousEpoch = this.groupKeys.epoch;
+    if (epoch > previousEpoch) {
+      const keys = await deriveGroupKeys(this.groupSecret, epoch);
+      this.groupKeys = keys;
+      this.epochKeys[epoch] = keys.recordKey;
+      this.engine.registerEpochKeys(keys);
+    }
+    this.settings.epochEstablished = true;
     await this.persist();
-    await this.startTransport();
+    if (epoch > previousEpoch) await this.startTransport();
   }
 
   getStatus(): SyncStatusSnapshot {
@@ -358,6 +366,11 @@ export class SyncService {
       this.livePeers.delete(event.peerId);
       return;
     }
+    if (event.type === 'peer-channel') {
+      const peer = this.livePeers.get(event.peerId);
+      if (peer) peer.channel = event.channel;
+      return;
+    }
     if (event.type === 'peer-connected') {
       await this.handlePeerConnected(event);
       return;
@@ -398,6 +411,7 @@ export class SyncService {
       device: this.device,
       deviceName: this.settings.deviceName,
       epoch: this.groupKeys.epoch,
+      epochEstablished: this.settings.epochEstablished ?? true,
       ownCertHash: peer.ownCertHash,
       peerCertHash: peer.peerCertHash,
     });
@@ -477,7 +491,7 @@ export class SyncService {
         return;
       }
 
-      await this.promoteGroupEpoch(peer.remoteHello.epoch);
+      await this.promoteGroupEpoch(peer.remoteHello.epoch, peer.remoteHello.epochEstablished !== false);
       peer.authenticated = true;
       peer.rehandshakePending = false;
       const memberJoin = this.engine.getAllEnvelopes().find(
@@ -528,7 +542,11 @@ export class SyncService {
         (record) => remoteJoinEpoch === undefined || record.epoch >= remoteJoinEpoch,
       );
       if (missingOldEpoch || compactedGap) {
-        outgoing = [...outgoing, ...(await this.engine.createSnapshotRecords())];
+        const snapshot = await this.engine.createSnapshotRecords();
+        outgoing = [...outgoing, ...snapshot.records];
+        if (snapshot.skippedPaths.length) {
+          console.warn('Skipped oversized sync snapshot registers', snapshot.skippedPaths);
+        }
       }
       const coveredVector = this.engine.getVersionVector();
       const payload: PeerWireRecords = {
@@ -559,6 +577,7 @@ export class SyncService {
 
       if (this.pendingInitialJoinSync && this.settings && msg.coveredVector) {
         this.pendingInitialJoinSync = false;
+        this.settings.pendingInitialJoinSync = false;
         const config = await loadConfig();
         const storageVals = await browser.storage.local.get(null);
         const localChanges = extractNonDefaultLocalChanges(config, storageVals);
@@ -569,7 +588,7 @@ export class SyncService {
         if (resolved.emitted.length) {
           await this.broadcastEnvelopes(resolved.emitted);
         }
-      } else if (result.applied.length) {
+      } else if (!this.pendingInitialJoinSync && result.applied.length) {
         await this.applyAppliedChanges(result.applied);
       }
 
@@ -640,6 +659,8 @@ export class SyncService {
           stunUrls: message.stunUrls?.length ? message.stunUrls : [...DEFAULT_STUN_URLS],
           categories: { ...DEFAULT_SYNC_CATEGORIES },
           joinConflictMode: 'group',
+          epochEstablished: true,
+          pendingInitialJoinSync: false,
         };
         this.device = device;
         this.groupSecret = groupSecret;
@@ -686,6 +707,8 @@ export class SyncService {
           stunUrls: message.stunUrls?.length ? message.stunUrls : [...DEFAULT_STUN_URLS],
           categories: { ...DEFAULT_SYNC_CATEGORIES },
           joinConflictMode: message.conflictMode ?? 'group',
+          epochEstablished: false,
+          pendingInitialJoinSync: true,
         };
         this.device = device;
         this.groupSecret = groupSecret;

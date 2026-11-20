@@ -57,7 +57,12 @@ export interface SyncRecordEnvelope {
 export type SyncRecordBody =
   | { kind: 'set'; path: string; value: unknown }
   | { kind: 'tombstone'; path: string }
-  | { kind: 'snapshot'; entries: SyncSnapshotEntry[]; coveredVector: VersionVector }
+  | {
+      kind: 'snapshot';
+      entries: SyncSnapshotEntry[];
+      members?: SyncMember[];
+      coveredVector: VersionVector;
+    }
   | {
       kind: 'member-join';
       deviceId: string;
@@ -86,6 +91,11 @@ export interface SyncSnapshotEntry {
   deviceId: string;
   seq: number;
   configVersion: number;
+}
+
+export interface SyncSnapshotRecords {
+  records: SyncRecordEnvelope[];
+  skippedPaths: string[];
 }
 
 export interface SyncMember {
@@ -315,7 +325,7 @@ export class SyncEngine {
     }
   }
 
-  async createSnapshotRecords(nowMs = Date.now()): Promise<SyncRecordEnvelope[]> {
+  async createSnapshotRecords(nowMs = Date.now()): Promise<SyncSnapshotRecords> {
     const coveredVector = this.getVersionVector();
     const entries: SyncSnapshotEntry[] = Object.values(this.registers).map((register) => ({
       path: register.path,
@@ -326,28 +336,70 @@ export class SyncEngine {
       seq: register.seq,
       configVersion: register.configVersion,
     }));
-    const chunks: SyncSnapshotEntry[][] = [];
-    let current: SyncSnapshotEntry[] = [];
-    const maxBodyBytes = Math.floor(MAX_RELAY_FRAME_BYTES * 0.62);
-    for (const entry of entries) {
-      const candidate = [...current, entry];
-      const body = { kind: 'snapshot', entries: candidate, coveredVector };
-      if (utf8Encode(JSON.stringify(body)).byteLength > maxBodyBytes && current.length) {
-        chunks.push(current);
-        current = [entry];
-      } else {
-        current = candidate;
-      }
-      if (utf8Encode(JSON.stringify({ kind: 'snapshot', entries: current, coveredVector })).byteLength > maxBodyBytes) {
-        throw new Error(`Snapshot entry exceeds ${MAX_RELAY_FRAME_BYTES} byte relay frame limit`);
-      }
-    }
-    if (current.length || !chunks.length) chunks.push(current);
+    const members = this.getMembers().map((member) => ({
+      ...member,
+      deviceName: member.deviceName.slice(0, 128),
+    }));
+    const items = [
+      ...members.map((value) => ({ type: 'member' as const, value })),
+      ...entries.map((value) => ({ type: 'entry' as const, value })),
+    ];
     const records: SyncRecordEnvelope[] = [];
-    for (const chunk of chunks) {
-      records.push(await this.appendEnvelope('snapshot', { kind: 'snapshot', entries: chunk, coveredVector }, nowMs));
+    const skippedPaths: string[] = [];
+    let currentEntries: SyncSnapshotEntry[] = [];
+    let currentMembers: SyncMember[] = [];
+    let currentEnvelope: SyncRecordEnvelope | null = null;
+    const bodyFor = (chunkEntries: SyncSnapshotEntry[], chunkMembers: SyncMember[]): SyncRecordBody => ({
+      kind: 'snapshot',
+      entries: chunkEntries,
+      members: chunkMembers,
+      coveredVector,
+    });
+    const envelopeFor = (chunkEntries: SyncSnapshotEntry[], chunkMembers: SyncMember[]) =>
+      this.createEnvelope('snapshot', bodyFor(chunkEntries, chunkMembers), nowMs);
+    const commitCurrent = (): void => {
+      if (!currentEnvelope) return;
+      this.commitEnvelope(currentEnvelope);
+      records.push(currentEnvelope);
+      currentEntries = [];
+      currentMembers = [];
+      currentEnvelope = null;
+    };
+    for (const item of items) {
+      const nextEntries = item.type === 'entry' ? [...currentEntries, item.value] : currentEntries;
+      const nextMembers = item.type === 'member' ? [...currentMembers, item.value] : currentMembers;
+      const candidate = await envelopeFor(nextEntries, nextMembers);
+      if (utf8Encode(JSON.stringify(candidate)).byteLength <= MAX_RELAY_FRAME_BYTES) {
+        currentEntries = nextEntries;
+        currentMembers = nextMembers;
+        currentEnvelope = candidate;
+        continue;
+      }
+
+      if (currentEnvelope) commitCurrent();
+      const singleEntry = item.type === 'entry' ? [item.value] : [];
+      const singleMember = item.type === 'member' ? [item.value] : [];
+      const single = await envelopeFor(singleEntry, singleMember);
+      if (utf8Encode(JSON.stringify(single)).byteLength <= MAX_RELAY_FRAME_BYTES) {
+        currentEntries = singleEntry;
+        currentMembers = singleMember;
+        currentEnvelope = single;
+      } else if (item.type === 'entry') {
+        skippedPaths.push(item.value.path);
+      } else {
+        throw new Error(`Snapshot member cannot fit in a ${MAX_RELAY_FRAME_BYTES} byte record`);
+      }
     }
-    return records;
+    if (currentEnvelope) commitCurrent();
+    if (!records.length) {
+      const empty = await envelopeFor([], []);
+      if (utf8Encode(JSON.stringify(empty)).byteLength > MAX_RELAY_FRAME_BYTES) {
+        throw new Error(`Empty snapshot exceeds ${MAX_RELAY_FRAME_BYTES} byte record limit`);
+      }
+      this.commitEnvelope(empty);
+      records.push(empty);
+    }
+    return { records, skippedPaths };
   }
 
   exportState(): PersistedSyncEngineState {
@@ -388,6 +440,49 @@ export class SyncEngine {
     }
     missing.sort((a, b) => (a.deviceId === b.deviceId ? a.seq - b.seq : a.deviceId < b.deviceId ? -1 : 1));
     return missing;
+  }
+
+  private async validateSnapshotMember(value: unknown): Promise<SyncMember | null> {
+    if (!value || typeof value !== 'object') return null;
+    const member = value as SyncMember;
+    if (
+      typeof member.deviceId !== 'string' ||
+      !member.deviceId ||
+      typeof member.deviceName !== 'string' ||
+      typeof member.signingPublic !== 'string' ||
+      typeof member.agreementPublic !== 'string' ||
+      !Number.isFinite(member.joinedAt) ||
+      !Number.isFinite(member.lastSeenAt) ||
+      (member.removedAt !== undefined && !Number.isFinite(member.removedAt)) ||
+      (member.removedMaxSeq !== undefined && (!Number.isInteger(member.removedMaxSeq) || member.removedMaxSeq < 0))
+    ) {
+      return null;
+    }
+
+    const existing = this.members[member.deviceId];
+    const keylessRemoval =
+      member.removedAt !== undefined &&
+      member.signingPublic === '' &&
+      member.agreementPublic === '';
+    if (keylessRemoval) return member;
+    if (!member.signingPublic || !member.agreementPublic) return null;
+
+    try {
+      const signingPublic = fromBase64Url(member.signingPublic);
+      const agreementPublic = fromBase64Url(member.agreementPublic);
+      if (
+        signingPublic.byteLength !== 32 ||
+        agreementPublic.byteLength !== 32 ||
+        (await deriveDeviceId(signingPublic)) !== member.deviceId ||
+        (existing?.signingPublic && existing.signingPublic !== member.signingPublic) ||
+        (existing?.agreementPublic && existing.agreementPublic !== member.agreementPublic)
+      ) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+    return member;
   }
 
   async createMemberJoinRecord(nowMs = Date.now()): Promise<SyncRecordEnvelope> {
@@ -534,9 +629,22 @@ export class SyncEngine {
         result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Record kind mismatch' });
         continue;
       }
-      if (body.kind === 'snapshot' && !Array.isArray(body.entries)) {
+      if (body.kind === 'snapshot' && (!Array.isArray(body.entries) || (body.members !== undefined && !Array.isArray(body.members)))) {
         result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Invalid snapshot body' });
         continue;
+      }
+      if (body.kind === 'snapshot') {
+        let invalidMember = false;
+        for (const member of body.members ?? []) {
+          if (!(await this.validateSnapshotMember(member))) {
+            invalidMember = true;
+            break;
+          }
+        }
+        if (invalidMember) {
+          result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Invalid snapshot member identity' });
+          continue;
+        }
       }
 
       if (body.kind === 'member-join') {
@@ -601,6 +709,22 @@ export class SyncEngine {
           result.groupSecret = rotated.secret;
         }
       } else if (body.kind === 'snapshot') {
+        for (const member of body.members ?? []) {
+          const existing = this.members[member.deviceId];
+          const removedAt = existing?.removedAt ?? member.removedAt;
+          this.members[member.deviceId] = {
+            ...member,
+            signingPublic: existing?.signingPublic || member.signingPublic,
+            agreementPublic: existing?.agreementPublic || member.agreementPublic,
+            joinedAt: Math.min(existing?.joinedAt ?? member.joinedAt, member.joinedAt),
+            lastSeenAt: Math.max(existing?.lastSeenAt ?? member.lastSeenAt, member.lastSeenAt),
+            removedAt,
+            removedMaxSeq:
+              removedAt === undefined
+                ? undefined
+                : Math.max(existing?.removedMaxSeq ?? 0, member.removedMaxSeq ?? 0),
+          };
+        }
         for (const entry of body.entries) {
           if (
             !entry ||
@@ -867,17 +991,23 @@ export class SyncEngine {
     body: SyncRecordBody,
     nowMs: number,
   ): Promise<SyncRecordEnvelope> {
+    const envelope = await this.createEnvelope(kind, body, nowMs);
+    return this.commitEnvelope(envelope);
+  }
+
+  private async createEnvelope(
+    kind: SyncRecordKind,
+    body: SyncRecordBody,
+    nowMs: number,
+  ): Promise<SyncRecordEnvelope> {
     const keys = this.epochKeys.get(this.currentEpoch);
     if (!keys) throw new Error(`Missing keys for current epoch ${this.currentEpoch}`);
 
-    this.seq += 1;
-    this.hlc = tickHlc(this.hlc, this.device.deviceId, nowMs);
-
     const header = {
       deviceId: this.device.deviceId,
-      seq: this.seq,
+      seq: this.seq + 1,
       epoch: this.currentEpoch,
-      hlc: this.hlc,
+      hlc: tickHlc(this.hlc, this.device.deviceId, nowMs),
       configVersion: this.configVersion,
       kind,
     };
@@ -890,8 +1020,12 @@ export class SyncEngine {
       ciphertext,
     };
     const sig = await signEd25519(this.device.signing.privateKey, envelopeSignPayload(unsigned));
-    const envelope: SyncRecordEnvelope = { ...unsigned, signature: toBase64Url(sig) };
+    return { ...unsigned, signature: toBase64Url(sig) };
+  }
 
+  private commitEnvelope(envelope: SyncRecordEnvelope): SyncRecordEnvelope {
+    this.seq = envelope.seq;
+    this.hlc = { ...envelope.hlc };
     this.recordLog.set(this.recordKeyId(envelope.deviceId, envelope.seq), envelope);
     this.versionVector[envelope.deviceId] = envelope.seq;
     return envelope;
