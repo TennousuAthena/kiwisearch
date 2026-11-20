@@ -53,6 +53,7 @@ Kiwi Search 是一个在用户自己的浏览器里跑的元搜索：用你自�
 | 2026-11-16 | 修复 AI 模型用 OpenCode Go（DeepSeek Flash）时报 `HTTP 400 MissingSessionID`：该网关自 2026-09-06 起要求每个会话带 `x-opencode-session` 请求头。现在发往 `opencode.ai` 的模型请求自动带上，一次搜索共用一个会话号。在本地模拟网关里用真实扩展验证了旧构建复现、新构建通过；没有连过真实的 OpenCode 网关。详见 [pipeline.md](internals/pipeline.md#model-gateway-headers-2026-11-16) |
 | 2026-11-16 | 新安装改为打开单独的引导页（`onboarding.html`）：欢迎、网络检测与来源选择（打不开的来源自动关闭，只关不开；网页引擎不足两个时推荐搜狗、元宝、Yandex）、登录平台、AI 模型与决策模型、第一次搜索。每步可跳过，进度随时保存；只对新安装触发，老用户在设置“高级”里重新运行。百度开启要确认三次，引导从不开启百度。设置页顶部的“开始使用”栏移除。详见 [onboarding.md](internals/onboarding.md) |
 | 2026-11-16 | 购物增加闲鱼（goofish.com）：默认关，需要登录，对自动化访问限制很多，所以两次请求至少间隔 10 秒、工作时限 30 秒，只在购物标签下查询；亚马逊的名称由“美国站”改为“国际站”（amazon.com 按访问者的 IP 选商店，真实夹具里的价格就是英镑）。成功页的解析来自站点公开的前端代码，还没有用已登录的真实结果页核对。详见 [shopping.md](internals/shopping.md#xianyu-2026-11-16) |
+| 2026-11-20 | 决策模型改用本机的 StartLux（oMLX 提供的 `/v1/systemone`，协议不变，不改代码），在用户的 Chromium 里通过设置页配置并做了端到端验证，见 [decision-model.md](internals/decision-model.md#a-local-model-startlux-through-omlx-2026-11-20)。电脑重启后 `/tmp` 里加载扩展的目录已不存在，于是在原路径放回 `master`（03ae404）的构建，ID 与存储不变；Chrome 起初沿用缓存的旧 service worker，所有网页引擎都报错，用扩展页的“重新加载”修好。#10 因此第一次在用户的浏览器（Chromium 157）里运行：工作标签在独立最小化窗口里、没有分组；保存组在多轮回收后的情况没有复查。详见 [testing.md](internals/testing.md#restoring-the-loaded-build-after-a-reboot-2026-11-20) |
 
 ## 工作标签组修复（Issue #9，2026-11-17）
 
@@ -69,6 +70,7 @@ Kiwi Search 是一个在用户自己的浏览器里跑的元搜索：用你自�
 | AI 快答 | 新增 6 项核心测试、7 项展示解析测试；全部 716 项测试、类型检查和构建通过 | 隔离 Chromium 的 15 项检查通过，含 1440/390px 明暗主题、引用键盘联动、流式与失败回退、新搜索清空和不重复概览；原 Chromium 中两个真实查询均显示快答：香港区数、深圳人口（注明 2025 年末及常住人口）；旅游攻略查询保留普通概览，设置和 Key 保留。详情见 [summary-and-language.md](internals/summary-and-language.md) |
 | 新闻 Tab | 时间/缓存/融合/迟到/摘要/URL/MCP 测试，真实 Google/Brave DOM 与手写 API fixtures；全项目 684 项通过 | 原 Chromium：Google/Brave 各 10 条、Google 24 小时降序正确；Exa 10 条及 AI 概览 8 引用。隔离浏览器验证筛选/返回/刷新/窄屏菜单。Brave API 无 Key、MCP 未配对，未实调；Google goto 包装链接可能无法解析为直链 |
 | 去重融合、过滤、管线、配置、MCP | 有 | 过滤和决策模型用真实服务试过（专用约 0.9 秒、聊天模型约 2.9 秒，聊天模型和专用服务的判断在 17 个搜索词上几乎一致） |
+| 本机决策模型（StartLux 0.8B，经 oMLX） | 不适用：协议未变，没有新代码 | 2026-11-20：设置页“测试连接”约 0.1 秒；两次真实搜索的全部判断（21 和 51 个请求，全部 200）都由本机模型回答，没有超时，也没有改用聊天模型。意图 6 例中 5 例与 Jev 一致，旅游攻略不一致；能分出明显无关的结果和内容农场，但相关度几乎都落在 1–2 级。未测：意图分流实跑（用户设置为关）、用户规则、注入检查、与 Jev 同题对比。详见 [decision-model.md](internals/decision-model.md#a-local-model-startlux-through-omlx-2026-11-20) |
 | 屏蔽列表 | 有，夹具取自四个真实名单 | **是**：无头 Chromium 里 24 项检查全过，包括真实下载三个推荐名单、304、失败回退、例外规则 |
 | AI 概览的语言 | 单元测试 | 是：一次性无头浏览器里用真实模型和 Exa 生成概览，英文浏览器和首选语言为中文的浏览器各一组，默认、自动、日语、简体、繁体、意大利语都对；设置页真实点选并截图 |
 | Exa | 夹具取自真实返回（12 条，含你看到的维基百科那条）；130 条真实结果清洗后无残留表格或 Markdown | 是：开发浏览器里只开 Exa 走真实管线，三个查询 30 条无残留，耗时不变（1.2–2.0 秒）；无头 Chromium 里用你的 Key 搜了两次 |
