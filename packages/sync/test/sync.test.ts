@@ -34,6 +34,8 @@ import {
   tickHlc,
   toBase64Url,
   type WrappedEpochSecret,
+  type DeviceKeys,
+  type SyncRecordEnvelope,
   unwrapGroupEntropyFromPeer,
   utf8Encode,
   validatePhrase,
@@ -234,6 +236,39 @@ describe('SyncEngine multi-device synchronization', () => {
     return { device, engine };
   }
 
+  async function makeLegacyMemberJoin(
+    device: DeviceKeys,
+    groupKeys: Awaited<ReturnType<typeof deriveGroupKeys>>,
+    nowMs: number,
+  ): Promise<SyncRecordEnvelope> {
+    const header = {
+      deviceId: device.deviceId,
+      seq: 1,
+      epoch: groupKeys.epoch,
+      hlc: createHlc(device.deviceId, nowMs),
+      configVersion: 5,
+      kind: 'member-join' as const,
+    };
+    const body = {
+      kind: 'member-join' as const,
+      deviceId: device.deviceId,
+      deviceName: 'Legacy device',
+      signingPublic: toBase64Url(device.signingPublicRaw),
+      agreementPublic: toBase64Url(device.agreementPublicRaw),
+    };
+    const sealed = await sealRecordBody(groupKeys.recordKey, canonicalJson(header), body);
+    const unsigned = {
+      ...header,
+      signingPublic: toBase64Url(device.signingPublicRaw),
+      ...sealed,
+    };
+    const signature = await signEd25519(
+      device.signing.privateKey,
+      utf8Encode(`kiwi-sync-record/v1:${canonicalJson(unsigned)}`),
+    );
+    return { ...unsigned, signature: toBase64Url(signature) };
+  }
+
   it('verifies epoch-independent member certificates against device identity and agreement keys', async () => {
     const device = await generateDeviceKeys();
     const fields = {
@@ -345,6 +380,76 @@ describe('SyncEngine multi-device synchronization', () => {
       );
       expect(body.wrappedSecrets.some((wrapped) => wrapped.recipientDeviceId === C.device.deviceId)).toBe(false);
     }
+  });
+
+  it('restores legacy member joins, catches up without snapshots, and wraps rotations for existing members', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const makeLegacyPeer = async (name: string) => {
+      const device = await generateDeviceKeys();
+      delete device.agreementSig;
+      const initial = new SyncEngine({ device, deviceName: name, groupKeys, configVersion: 5, nowMs: now });
+      const memberJoin = await makeLegacyMemberJoin(device, groupKeys, now);
+      const persisted = initial.exportState();
+      persisted.seq = memberJoin.seq;
+      persisted.versionVector[device.deviceId] = memberJoin.seq;
+      persisted.recordLog = [memberJoin];
+      persisted.members[device.deviceId] = {
+        ...persisted.members[device.deviceId]!,
+        agreementSig: '',
+        agreementAttested: true,
+      };
+      const engine = new SyncEngine({
+        device,
+        deviceName: name,
+        groupKeys,
+        configVersion: 5,
+        persisted,
+      });
+      return { device, engine, memberJoin };
+    };
+    const A = await makeLegacyPeer('A');
+    const B = await makeLegacyPeer('B');
+    await A.engine.receiveRecords([B.memberJoin], now + 2);
+    await B.engine.receiveRecords([A.memberJoin], now + 2);
+
+    await A.engine.applyLocalChanges([{ path: 'config.defaultMode', value: 'news' }], now + 3);
+    const restoredA = new SyncEngine({
+      device: A.device,
+      deviceName: 'A',
+      groupKeys,
+      configVersion: 5,
+      persisted: A.engine.exportState(),
+    });
+    const restoredB = new SyncEngine({
+      device: B.device,
+      deviceName: 'B',
+      groupKeys,
+      configVersion: 5,
+      persisted: B.engine.exportState(),
+    });
+    const ordinaryCatchup = [
+      ...restoredA.getAllEnvelopes().filter((record) => record.deviceId === A.device.deviceId),
+      ...restoredB.getAllEnvelopes().filter((record) => record.deviceId === B.device.deviceId),
+    ];
+    expect(ordinaryCatchup.every((record) => record.kind !== 'snapshot')).toBe(true);
+
+    const D = await makePeer('D', groupKeys, now);
+    const catchupResult = await D.engine.receiveRecords(ordinaryCatchup, now + 4);
+    expect(catchupResult.accepted).toBe(3);
+    expect(D.engine.getRegisters()['config.defaultMode']?.value).toBe('news');
+    expect(D.engine.getMembers().find((member) => member.deviceId === A.device.deviceId)).toMatchObject({
+      agreementSig: '',
+      agreementAttested: true,
+    });
+    expect(D.engine.getMembers().find((member) => member.deviceId === B.device.deviceId)).toMatchObject({
+      agreementSig: '',
+      agreementAttested: true,
+    });
+
+    const { envelope } = await D.engine.rotatePhrase((await generateRecoveryPhrase()).entropy, now + 5);
+    expect((await restoredA.receiveRecords([envelope], now + 6)).epochRotatedTo).toBe(2);
+    expect((await restoredB.receiveRecords([envelope], now + 6)).epochRotatedTo).toBe(2);
   });
 
   it('serializes concurrent local changes into unique record sequences', async () => {
@@ -686,7 +791,7 @@ describe('SyncEngine multi-device synchronization', () => {
     expect(D.engine.getRegisters()[oversizedPath]).toBeUndefined();
   });
 
-  it('rejects forged member joins that name another device or change a known agreement key', async () => {
+  it('rejects joins that name another device but accepts a member own-signed agreement-key update', async () => {
     const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
     const now = 1_700_000_000_000;
     const A = await makePeer('A', groupKeys, now);
@@ -742,9 +847,11 @@ describe('SyncEngine multi-device synchronization', () => {
     );
     const changed = { ...changedUnsigned, signature: toBase64Url(changedSignature) };
     const changedResult = await A.engine.receiveRecords([changed], now + 60);
-    expect(changedResult.accepted).toBe(0);
-    expect(changedResult.rejected[0]!.reason).toMatch(/agreement key mismatch/i);
-    expect(A.engine.getMembers().find((member) => member.deviceId === C.device.deviceId)?.agreementPublic).toBe(agreementPublic);
+    expect(changedResult.accepted).toBe(1);
+    expect(A.engine.getMembers().find((member) => member.deviceId === C.device.deviceId)).toMatchObject({
+      agreementPublic: toBase64Url(B.device.agreementPublicRaw),
+      agreementAttested: true,
+    });
   });
 
   it('rejects records with >24h future clock skew and clamps invalid numeric values', async () => {

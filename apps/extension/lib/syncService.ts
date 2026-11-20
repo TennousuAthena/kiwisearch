@@ -1,5 +1,6 @@
 import { CONFIG_VERSION } from '@kiwi-search/core';
 import {
+  canonicalJson,
   DEFAULT_SYNC_CATEGORIES,
   SyncEngine,
   buildHandshakeHello,
@@ -10,13 +11,17 @@ import {
   generateRecoveryPhrase,
   importGroupSecret,
   memberCertificate,
+  openRecordBody,
   phraseToEntropy,
+  toBase64Url,
   verifyHandshakeProof,
+  verifyMemberCertificate,
   type DeviceKeys,
   type GroupKeys,
   type HandshakeHello,
   type HandshakeProof,
   type LocalChangeInput,
+  type SyncRecordBody,
   type SyncRecordEnvelope,
   type VersionVector,
 } from '@kiwi-search/sync';
@@ -445,6 +450,59 @@ export class SyncService {
     await this.transport.sendToPeer(peer.peerId, JSON.stringify({ type: 'hello', hello } satisfies PeerWireHello));
   }
 
+  private async getCertifiedCurrentMemberJoin(): Promise<SyncRecordEnvelope | null> {
+    const engine = this.engine;
+    const device = this.device;
+    const groupKeys = this.groupKeys;
+    if (!engine || !device || !groupKeys) return null;
+    const signingPublic = toBase64Url(device.signingPublicRaw);
+    const agreementPublic = toBase64Url(device.agreementPublicRaw);
+    const candidate = [...engine.getAllEnvelopes()].reverse().find(
+      (record) =>
+        record.deviceId === device.deviceId &&
+        record.signingPublic === signingPublic &&
+        record.kind === 'member-join' &&
+        record.epoch === engine.epoch &&
+        record.epoch === groupKeys.epoch,
+    );
+    if (!candidate) return null;
+    try {
+      const body = await openRecordBody<SyncRecordBody>(
+        groupKeys.recordKey,
+        canonicalJson({
+          deviceId: candidate.deviceId,
+          seq: candidate.seq,
+          epoch: candidate.epoch,
+          hlc: candidate.hlc,
+          configVersion: candidate.configVersion,
+          kind: candidate.kind,
+        }),
+        candidate.nonce,
+        candidate.ciphertext,
+      );
+      if (
+        body.kind !== 'member-join' ||
+        body.deviceId !== device.deviceId ||
+        body.signingPublic !== signingPublic ||
+        body.agreementPublic !== agreementPublic
+      ) {
+        return null;
+      }
+      const agreementSig = body.agreementSig;
+      if (typeof agreementSig !== 'string') return null;
+      return (
+        (await verifyMemberCertificate({
+          deviceId: body.deviceId,
+          signingPublic: body.signingPublic,
+          agreementPublic: body.agreementPublic,
+          agreementSig,
+        })) ? candidate : null
+      );
+    } catch {
+      return null;
+    }
+  }
+
   private async handlePeerMessage(peerId: string, raw: string): Promise<void> {
     if (!this.engine || !this.device || !this.groupKeys) return;
     const peer = this.livePeers.get(peerId);
@@ -513,12 +571,8 @@ export class SyncService {
       await this.promoteGroupEpoch(peer.remoteHello.epoch, peer.remoteHello.epochEstablished !== false);
       peer.authenticated = true;
       peer.rehandshakePending = false;
-      const memberJoin = this.engine.getAllEnvelopes().find(
-        (record) =>
-          record.deviceId === this.device!.deviceId &&
-          record.kind === 'member-join' &&
-          record.epoch === this.groupKeys!.epoch,
-      ) ?? await this.engine.createMemberJoinRecord();
+      const memberJoin =
+        (await this.getCertifiedCurrentMemberJoin()) ?? (await this.engine.createMemberJoinRecord());
       await this.persist();
 
       const joinMessage: PeerWireRecords = {

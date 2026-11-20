@@ -72,7 +72,7 @@ export type SyncRecordBody =
       deviceName: string;
       signingPublic: string;
       agreementPublic: string;
-      agreementSig: string;
+      agreementSig?: string;
     }
   | {
       kind: 'member-remove';
@@ -107,7 +107,7 @@ export interface SyncMember {
   deviceName: string;
   signingPublic: string;
   agreementPublic: string;
-  agreementSig: string;
+  agreementSig?: string;
   agreementAttested: boolean;
   joinedAt: number;
   lastSeenAt: number;
@@ -735,7 +735,7 @@ export class SyncEngine {
         result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Record kind mismatch' });
         continue;
       }
-      let memberJoinCertificateValid = false;
+      let memberJoinAgreementSig = '';
       if (body.kind === 'snapshot' && (!Array.isArray(body.entries) || (body.members !== undefined && !Array.isArray(body.members)))) {
         result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Invalid snapshot body' });
         continue;
@@ -769,19 +769,16 @@ export class SyncEngine {
           result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Invalid member agreement key' });
           continue;
         }
-        memberJoinCertificateValid = await verifyMemberCertificate({
-          deviceId: body.deviceId,
-          signingPublic: body.signingPublic,
-          agreementPublic: body.agreementPublic,
-          agreementSig: typeof body.agreementSig === 'string' ? body.agreementSig : '',
-        });
         if (
-          existingMember?.agreementAttested &&
-          existingMember.agreementPublic &&
-          existingMember.agreementPublic !== body.agreementPublic
+          typeof body.agreementSig === 'string' &&
+          (await verifyMemberCertificate({
+            deviceId: body.deviceId,
+            signingPublic: body.signingPublic,
+            agreementPublic: body.agreementPublic,
+            agreementSig: body.agreementSig,
+          }))
         ) {
-          result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Agreement key mismatch for known device' });
-          continue;
+          memberJoinAgreementSig = body.agreementSig;
         }
       }
 
@@ -793,15 +790,15 @@ export class SyncEngine {
 
       if (body.kind === 'member-join') {
         const prev = this.members[body.deviceId];
-        const agreementPublic =
-          memberJoinCertificateValid || !prev?.agreementPublic ? body.agreementPublic : prev.agreementPublic;
         this.members[body.deviceId] = {
           deviceId: body.deviceId,
           deviceName: body.deviceName,
           signingPublic: body.signingPublic,
-          agreementPublic,
-          agreementSig: memberJoinCertificateValid ? body.agreementSig : prev?.agreementSig ?? '',
-          agreementAttested: Boolean(prev?.agreementAttested || memberJoinCertificateValid),
+          agreementPublic: body.agreementPublic,
+          agreementSig:
+            memberJoinAgreementSig ||
+            (prev?.agreementPublic === body.agreementPublic ? prev.agreementSig ?? '' : ''),
+          agreementAttested: true,
           joinedAt: prev?.joinedAt ?? env.hlc.ms,
           lastSeenAt: nowMs,
           removedAt: prev?.removedAt,
@@ -850,7 +847,7 @@ export class SyncEngine {
             ...member,
             signingPublic: existing?.signingPublic || member.signingPublic,
             agreementPublic: existingAttested ? existing!.agreementPublic : member.agreementPublic,
-            agreementSig: existingAttested ? existing!.agreementSig : member.agreementSig,
+            agreementSig: existingAttested ? existing!.agreementSig ?? '' : member.agreementSig ?? '',
             agreementAttested: existingAttested || member.agreementAttested,
             joinedAt: Math.min(existing?.joinedAt ?? member.joinedAt, member.joinedAt),
             lastSeenAt: Math.max(existing?.lastSeenAt ?? member.lastSeenAt, member.lastSeenAt),

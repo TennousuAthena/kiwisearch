@@ -1,6 +1,19 @@
 import { DEFAULT_CONFIG } from '@kiwi-search/core';
 import { DEFAULT_SYNC_RELAY_URL, preferenceKeys, storageKey } from '@kiwi-search/protocol';
-import { classifySyncPath, decodeConnectionCode, encodeConnectionCode } from '@kiwi-search/sync';
+import {
+  canonicalJson,
+  classifySyncPath,
+  decodeConnectionCode,
+  encodeConnectionCode,
+  openRecordBody,
+  sealRecordBody,
+  signEd25519,
+  toBase64Url,
+  utf8Encode,
+  verifyMemberCertificate,
+  type SyncRecordBody,
+  type SyncRecordEnvelope,
+} from '@kiwi-search/sync';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const storage = vi.hoisted(() => ({
@@ -23,7 +36,7 @@ vi.mock('wxt/browser', () => ({
 }));
 
 import { applySettingsPatch, type SettingsPatch } from '../lib/configUpdates';
-import { MemorySyncStorage } from '../lib/syncDb';
+import { MemorySyncStorage, type StoredSyncRecord } from '../lib/syncDb';
 import {
   appliedChangesToLocalUpdates,
   domainTransitionToSyncChanges,
@@ -150,6 +163,45 @@ async function flushMicrotasks(rounds = 30): Promise<void> {
   for (let i = 0; i < rounds; i++) {
     await new Promise((r) => setTimeout(r, 5));
   }
+}
+
+async function makeLegacyMemberJoin(
+  stored: StoredSyncRecord,
+  envelope: SyncRecordEnvelope,
+): Promise<SyncRecordEnvelope> {
+  const header = {
+    deviceId: envelope.deviceId,
+    seq: envelope.seq,
+    epoch: envelope.epoch,
+    hlc: envelope.hlc,
+    configVersion: envelope.configVersion,
+    kind: 'member-join' as const,
+  };
+  const body = await openRecordBody<SyncRecordBody>(
+    stored.groupKeys.recordKey,
+    canonicalJson(header),
+    envelope.nonce,
+    envelope.ciphertext,
+  );
+  if (body.kind !== 'member-join') throw new Error('Expected a member-join record');
+  const legacyBody = {
+    kind: body.kind,
+    deviceId: body.deviceId,
+    deviceName: body.deviceName,
+    signingPublic: body.signingPublic,
+    agreementPublic: body.agreementPublic,
+  };
+  const sealed = await sealRecordBody(stored.groupKeys.recordKey, canonicalJson(header), legacyBody);
+  const unsigned = {
+    ...header,
+    signingPublic: toBase64Url(stored.device.signingPublicRaw),
+    ...sealed,
+  };
+  const signature = await signEd25519(
+    stored.device.signing.privateKey,
+    utf8Encode(`kiwi-sync-record/v1:${canonicalJson(unsigned)}`),
+  );
+  return { ...unsigned, signature: toBase64Url(signature) };
 }
 
 beforeEach(() => {
@@ -421,6 +473,101 @@ describe('SyncService multi-device integration', () => {
 
     expect(stateD.config.summary.enabled).toBe(false);
     expect(helloCount() - previousHelloCount).toBe(2);
+  });
+
+  it('replaces a restored legacy member-join with a certified join after authentication', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    let transportB: SyncTransport | undefined;
+    const serviceA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const serviceB = new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => {
+        const transport = bus.createTransport(cb);
+        transportB = transport;
+        return transport;
+      },
+      applyRemoteConfigPatches: async () => {},
+    });
+    const created = await serviceA.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: '' });
+    if (!created.ok) return;
+    const joined = await serviceB.handleMessage({
+      type: 'kiwi:sync:join-group',
+      phrase: created.phrase!,
+      relayUrl: '',
+    });
+    expect(joined.ok).toBe(true);
+    await flushMicrotasks();
+
+    await transportB?.stop();
+    await flushMicrotasks();
+    const stored = await storeB.load();
+    if (!stored) throw new Error('Missing stored group state');
+    const deviceB = stored.device.deviceId;
+    const ownJoin = stored.engineState.recordLog.find(
+      (record) =>
+        record.deviceId === deviceB &&
+        record.kind === 'member-join' &&
+        record.epoch === stored.groupKeys.epoch,
+    );
+    if (!ownJoin) throw new Error('Missing cached member-join');
+    const legacyJoin = await makeLegacyMemberJoin(stored, ownJoin);
+    stored.engineState.recordLog = stored.engineState.recordLog.map((record) =>
+      record.deviceId === deviceB && record.seq === ownJoin.seq ? legacyJoin : record,
+    );
+    delete stored.device.agreementSig;
+    await storeB.save(stored);
+
+    const sentFromB = bus.sentMessages.length;
+    const restartedB = new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => bus.createTransport(cb),
+      applyRemoteConfigPatches: async () => {},
+    });
+    await restartedB.init();
+    await flushMicrotasks();
+
+    const deviceA = serviceA.getStatus().deviceId!;
+    const certifiedJoin = bus.sentMessages
+      .slice(sentFromB)
+      .filter((message) => message.from === deviceB && message.to === deviceA)
+      .flatMap((message) => {
+        const wire = JSON.parse(message.payload) as { type?: string; envelopes?: SyncRecordEnvelope[] };
+        return wire.type === 'records' ? wire.envelopes ?? [] : [];
+      })
+      .find((record) => record.deviceId === deviceB && record.kind === 'member-join' && record.seq > legacyJoin.seq);
+    expect(certifiedJoin).toBeDefined();
+    if (!certifiedJoin) return;
+    const body = await openRecordBody<SyncRecordBody>(
+      stored.groupKeys.recordKey,
+      canonicalJson({
+        deviceId: certifiedJoin.deviceId,
+        seq: certifiedJoin.seq,
+        epoch: certifiedJoin.epoch,
+        hlc: certifiedJoin.hlc,
+        configVersion: certifiedJoin.configVersion,
+        kind: certifiedJoin.kind,
+      }),
+      certifiedJoin.nonce,
+      certifiedJoin.ciphertext,
+    );
+    expect(body.kind).toBe('member-join');
+    if (body.kind !== 'member-join') return;
+    const agreementSig = body.agreementSig;
+    if (typeof agreementSig !== 'string') throw new Error('Expected a certified member-join');
+    expect(
+      await verifyMemberCertificate({
+        deviceId: body.deviceId,
+        signingPublic: body.signingPublic,
+        agreementPublic: body.agreementPublic,
+        agreementSig,
+      }),
+    ).toBe(true);
   });
 
   it('lets an established peer promote provisional joiners after they exchange member records', async () => {
