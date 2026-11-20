@@ -91,8 +91,13 @@ export function appliedChangesToLocalUpdates(applied: readonly AppliedChange[]):
   const membershipSubs = new Map<string, Set<string>>();
   const storageUpdates: Record<string, unknown> = {};
   const storageRemovals: string[] = [];
+  const latestByPath = new Map<string, AppliedChange>();
 
   for (const item of applied) {
+    latestByPath.set(item.path, item);
+  }
+
+  for (const item of latestByPath.values()) {
     if (SYNCED_UI_KEYS.has(item.path)) {
       if (item.tombstone) storageRemovals.push(item.path);
       else storageUpdates[item.path] = item.value;

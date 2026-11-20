@@ -12,6 +12,7 @@ import {
   openRecordBody,
   sealRecordBody,
   signEd25519,
+  MAX_RELAY_FRAME_BYTES,
   unwrapGroupEntropyFromPeer,
   verifyEd25519,
   wrapGroupEntropyForPeer,
@@ -38,7 +39,7 @@ import {
   type SyncCategorySettings,
 } from './categories';
 
-export type SyncRecordKind = 'set' | 'tombstone' | 'member-join' | 'member-remove' | 'epoch-rotate';
+export type SyncRecordKind = 'set' | 'tombstone' | 'snapshot' | 'member-join' | 'member-remove' | 'epoch-rotate';
 
 export interface SyncRecordEnvelope {
   deviceId: string;
@@ -56,6 +57,7 @@ export interface SyncRecordEnvelope {
 export type SyncRecordBody =
   | { kind: 'set'; path: string; value: unknown }
   | { kind: 'tombstone'; path: string }
+  | { kind: 'snapshot'; entries: SyncSnapshotEntry[]; coveredVector: VersionVector }
   | {
       kind: 'member-join';
       deviceId: string;
@@ -75,6 +77,16 @@ export type SyncRecordBody =
       newEpoch: number;
       wrappedSecrets: WrappedEpochSecret[];
     };
+
+export interface SyncSnapshotEntry {
+  path: string;
+  value?: unknown;
+  tombstone: boolean;
+  hlc: Hlc;
+  deviceId: string;
+  seq: number;
+  configVersion: number;
+}
 
 export interface SyncMember {
   deviceId: string;
@@ -119,6 +131,7 @@ export interface ReceiveRecordsResult {
   rejected: Array<{ deviceId: string; seq: number; reason: string }>;
   applied: AppliedChange[];
   epochRotatedTo?: number;
+  groupSecret?: CryptoKey;
   removedSelf?: boolean;
 }
 
@@ -281,6 +294,60 @@ export class SyncEngine {
 
   getAllEnvelopes(): SyncRecordEnvelope[] {
     return [...this.recordLog.values()];
+  }
+
+  getMemberJoinEpoch(deviceId: string): number | undefined {
+    return [...this.recordLog.values()]
+      .filter((record) => record.deviceId === deviceId && record.kind === 'member-join')
+      .sort((a, b) => b.seq - a.seq)[0]?.epoch;
+  }
+
+  hasAcceptedRecords(): boolean {
+    return [...this.recordLog.values()].some((record) => record.deviceId !== this.device.deviceId);
+  }
+
+  adoptCoveredVector(coveredVector: VersionVector): void {
+    for (const [deviceId, seq] of Object.entries(coveredVector)) {
+      if (Number.isInteger(seq) && seq >= 0) {
+        this.versionVector[deviceId] = Math.max(this.versionVector[deviceId] ?? 0, seq);
+        this.advanceVersionVector(deviceId);
+      }
+    }
+  }
+
+  async createSnapshotRecords(nowMs = Date.now()): Promise<SyncRecordEnvelope[]> {
+    const coveredVector = this.getVersionVector();
+    const entries: SyncSnapshotEntry[] = Object.values(this.registers).map((register) => ({
+      path: register.path,
+      ...(register.value === undefined ? {} : { value: register.value }),
+      tombstone: register.tombstone,
+      hlc: register.hlc,
+      deviceId: register.deviceId,
+      seq: register.seq,
+      configVersion: register.configVersion,
+    }));
+    const chunks: SyncSnapshotEntry[][] = [];
+    let current: SyncSnapshotEntry[] = [];
+    const maxBodyBytes = Math.floor(MAX_RELAY_FRAME_BYTES * 0.62);
+    for (const entry of entries) {
+      const candidate = [...current, entry];
+      const body = { kind: 'snapshot', entries: candidate, coveredVector };
+      if (utf8Encode(JSON.stringify(body)).byteLength > maxBodyBytes && current.length) {
+        chunks.push(current);
+        current = [entry];
+      } else {
+        current = candidate;
+      }
+      if (utf8Encode(JSON.stringify({ kind: 'snapshot', entries: current, coveredVector })).byteLength > maxBodyBytes) {
+        throw new Error(`Snapshot entry exceeds ${MAX_RELAY_FRAME_BYTES} byte relay frame limit`);
+      }
+    }
+    if (current.length || !chunks.length) chunks.push(current);
+    const records: SyncRecordEnvelope[] = [];
+    for (const chunk of chunks) {
+      records.push(await this.appendEnvelope('snapshot', { kind: 'snapshot', entries: chunk, coveredVector }, nowMs));
+    }
+    return records;
   }
 
   exportState(): PersistedSyncEngineState {
@@ -467,13 +534,26 @@ export class SyncEngine {
         result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Record kind mismatch' });
         continue;
       }
+      if (body.kind === 'snapshot' && !Array.isArray(body.entries)) {
+        result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Invalid snapshot body' });
+        continue;
+      }
+
+      if (body.kind === 'member-join') {
+        if (body.deviceId !== env.deviceId || body.signingPublic !== env.signingPublic) {
+          result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Member join identity mismatch' });
+          continue;
+        }
+        if (existingMember?.agreementPublic && existingMember.agreementPublic !== body.agreementPublic) {
+          result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Agreement key mismatch for known device' });
+          continue;
+        }
+      }
 
       // Accept record into log and advance HLC & version vector.
       this.hlc = receiveHlc(this.hlc, env.hlc, this.device.deviceId, nowMs);
       this.recordLog.set(keyId, env);
-      if (env.seq > (this.versionVector[env.deviceId] ?? 0)) {
-        this.versionVector[env.deviceId] = env.seq;
-      }
+      this.advanceVersionVector(env.deviceId);
       result.accepted += 1;
 
       if (body.kind === 'member-join') {
@@ -509,11 +589,68 @@ export class SyncEngine {
           result.removedSelf = true;
         } else {
           const rotated = await this.tryUnwrapEpoch(body.newEpoch, body.wrappedSecrets);
-          if (rotated) result.epochRotatedTo = body.newEpoch;
+          if (rotated) {
+            result.epochRotatedTo = body.newEpoch;
+            result.groupSecret = rotated.secret;
+          }
         }
       } else if (body.kind === 'epoch-rotate') {
         const rotated = await this.tryUnwrapEpoch(body.newEpoch, body.wrappedSecrets);
-        if (rotated) result.epochRotatedTo = body.newEpoch;
+        if (rotated) {
+          result.epochRotatedTo = body.newEpoch;
+          result.groupSecret = rotated.secret;
+        }
+      } else if (body.kind === 'snapshot') {
+        for (const entry of body.entries) {
+          if (
+            !entry ||
+            typeof entry.path !== 'string' ||
+            typeof entry.deviceId !== 'string' ||
+            !Number.isInteger(entry.seq) ||
+            entry.seq < 1 ||
+            !Number.isInteger(entry.configVersion) ||
+            entry.hlc?.deviceId !== entry.deviceId ||
+            !isHlcDriftAcceptable(entry.hlc, nowMs)
+          ) {
+            result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: 'Invalid snapshot entry' });
+            continue;
+          }
+          const migrated = migrateRecordEntry(
+            { path: entry.path, value: entry.value, tombstone: entry.tombstone },
+            entry.configVersion,
+            this.configVersion,
+          );
+          const category = classifySyncPath(migrated.path);
+          const existing = this.registers[migrated.path];
+          if (existing && compareHlc(entry.hlc, existing.hlc) <= 0) continue;
+          if (!migrated.tombstone && category !== null) {
+            const checked = validateAndClampSyncValue(migrated.path, migrated.value);
+            if (!checked.ok) {
+              result.rejected.push({ deviceId: env.deviceId, seq: env.seq, reason: checked.reason });
+              continue;
+            }
+            migrated.value = checked.value;
+          }
+          this.registers[migrated.path] = {
+            path: migrated.path,
+            hlc: entry.hlc,
+            deviceId: entry.deviceId,
+            seq: entry.seq,
+            tombstone: Boolean(migrated.tombstone),
+            value: migrated.value,
+            configVersion: entry.configVersion,
+            category,
+          };
+          if (category !== null && isCategoryEnabled(this.categories, category)) {
+            result.applied.push({
+              path: migrated.path,
+              value: migrated.value,
+              tombstone: Boolean(migrated.tombstone),
+              category,
+            });
+          }
+        }
+        this.adoptCoveredVector(body.coveredVector);
       } else if (body.kind === 'set' || body.kind === 'tombstone') {
         const migrated = migrateRecordEntry(
           {
@@ -760,6 +897,12 @@ export class SyncEngine {
     return envelope;
   }
 
+  private advanceVersionVector(deviceId: string): void {
+    let seq = this.versionVector[deviceId] ?? 0;
+    while (this.recordLog.has(this.recordKeyId(deviceId, seq + 1))) seq += 1;
+    if (seq > 0) this.versionVector[deviceId] = seq;
+  }
+
   private async wrapForActiveMembers(
     newEpoch: number,
     newEntropy: Uint8Array,
@@ -782,17 +925,20 @@ export class SyncEngine {
     return wrapped;
   }
 
-  private async tryUnwrapEpoch(newEpoch: number, wrappedSecrets: readonly WrappedEpochSecret[]): Promise<boolean> {
+  private async tryUnwrapEpoch(
+    newEpoch: number,
+    wrappedSecrets: readonly WrappedEpochSecret[],
+  ): Promise<{ secret: CryptoKey } | null> {
     const mine = wrappedSecrets.find((w) => w.recipientDeviceId === this.device.deviceId);
-    if (!mine) return false;
+    if (!mine) return null;
     try {
       const entropy = await unwrapGroupEntropyFromPeer(this.device, mine);
       const secret = await importGroupSecret(entropy);
       const nextKeys = await deriveGroupKeys(secret, newEpoch);
       this.registerEpochKeys(nextKeys);
-      return true;
+      return { secret };
     } catch {
-      return false;
+      return null;
     }
   }
 }

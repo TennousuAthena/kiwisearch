@@ -18,7 +18,6 @@ const AES_GCM_TAG_BYTES = 16;
 
 export interface GroupKeys {
   epoch: number;
-  groupHint: Uint8Array<ArrayBuffer>;
   topicKey: CryptoKey;
   signalKey: CryptoKey;
   recordKey: CryptoKey;
@@ -57,14 +56,9 @@ export async function importGroupSecret(entropy: Uint8Array): Promise<CryptoKey>
 
 export async function deriveGroupKeys(groupSecret: CryptoKey, epoch = 1): Promise<GroupKeys> {
   if (!Number.isInteger(epoch) || epoch < 1) throw new Error(`Invalid epoch: ${epoch}`);
-  const prefix = `kiwi-sync/v1/epoch/${epoch}/`;
+  const prefix = 'kiwi-sync/v1/';
 
-  const [hintBits, topicKey, signalKey, recordKey, memberKey] = await Promise.all([
-    crypto.subtle.deriveBits(
-      { name: 'HKDF', hash: 'SHA-256', salt: HKDF_SALT, info: utf8Encode(prefix + 'hint') },
-      groupSecret,
-      32,
-    ),
+  const [topicKey, signalKey, recordKey, memberKey] = await Promise.all([
     crypto.subtle.deriveKey(
       { name: 'HKDF', hash: 'SHA-256', salt: HKDF_SALT, info: utf8Encode(prefix + 'topic') },
       groupSecret,
@@ -97,7 +91,6 @@ export async function deriveGroupKeys(groupSecret: CryptoKey, epoch = 1): Promis
 
   return {
     epoch,
-    groupHint: new Uint8Array(hintBits),
     topicKey,
     signalKey,
     recordKey,
@@ -116,6 +109,13 @@ export function utcDayString(now: Date | number = Date.now()): string {
 export async function deriveTopicId(topicKey: CryptoKey, day: string = utcDayString()): Promise<string> {
   const mac = await crypto.subtle.sign('HMAC', topicKey, utf8Encode(`topic:${day}`));
   return toBase64Url(new Uint8Array(mac));
+}
+
+export async function deriveGroupHint(topicKey: CryptoKey, day: string = utcDayString()): Promise<Uint8Array<ArrayBuffer>> {
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', topicKey, utf8Encode(`hint:${day}`)));
+  const hint = new Uint8Array(new ArrayBuffer(4));
+  hint.set(mac.subarray(0, 4));
+  return hint;
 }
 
 export async function deriveDeviceId(signingPublicRaw: Uint8Array): Promise<string> {
@@ -179,11 +179,12 @@ function chooseBucketSize(minTotalBytes: number): number {
 
 /**
  * Seals a JSON signaling or relay-fallback payload into a padded binary frame
- * using signalKey (AES-256-GCM) with version + groupHint as AAD.
+ * using signalKey (AES-256-GCM) with version + the daily group hint as AAD.
  */
 export async function sealRelayFrame(
-  groupKeys: Pick<GroupKeys, 'signalKey' | 'groupHint'>,
+  groupKeys: Pick<GroupKeys, 'signalKey' | 'topicKey'>,
   payload: unknown,
+  nowMs = Date.now(),
 ): Promise<Uint8Array<ArrayBuffer>> {
   const raw = utf8Encode(JSON.stringify(payload));
   const plainLen = 2 + raw.byteLength;
@@ -198,7 +199,7 @@ export async function sealRelayFrame(
 
   const aad = new Uint8Array(new ArrayBuffer(5));
   aad[0] = SYNC_PROTOCOL_VERSION;
-  aad.set(groupKeys.groupHint, 1);
+  aad.set(await deriveGroupHint(groupKeys.topicKey, utcDayString(nowMs)), 1);
 
   const ciphertext = new Uint8Array(
     await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad }, groupKeys.signalKey, padded),
@@ -207,8 +208,9 @@ export async function sealRelayFrame(
 }
 
 export async function openRelayFrame<T = unknown>(
-  groupKeys: Pick<GroupKeys, 'signalKey' | 'groupHint'>,
+  groupKeys: Pick<GroupKeys, 'signalKey' | 'topicKey'>,
   frame: Uint8Array,
+  nowMs = Date.now(),
 ): Promise<T> {
   if (frame.byteLength < FRAME_HEADER_BYTES + 2 + AES_GCM_TAG_BYTES || frame.byteLength > MAX_RELAY_FRAME_BYTES) {
     throw new Error(`Invalid relay frame size: ${frame.byteLength}`);
@@ -216,10 +218,14 @@ export async function openRelayFrame<T = unknown>(
   if (frame[0] !== SYNC_PROTOCOL_VERSION) {
     throw new Error(`Unsupported relay frame version: ${frame[0]}`);
   }
-  for (let i = 0; i < 4; i++) {
-    if (frame[1 + i] !== groupKeys.groupHint[i]) {
-      throw new Error('Relay frame group hint mismatch');
-    }
+  const today = utcDayString(nowMs);
+  const date = new Date(`${today}T00:00:00.000Z`);
+  const validHints = await Promise.all([-1, 0, 1].map((offset) => {
+    const adjacentDay = new Date(date.getTime() + offset * 86_400_000).toISOString().slice(0, 10);
+    return deriveGroupHint(groupKeys.topicKey, adjacentDay);
+  }));
+  if (!validHints.some((hint) => hint.every((byte, index) => frame[1 + index] === byte))) {
+    throw new Error('Relay frame group hint mismatch');
   }
   const aad = toArrayBufferView(frame.subarray(0, 5));
   const nonce = toArrayBufferView(frame.subarray(5, FRAME_HEADER_BYTES));

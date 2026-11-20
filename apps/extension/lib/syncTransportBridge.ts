@@ -56,7 +56,8 @@ export class ExtensionSyncTransport implements SyncTransport {
       }
     });
     port.onDisconnect.addListener(() => {
-      if (this.offscreenPort === port) this.offscreenPort = null;
+      if (this.offscreenPort !== port) return;
+      this.offscreenPort = null;
       for (const pending of this.pendingReplies.values()) {
         pending.reject(new Error('Offscreen transport disconnected'));
       }

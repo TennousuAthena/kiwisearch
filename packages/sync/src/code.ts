@@ -7,7 +7,7 @@ import {
   utf8Encode,
 } from './encoding';
 import type { GroupKeys } from './crypto';
-import { SYNC_PROTOCOL_VERSION } from './crypto';
+import { deriveGroupHint, SYNC_PROTOCOL_VERSION, utcDayString } from './crypto';
 
 export const CONNECTION_CODE_PREFIX = 'kiwi1-';
 
@@ -24,6 +24,7 @@ export interface CompactIceCandidate {
 
 export interface ConnectionCodePayload {
   kind: ConnectionCodeKind;
+  epoch: number;
   deviceId: string;
   timestampMs: number;
   ufrag: string;
@@ -38,20 +39,22 @@ const KIND_ANSWER = 2;
 const NONCE_BYTES = 12;
 
 export async function encodeConnectionCode(
-  groupKeys: Pick<GroupKeys, 'signalKey' | 'groupHint'>,
+  groupKeys: Pick<GroupKeys, 'signalKey' | 'topicKey'>,
   payload: ConnectionCodePayload,
+  nowMs = Date.now(),
 ): Promise<string> {
   const kindByte = payload.kind === 'offer' ? KIND_OFFER : KIND_ANSWER;
   const header = new Uint8Array(new ArrayBuffer(6));
   header[0] = SYNC_PROTOCOL_VERSION;
   header[1] = kindByte;
-  header.set(groupKeys.groupHint, 2);
+  header.set(await deriveGroupHint(groupKeys.topicKey, utcDayString(nowMs)), 2);
 
   const nonce = new Uint8Array(new ArrayBuffer(NONCE_BYTES));
   crypto.getRandomValues(nonce);
 
   const body = utf8Encode(
     JSON.stringify({
+      e: payload.epoch,
       d: payload.deviceId,
       t: payload.timestampMs,
       u: payload.ufrag,
@@ -68,7 +71,7 @@ export async function encodeConnectionCode(
 }
 
 export async function decodeConnectionCode(
-  groupKeys: Pick<GroupKeys, 'signalKey' | 'groupHint'>,
+  groupKeys: Pick<GroupKeys, 'signalKey' | 'topicKey'>,
   code: string,
   maxAgeMs = 10 * 60 * 1000,
   nowMs = Date.now(),
@@ -88,10 +91,14 @@ export async function decodeConnectionCode(
   const kind: ConnectionCodeKind = kindByte === KIND_OFFER ? 'offer' : kindByte === KIND_ANSWER ? 'answer' : (() => {
     throw new Error(`Unknown connection code kind: ${kindByte}`);
   })();
-  for (let i = 0; i < 4; i++) {
-    if (bytes[2 + i] !== groupKeys.groupHint[i]) {
-      throw new Error('Connection code does not match this sync group');
-    }
+  const today = utcDayString(nowMs);
+  const date = new Date(`${today}T00:00:00.000Z`);
+  const validHints = await Promise.all([-1, 0, 1].map((offset) => {
+    const adjacentDay = new Date(date.getTime() + offset * 86_400_000).toISOString().slice(0, 10);
+    return deriveGroupHint(groupKeys.topicKey, adjacentDay);
+  }));
+  if (!validHints.some((hint) => hint.every((byte, index) => bytes[2 + index] === byte))) {
+    throw new Error('Connection code does not match this sync group');
   }
   const header = toArrayBufferView(bytes.subarray(0, 6));
   const nonce = toArrayBufferView(bytes.subarray(6, 6 + NONCE_BYTES));
@@ -101,6 +108,7 @@ export async function decodeConnectionCode(
     await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce, additionalData: header }, groupKeys.signalKey, ciphertext),
   );
   const parsed = JSON.parse(utf8Decode(plain)) as {
+    e: number;
     d: string;
     t: number;
     u: string;
@@ -108,11 +116,15 @@ export async function decodeConnectionCode(
     f: string;
     c: [number, string, number, number][];
   };
+  if (!Number.isInteger(parsed.e) || parsed.e < 1) {
+    throw new Error('Connection code has an invalid epoch');
+  }
   if (maxAgeMs > 0 && Math.abs(nowMs - parsed.t) > maxAgeMs) {
     throw new Error('Connection code has expired');
   }
   return {
     kind,
+    epoch: parsed.e,
     deviceId: parsed.d,
     timestampMs: parsed.t,
     ufrag: parsed.u,

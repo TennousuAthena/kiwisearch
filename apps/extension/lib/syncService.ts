@@ -4,6 +4,7 @@ import {
   SyncEngine,
   buildHandshakeHello,
   createHandshakeProof,
+  decodeConnectionCode,
   deriveGroupKeys,
   generateDeviceKeys,
   generateRecoveryPhrase,
@@ -65,6 +66,7 @@ interface PeerWireRecords {
   type: 'records';
   envelopes: SyncRecordEnvelope[];
   vector: VersionVector;
+  coveredVector?: VersionVector;
 }
 
 interface PeerWireAck {
@@ -116,6 +118,7 @@ export class SyncService {
   private transportError: string | undefined;
   private lastSyncAt: number | undefined;
   private livePeers = new Map<string, LivePeerSession>();
+  private mutationQueue: Promise<void> = Promise.resolve();
   private initialized = false;
   private initPromise: Promise<void> | null = null;
   private pendingInitialJoinSync = false;
@@ -156,9 +159,7 @@ export class SyncService {
             categories: stored.settings.categories,
             persisted: stored.engineState,
           });
-          if (stored.settings.relayUrl) {
-            await this.startTransport();
-          }
+          await this.startTransport();
         }
       } catch (error) {
         this.transportState = 'error';
@@ -183,6 +184,15 @@ export class SyncService {
     await this.storage.save(record);
   }
 
+  private enqueueMutation<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.mutationQueue.then(work, work);
+    this.mutationQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
   private async startTransport(): Promise<void> {
     if (!this.device || !this.groupKeys || !this.settings) return;
     await this.transport.start({
@@ -193,6 +203,17 @@ export class SyncService {
       stunEnabled: this.settings.stunEnabled,
       stunUrls: this.settings.stunUrls,
     });
+  }
+
+  private async promoteGroupEpoch(epoch: number): Promise<void> {
+    if (!this.engine || !this.groupSecret || !this.groupKeys || epoch <= this.groupKeys.epoch) return;
+    if (this.engine.hasAcceptedRecords()) return;
+    const keys = await deriveGroupKeys(this.groupSecret, epoch);
+    this.groupKeys = keys;
+    this.epochKeys[epoch] = keys.recordKey;
+    this.engine.registerEpochKeys(keys);
+    await this.persist();
+    await this.startTransport();
   }
 
   getStatus(): SyncStatusSnapshot {
@@ -259,6 +280,10 @@ export class SyncService {
 
   /** Record local config/domain changes emitted by the serialized settings writer. */
   async recordLocalChanges(changes: readonly LocalChangeInput[]): Promise<void> {
+    return this.enqueueMutation(() => this.recordLocalChangesNow(changes));
+  }
+
+  private async recordLocalChangesNow(changes: readonly LocalChangeInput[]): Promise<void> {
     await this.init();
     if (!this.engine || !changes.length) return;
     const emitted = await this.engine.applyLocalChanges(changes);
@@ -269,6 +294,12 @@ export class SyncService {
 
   /** Record UI preference changes from chrome.storage.onChanged while ignoring our own remote writes. */
   async handleStorageChanged(changes: Record<string, { oldValue?: unknown; newValue?: unknown }>): Promise<void> {
+    return this.enqueueMutation(() => this.handleStorageChangedNow(changes));
+  }
+
+  private async handleStorageChangedNow(
+    changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
+  ): Promise<void> {
     await this.init();
     if (!this.engine) return;
     const filtered: Record<string, { oldValue?: unknown; newValue?: unknown }> = {};
@@ -278,7 +309,7 @@ export class SyncService {
     }
     const localChanges = uiStorageChangesToSyncChanges(filtered);
     if (!localChanges.length) return;
-    await this.recordLocalChanges(localChanges);
+    await this.recordLocalChangesNow(localChanges);
   }
 
   private async broadcastEnvelopes(envelopes: readonly SyncRecordEnvelope[]): Promise<void> {
@@ -297,6 +328,25 @@ export class SyncService {
   }
 
   private async handleTransportEvent(event: TransportEvent): Promise<void> {
+    return this.enqueueMutation(async () => {
+      await this.init();
+      await this.handleTransportEventNow(event);
+    });
+  }
+
+  private async handleTransportEventNow(event: TransportEvent): Promise<void> {
+    if (event.type === 'snapshot') {
+      this.transportState = event.state;
+      this.transportError = event.error;
+      const peerIds = new Set(event.peers.map((peer) => peer.peerId));
+      for (const peerId of this.livePeers.keys()) {
+        if (!peerIds.has(peerId)) this.livePeers.delete(peerId);
+      }
+      for (const peer of event.peers) {
+        await this.handlePeerConnected(peer);
+      }
+      return;
+    }
     if (event.type === 'state') {
       this.transportState = event.state;
       this.transportError = event.error;
@@ -307,32 +357,40 @@ export class SyncService {
       return;
     }
     if (event.type === 'peer-connected') {
-      if (!this.device || !this.groupKeys || !this.settings) return;
-      const session: LivePeerSession = {
-        peerId: event.peerId,
-        peerName: event.peerName,
-        channel: event.channel,
-        ownCertHash: event.ownCertHash,
-        peerCertHash: event.peerCertHash,
-        authenticated: false,
-        proofSent: false,
-        lastSeenAt: Date.now(),
-      };
-      this.livePeers.set(event.peerId, session);
-      const hello = buildHandshakeHello({
-        device: this.device,
-        deviceName: this.settings.deviceName,
-        epoch: this.groupKeys.epoch,
-        ownCertHash: event.ownCertHash,
-        peerCertHash: event.peerCertHash,
-      });
-      session.ownHello = hello;
-      await this.transport.sendToPeer(event.peerId, JSON.stringify({ type: 'hello', hello } satisfies PeerWireHello));
+      await this.handlePeerConnected(event);
       return;
     }
     if (event.type === 'peer-message') {
       await this.handlePeerMessage(event.peerId, event.payload);
     }
+  }
+
+  private async handlePeerConnected(
+    event:
+      | Extract<TransportEvent, { type: 'peer-connected' }>
+      | Extract<TransportEvent, { type: 'snapshot' }>['peers'][number],
+  ): Promise<void> {
+    if (!this.device || !this.groupKeys || !this.settings) return;
+    const session: LivePeerSession = {
+      peerId: event.peerId,
+      peerName: event.peerName,
+      channel: event.channel,
+      ownCertHash: event.ownCertHash,
+      peerCertHash: event.peerCertHash,
+      authenticated: false,
+      proofSent: false,
+      lastSeenAt: Date.now(),
+    };
+    this.livePeers.set(event.peerId, session);
+    const hello = buildHandshakeHello({
+      device: this.device,
+      deviceName: this.settings.deviceName,
+      epoch: this.groupKeys.epoch,
+      ownCertHash: event.ownCertHash,
+      peerCertHash: event.peerCertHash,
+    });
+    session.ownHello = hello;
+    await this.transport.sendToPeer(event.peerId, JSON.stringify({ type: 'hello', hello } satisfies PeerWireHello));
   }
 
   private async handlePeerMessage(peerId: string, raw: string): Promise<void> {
@@ -393,12 +451,22 @@ export class SyncService {
         return;
       }
 
+      await this.promoteGroupEpoch(peer.remoteHello.epoch);
       peer.authenticated = true;
-      // Ensure our own member-join record exists so all peers learn our signing/agreement keys.
-      if (!this.engine.getAllEnvelopes().some((e) => e.deviceId === this.device!.deviceId && e.kind === 'member-join')) {
-        await this.engine.createMemberJoinRecord();
-      }
+      const memberJoin = this.engine.getAllEnvelopes().find(
+        (record) =>
+          record.deviceId === this.device!.deviceId &&
+          record.kind === 'member-join' &&
+          record.epoch === this.groupKeys!.epoch,
+      ) ?? await this.engine.createMemberJoinRecord();
       await this.persist();
+
+      const joinMessage: PeerWireRecords = {
+        type: 'records',
+        envelopes: [memberJoin],
+        vector: this.engine.getVersionVector(),
+      };
+      await this.transport.sendToPeer(peerId, JSON.stringify(joinMessage));
 
       // Immediately exchange version vectors.
       const vv: PeerWireVv = { type: 'vv', vector: this.engine.getVersionVector() };
@@ -411,14 +479,38 @@ export class SyncService {
     if (msg.type === 'vv') {
       this.engine.recordPeerAck(peerId, msg.vector);
       const missing = this.engine.missingRecordsFor(msg.vector);
-      if (missing.length) {
-        const payload: PeerWireRecords = {
-          type: 'records',
-          envelopes: missing,
-          vector: this.engine.getVersionVector(),
-        };
-        await this.transport.sendToPeer(peerId, JSON.stringify(payload));
+      const localVector = this.engine.getVersionVector();
+      const remoteJoinEpoch = this.engine.getMemberJoinEpoch(peerId) ?? peer.remoteHello?.epoch;
+      const missingOldEpoch = missing.some((record) => remoteJoinEpoch !== undefined && record.epoch < remoteJoinEpoch);
+      const compactedGap = Object.entries(localVector).some(([deviceId, seq]) => {
+        const remoteSeq = msg.vector[deviceId] ?? 0;
+        if (seq <= remoteSeq) return false;
+        const available = missing
+          .filter((record) => record.deviceId === deviceId)
+          .map((record) => record.seq)
+          .sort((a, b) => a - b);
+        let expected = remoteSeq + 1;
+        for (const availableSeq of available) {
+          if (availableSeq < expected) continue;
+          if (availableSeq > expected) return true;
+          expected += 1;
+        }
+        return expected <= seq;
+      });
+      let outgoing = missing.filter(
+        (record) => remoteJoinEpoch === undefined || record.epoch >= remoteJoinEpoch,
+      );
+      if (missingOldEpoch || compactedGap) {
+        outgoing = [...outgoing, ...(await this.engine.createSnapshotRecords())];
       }
+      const coveredVector = this.engine.getVersionVector();
+      const payload: PeerWireRecords = {
+        type: 'records',
+        envelopes: outgoing,
+        vector: coveredVector,
+        coveredVector,
+      };
+      await this.transport.sendToPeer(peerId, JSON.stringify(payload));
       this.engine.compact();
       await this.persist();
       return;
@@ -426,8 +518,10 @@ export class SyncService {
 
     if (msg.type === 'records') {
       const result = await this.engine.receiveRecords(msg.envelopes);
+      if (msg.coveredVector) this.engine.adoptCoveredVector(msg.coveredVector);
       this.engine.recordPeerAck(peerId, msg.vector);
 
+      if (result.groupSecret) this.groupSecret = result.groupSecret;
       if (result.epochRotatedTo !== undefined) {
         const rotatedKeys = this.engine.getGroupKeys(result.epochRotatedTo);
         if (rotatedKeys) {
@@ -436,7 +530,7 @@ export class SyncService {
         }
       }
 
-      if (this.pendingInitialJoinSync && this.settings) {
+      if (this.pendingInitialJoinSync && this.settings && msg.coveredVector) {
         this.pendingInitialJoinSync = false;
         const config = await loadConfig();
         const storageVals = await browser.storage.local.get(null);
@@ -497,6 +591,10 @@ export class SyncService {
   }
 
   async handleMessage(message: SyncRuntimeMessage): Promise<SyncRuntimeResponse> {
+    return this.enqueueMutation(() => this.handleMessageNow(message));
+  }
+
+  private async handleMessageNow(message: SyncRuntimeMessage): Promise<SyncRuntimeResponse> {
     await this.init();
     try {
       if (message.type === 'kiwi:sync:status') {
@@ -540,13 +638,11 @@ export class SyncService {
         }
 
         await this.persist();
-        if (settings.relayUrl) {
-          try {
-            await this.startTransport();
-          } catch (error) {
-            this.transportState = 'error';
-            this.transportError = error instanceof Error ? error.message : String(error);
-          }
+        try {
+          await this.startTransport();
+        } catch (error) {
+          this.transportState = 'error';
+          this.transportError = error instanceof Error ? error.message : String(error);
         }
         return { ok: true, phrase, status: this.getStatus() };
       }
@@ -580,7 +676,7 @@ export class SyncService {
         });
 
         await this.persist();
-        if (settings.relayUrl) await this.startTransport();
+        await this.startTransport();
         return { ok: true, status: this.getStatus() };
       }
 
@@ -604,9 +700,6 @@ export class SyncService {
         if (!this.engine || !this.settings) {
           return { ok: false, error: 'Sync is not enabled' };
         }
-        const prevRelay = this.settings.relayUrl;
-        const prevStun = this.settings.stunEnabled;
-        const prevStunUrls = this.settings.stunUrls.join(',');
         const prevKeysEnabled = this.settings.categories.keys;
 
         if (message.deviceName !== undefined && message.deviceName.trim()) {
@@ -657,14 +750,7 @@ export class SyncService {
 
         await this.persist();
 
-        const transportChanged =
-          prevRelay !== this.settings.relayUrl ||
-          prevStun !== this.settings.stunEnabled ||
-          prevStunUrls !== this.settings.stunUrls.join(',');
-        if (transportChanged) {
-          if (this.settings.relayUrl) await this.startTransport();
-          else await this.transport.stop();
-        }
+        await this.startTransport();
 
         return { ok: true, status: this.getStatus() };
       }
@@ -694,7 +780,7 @@ export class SyncService {
         this.epochKeys[newGroupKeys.epoch] = newGroupKeys.recordKey;
         this.livePeers.delete(message.deviceId);
         await this.persist();
-        if (this.settings?.relayUrl) await this.startTransport();
+        await this.startTransport();
         return { ok: true, phrase, status: this.getStatus() };
       }
 
@@ -707,12 +793,16 @@ export class SyncService {
         this.groupKeys = newGroupKeys;
         this.epochKeys[newGroupKeys.epoch] = newGroupKeys.recordKey;
         await this.persist();
-        if (this.settings?.relayUrl) await this.startTransport();
+        await this.startTransport();
         return { ok: true, phrase, status: this.getStatus() };
       }
 
       if (message.type === 'kiwi:sync:create-code') {
         if (!this.engine || !this.settings) return { ok: false, error: 'Sync is not enabled' };
+        if (message.kind === 'answer' && this.groupKeys) {
+          const offer = await decodeConnectionCode(this.groupKeys, message.offerCode ?? '');
+          await this.promoteGroupEpoch(offer.epoch);
+        }
         const code =
           message.kind === 'offer'
             ? await this.transport.createOfferCode()
@@ -722,6 +812,10 @@ export class SyncService {
 
       if (message.type === 'kiwi:sync:accept-code') {
         if (!this.engine || !this.settings) return { ok: false, error: 'Sync is not enabled' };
+        if (this.groupKeys) {
+          const answer = await decodeConnectionCode(this.groupKeys, message.code);
+          await this.promoteGroupEpoch(answer.epoch);
+        }
         await this.transport.acceptAnswerCode(message.code);
         return { ok: true, status: this.getStatus() };
       }

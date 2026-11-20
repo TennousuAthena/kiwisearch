@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { SyncTransportCore, type TransportConfig, type TransportEvent } from '../../lib/syncTransportCore';
+import { ReconnectingPortClient } from '../../lib/syncTransportPort';
 
 type TransportCommand =
   | { id?: string; cmd: 'start'; config: TransportConfig }
@@ -10,26 +11,25 @@ type TransportCommand =
   | { id: string; cmd: 'create-answer-code'; offerCode: string }
   | { id: string; cmd: 'accept-answer-code'; answerCode: string };
 
-const port = browser.runtime.connect({ name: 'kiwi-sync-transport' });
-
-const core = new SyncTransportCore((event: TransportEvent) => {
-  try {
-    port.postMessage({ kind: 'event', event });
-  } catch {
-    // port closed
-  }
+let core: SyncTransportCore;
+const portClient = new ReconnectingPortClient<Browser.runtime.Port>({
+  connect: () => browser.runtime.connect({ name: 'kiwi-sync-transport' }),
+  onMessage: handleCommand,
+  onReconnect: () => {
+    portClient.postMessage({ kind: 'event', event: core.getReconnectSnapshot() });
+  },
 });
 
-port.onMessage.addListener((raw: unknown) => {
+core = new SyncTransportCore((event: TransportEvent) => {
+  portClient.postMessage({ kind: 'event', event });
+});
+
+function handleCommand(raw: unknown): void {
   const msg = raw as TransportCommand;
   if (!msg || typeof msg !== 'object') return;
   const reply = (ok: boolean, data?: Record<string, unknown>) => {
     if (!msg.id) return;
-    try {
-      port.postMessage({ kind: 'reply', id: msg.id, ok, ...data });
-    } catch {
-      // ignore
-    }
+    portClient.postMessage({ kind: 'reply', id: msg.id, ok, ...data });
   };
 
   if (msg.cmd === 'start') {
@@ -66,8 +66,6 @@ port.onMessage.addListener((raw: unknown) => {
       (err) => reply(false, { error: err instanceof Error ? err.message : String(err) }),
     );
   }
-});
+}
 
-port.onDisconnect.addListener(() => {
-  core.stop();
-});
+portClient.start();

@@ -36,44 +36,12 @@ export const KEY_AND_ENDPOINT_PATTERNS: readonly RegExp[] = [
 ];
 
 const FILTER_PATTERNS: readonly RegExp[] = [
-  /^config\.judge\.blockedDomains$/,
-  /^config\.judge\.boostedDomains$/,
-  /^config\.judge\.blocklists$/,
-  /^config\.judge\.hideBlocked$/,
-  /^config\.judge\.lowQualityAction$/,
-  /^config\.judge\.enabled$/,
-  /^config\.judge\.provider$/,
-  /^config\.judge\.threshold$/,
-  /^config\.judge\.llm\.model$/,
+  /^config\.judge\./,
 ];
 
 const UI_PATTERNS: readonly RegExp[] = [
-  /^preferences\.theme$/,
-  /^preferences\.density$/,
-  /^preferences\.resultsPerPage$/,
-  /^preferences\.openInNewTab$/,
-  /^preferences\.locale$/,
-  /^preferences\.fontSize$/,
-  /^preferences\.showFavicons$/,
-  /^preferences\.showSourceBadges$/,
-  /^preferences\.[a-zA-Z0-9_-]+$/,
-  /^kiwi_[a-zA-Z0-9_-]+$/,
+  /^ui:(theme|summaryMode|openNewTab|recentQueries)$/,
   /^academicLanguage$/,
-];
-
-const SEARCH_PATTERNS: readonly RegExp[] = [
-  /^config\.defaultMode$/,
-  /^config\.timeoutMs$/,
-  /^config\.maxConcurrency$/,
-  /^config\.cacheTtlMs$/,
-  /^config\.summary\./,
-  /^config\.academic\./,
-  /^config\.rerank\./,
-  /^config\.llm\.model$/,
-  /^config\.llm\.provider$/,
-  /^config\.llm\.enabled$/,
-  /^config\.sources\.[^.]+\.(enabled|weight|maxResults|mode|region|language)$/,
-  /^config\.sources\.[^.]+\.[a-zA-Z0-9_-]+$/,
 ];
 
 /**
@@ -82,6 +50,7 @@ const SEARCH_PATTERNS: readonly RegExp[] = [
  */
 export function classifySyncPath(path: string): SyncCategory | null {
   if (!path || hasUnsafeSegment(path)) return null;
+  if (/^(?:config\.)?(?:bridge|mcp)(?:\.|$)/i.test(path)) return null;
   // Membership element paths like "config.judge.blockedDomains#example.com"
   const basePath = extractMembershipBasePath(path) ?? path;
 
@@ -94,9 +63,7 @@ export function classifySyncPath(path: string): SyncCategory | null {
   for (const pattern of UI_PATTERNS) {
     if (pattern.test(basePath)) return 'ui';
   }
-  for (const pattern of SEARCH_PATTERNS) {
-    if (pattern.test(basePath)) return 'search';
-  }
+  if (basePath.startsWith('config.')) return 'search';
   return null;
 }
 

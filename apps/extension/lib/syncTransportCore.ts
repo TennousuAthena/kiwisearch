@@ -5,9 +5,9 @@ import {
   encodeConnectionCode,
   openRelayFrame,
   sealRelayFrame,
-  toHex,
   type CompactIceCandidate,
   type GroupKeys,
+  utcDayString,
 } from '@kiwi-search/sync';
 import type { SyncPeerChannel, SyncTransportState } from '@kiwi-search/protocol';
 import { createDefaultSyncStorage } from './syncDb';
@@ -23,6 +23,18 @@ export interface TransportConfig {
 
 export type TransportEvent =
   | { type: 'state'; state: SyncTransportState; error?: string }
+  | {
+      type: 'snapshot';
+      state: SyncTransportState;
+      error?: string;
+      peers: Array<{
+        peerId: string;
+        peerName: string;
+        channel: SyncPeerChannel;
+        ownCertHash: string;
+        peerCertHash: string;
+      }>;
+    }
   | {
       type: 'peer-connected';
       peerId: string;
@@ -69,6 +81,7 @@ const WEBRTC_FALLBACK_TIMEOUT_MS = 6_000;
 const RELAY_CHUNK_CHARS = 9_000;
 const RECONNECT_BASE_MS = 2_000;
 const RECONNECT_MAX_MS = 30_000;
+const MIDNIGHT_JITTER_MAX_MS = 30_000;
 
 function normalizeRelayWsUrl(relayUrl: string, topicId: string): string {
   const trimmed = relayUrl.trim().replace(/\/+$/, '');
@@ -143,13 +156,20 @@ export class SyncTransportCore {
   private peers = new Map<string, PeerSlot>();
   private relayChunks = new Map<string, { total: number; parts: string[]; createdAt: number }>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private midnightTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private stopped = true;
+  private transportState: SyncTransportState = 'idle';
+  private transportError: string | undefined;
   private manualOfferSlot: { pc: RTCPeerConnection; dc: RTCDataChannel; peerId: string } | null = null;
 
   constructor(private readonly onEvent: (event: TransportEvent) => void) {}
 
   private emit(event: TransportEvent): void {
+    if (event.type === 'state') {
+      this.transportState = event.state;
+      this.transportError = event.error;
+    }
     try {
       this.onEvent(event);
     } catch {
@@ -177,13 +197,49 @@ export class SyncTransportCore {
       const fp = this.certificate.getFingerprints().find((f) => f.algorithm?.toLowerCase() === 'sha-256');
       if (fp?.value) this.ownCertHash = fp.value.toLowerCase();
     }
-    if (!this.ownCertHash) {
-      this.ownCertHash = toHex(this.groupKeys.groupHint);
-    }
+    if (!this.ownCertHash) this.ownCertHash = this.config?.deviceId ?? 'kiwi-sync';
     return this.groupKeys;
   }
 
   async start(config: TransportConfig): Promise<void> {
+    if (!this.stopped && this.config && JSON.stringify(this.config) === JSON.stringify(config)) return;
+    const previousConfig = this.config;
+    const previousKeys = this.groupKeys;
+    const transportSettingsMatch =
+      !this.stopped &&
+      previousConfig &&
+      previousConfig.deviceId === config.deviceId &&
+      previousConfig.relayUrl === config.relayUrl &&
+      previousConfig.stunEnabled === config.stunEnabled &&
+      JSON.stringify(previousConfig.stunUrls) === JSON.stringify(config.stunUrls);
+    if (transportSettingsMatch && previousKeys) {
+      const previousTopicId = await deriveTopicId(previousKeys.topicKey);
+      try {
+        await this.ensureKeysAndCertificate();
+      } catch (error) {
+        this.groupKeys = previousKeys;
+        this.emit({ type: 'state', state: 'error', error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      const nextTopicId = await deriveTopicId(this.groupKeys!.topicKey);
+      if (previousTopicId === nextTopicId) {
+        this.config = config;
+        if (
+          this.ws?.readyState === WebSocket.OPEN &&
+          (previousConfig.epoch !== config.epoch || previousConfig.deviceName !== config.deviceName)
+        ) {
+          await this.sendSignal({
+            t: 'hello',
+            from: config.deviceId,
+            fromName: config.deviceName,
+            epoch: config.epoch,
+            certHash: this.ownCertHash,
+          });
+        }
+        return;
+      }
+      this.groupKeys = previousKeys;
+    }
     this.stop();
     this.config = config;
     this.stopped = false;
@@ -205,11 +261,32 @@ export class SyncTransportCore {
     await this.connectWebSocket();
   }
 
+  getReconnectSnapshot(): Extract<TransportEvent, { type: 'snapshot' }> {
+    return {
+      type: 'snapshot',
+      state: this.transportState,
+      error: this.transportError,
+      peers: [...this.peers.values()]
+        .filter((slot) => slot.connectedEmitted)
+        .map((slot) => ({
+          peerId: slot.peerId,
+          peerName: slot.peerName,
+          channel: slot.channel,
+          ownCertHash: this.ownCertHash,
+          peerCertHash: slot.peerCertHash,
+        })),
+    };
+  }
+
   stop(): void {
     this.stopped = true;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.midnightTimer) {
+      clearTimeout(this.midnightTimer);
+      this.midnightTimer = null;
     }
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.config && this.groupKeys) {
       void this.sendSignal({
@@ -248,6 +325,7 @@ export class SyncTransportCore {
 
     const topicId = await deriveTopicId(this.groupKeys.topicKey);
     const url = normalizeRelayWsUrl(this.config.relayUrl, topicId);
+    this.scheduleMidnightRollover();
 
     const ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
@@ -289,6 +367,39 @@ export class SyncTransportCore {
         void this.connectWebSocket();
       }, delay);
     };
+  }
+
+  private scheduleMidnightRollover(): void {
+    if (this.midnightTimer) clearTimeout(this.midnightTimer);
+    this.midnightTimer = null;
+    if (this.stopped || !this.config?.relayUrl.trim()) return;
+    const now = Date.now();
+    const today = utcDayString(now);
+    const nextMidnight = Date.parse(`${today}T00:00:00.000Z`) + 86_400_000;
+    const jitter = Math.floor(Math.random() * (MIDNIGHT_JITTER_MAX_MS + 1));
+    this.midnightTimer = setTimeout(() => {
+      this.midnightTimer = null;
+      if (this.stopped || !this.config) return;
+      const previous = this.ws;
+      this.ws = null;
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
+      this.reconnectAttempts = 0;
+      if (previous) {
+        previous.onopen = null;
+        previous.onmessage = null;
+        previous.onerror = null;
+        previous.onclose = null;
+        try {
+          previous.close(1000, 'topic rollover');
+        } catch {
+          // ignore
+        }
+      }
+      void this.connectWebSocket();
+    }, Math.max(0, nextMidnight - now + jitter));
   }
 
   private async sendSignal(msg: SignalEnvelope): Promise<void> {
@@ -706,6 +817,7 @@ export class SyncTransportCore {
 
     return encodeConnectionCode(groupKeys, {
       kind: 'offer',
+      epoch: this.config.epoch,
       deviceId: this.config.deviceId,
       timestampMs: Date.now(),
       ufrag: creds.ufrag,
@@ -761,6 +873,7 @@ export class SyncTransportCore {
     const creds = extractSdpIceCredentials(pc.localDescription?.sdp ?? answer.sdp ?? '');
     return encodeConnectionCode(groupKeys, {
       kind: 'answer',
+      epoch: this.config.epoch,
       deviceId: this.config.deviceId,
       timestampMs: Date.now(),
       ufrag: creds.ufrag,

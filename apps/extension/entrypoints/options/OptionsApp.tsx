@@ -72,7 +72,7 @@ export default function OptionsApp() {
   const saveStateRef = useRef<'idle' | 'dirty' | 'saving' | 'saved' | 'error'>('idle');
   const { state: saveState, error: saveError, retry: retrySave } = useAutosave(both, loaded, async (value, superseded) => {
     if (!baseline.current) return;
-    if (JSON.stringify(value) === JSON.stringify(baseline.current)) return;
+    if (!superseded?.length && JSON.stringify(value) === JSON.stringify(baseline.current)) return;
     const version = ++saveVersion.current;
     await saveSettings(value, baseline.current, superseded);
     if (version > savedVersion.current) { baseline.current = value; savedVersion.current = version; }

@@ -3,12 +3,14 @@ import {
   BIP39_WORDLIST,
   buildHandshakeHello,
   classifySyncPath,
+  canonicalJson,
   compareHlc,
   createHandshakeProof,
   createHlc,
   decodeConnectionCode,
   DEFAULT_SYNC_CATEGORIES,
   deriveGroupKeys,
+  deriveGroupHint,
   deriveTopicId,
   encodeConnectionCode,
   entropyToPhrase,
@@ -17,14 +19,19 @@ import {
   importGroupSecret,
   isHlcDriftAcceptable,
   makeMembershipElementPath,
+  MAX_RELAY_FRAME_BYTES,
   MAX_FUTURE_DRIFT_MS,
   openRelayFrame,
   phraseToEntropy,
   RELAY_FRAME_BUCKETS,
   ReplayGuard,
   sealRelayFrame,
+  sealRecordBody,
+  signEd25519,
   SyncEngine,
   tickHlc,
+  toBase64Url,
+  utf8Encode,
   validatePhrase,
   verifyHandshakeProof,
 } from '../src/index';
@@ -63,12 +70,28 @@ describe('Group keys, relay frames, and connection codes', () => {
 
     const topicToday = await deriveTopicId(keys.topicKey, '2026-11-20');
     const topicTomorrow = await deriveTopicId(keys.topicKey, '2026-11-21');
+    const nextEpochKeys = await deriveGroupKeys(secret, 9);
     expect(topicToday).toMatch(/^[A-Za-z0-9_-]{22,64}$/);
     expect(topicToday).not.toBe(topicTomorrow);
+    expect(await deriveTopicId(nextEpochKeys.topicKey, '2026-11-20')).toBe(topicToday);
 
-    const frame = await sealRelayFrame(keys, { type: 'hello', from: 'dev-a', id: 'f1', t: 1000 });
+    const frame = await sealRelayFrame(keys, { type: 'hello', from: 'dev-a', id: 'f1', t: 1000 }, Date.parse('2026-11-20T12:00:00Z'));
     expect(RELAY_FRAME_BUCKETS).toContain(frame.byteLength as (typeof RELAY_FRAME_BUCKETS)[number]);
-    expect(await openRelayFrame(keys, frame)).toEqual({ type: 'hello', from: 'dev-a', id: 'f1', t: 1000 });
+    expect(await openRelayFrame(keys, frame, Date.parse('2026-11-21T12:00:00Z'))).toEqual({ type: 'hello', from: 'dev-a', id: 'f1', t: 1000 });
+    expect(Array.from(await deriveGroupHint(keys.topicKey, '2026-11-20'))).not.toEqual(
+      Array.from(await deriveGroupHint(keys.topicKey, '2026-11-21')),
+    );
+    const rotatedEpochFrame = await sealRelayFrame(
+      nextEpochKeys,
+      { type: 'hello', from: 'dev-a', id: 'f2', t: 1000 },
+      Date.parse('2026-11-20T12:00:00Z'),
+    );
+    expect(await openRelayFrame(keys, rotatedEpochFrame, Date.parse('2026-11-21T12:00:00Z'))).toEqual({
+      type: 'hello',
+      from: 'dev-a',
+      id: 'f2',
+      t: 1000,
+    });
 
     // Tampering fails decryption
     const tampered = new Uint8Array(frame);
@@ -92,6 +115,7 @@ describe('Group keys, relay frames, and connection codes', () => {
     const keys = await deriveGroupKeys(secret, 1);
     const payload = {
       kind: 'offer' as const,
+      epoch: 2,
       deviceId: 'dev-a',
       timestampMs: 1_700_000_000_000,
       ufrag: 'abcd',
@@ -99,10 +123,11 @@ describe('Group keys, relay frames, and connection codes', () => {
       fingerprint: 'AA:BB:CC:DD',
       candidates: [{ type: 'host' as const, address: '192.168.1.10', port: 54321, protocol: 'udp' as const }],
     };
-    const code = await encodeConnectionCode(keys, payload);
+    const code = await encodeConnectionCode(keys, payload, payload.timestampMs);
     expect(code.startsWith('kiwi1-')).toBe(true);
     const decoded = await decodeConnectionCode(keys, code, 60_000, payload.timestampMs + 5000);
     expect(decoded).toEqual(payload);
+    expect(await decodeConnectionCode(keys, code, 0, payload.timestampMs + 86_400_000)).toEqual(payload);
     await expect(decodeConnectionCode(keys, code, 1000, payload.timestampMs + 5000)).rejects.toThrow(/expired/i);
   });
 });
@@ -188,7 +213,11 @@ describe('HLC and category classification', () => {
     expect(classifySyncPath('config.sources.exa.apiKey')).toBe('keys');
     expect(classifySyncPath('config.sources.exa.enabled')).toBe('search');
     expect(classifySyncPath(makeMembershipElementPath('config.judge.blockedDomains', 'spam.test'))).toBe('filters');
-    expect(classifySyncPath('preferences.theme')).toBe('ui');
+    expect(classifySyncPath('config.judge.blocklists.recommended')).toBe('filters');
+    expect(classifySyncPath('config.judge.rules')).toBe('filters');
+    expect(classifySyncPath('ui:theme')).toBe('ui');
+    expect(classifySyncPath('preferences.theme')).toBeNull();
+    expect(classifySyncPath('bridge.mcpToken')).toBeNull();
   });
 });
 
@@ -275,6 +304,135 @@ describe('SyncEngine multi-device synchronization', () => {
     const resBOn = await B.engine.receiveRecords(emittedOn2, now + 500);
     expect(resBOn.applied).toHaveLength(1);
     expect(resBOn.applied[0]).toMatchObject({ path: 'config.llm.apiKey', value: 'sk-test-3', category: 'keys' });
+  });
+
+  it('keeps the version vector at a contiguous prefix for out-of-order records', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', groupKeys, now);
+    const B = await makePeer('B', groupKeys, now);
+    const seq2 = await A.engine.applyLocalChanges([{ path: 'config.defaultMode', value: 'news' }], now + 100);
+    const seq1 = A.engine.getAllEnvelopes().find((record) => record.deviceId === A.device.deviceId && record.seq === 1)!;
+
+    const outOfOrder = await B.engine.receiveRecords(seq2, now + 200);
+    expect(outOfOrder.accepted).toBe(1);
+    expect(B.engine.getVersionVector()[A.device.deviceId] ?? 0).toBe(0);
+    expect(B.engine.getRegisters()['config.defaultMode']?.value).toBe('news');
+
+    await B.engine.receiveRecords([seq1], now + 300);
+    expect(B.engine.getVersionVector()[A.device.deviceId]).toBe(2);
+  });
+
+  it('uses snapshot coverage to catch up across compacted record gaps', async () => {
+    const oldKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', oldKeys, now);
+    A.engine.setCategories({ keys: true });
+    await A.engine.applyLocalChanges([
+      { path: 'config.defaultMode', value: 'academic' },
+      { path: 'config.llm.apiKey', value: 'sk-snapshot-test' },
+    ], now + 100);
+    const { entropy: rotatedEntropy } = await generateRecoveryPhrase();
+    const { newGroupKeys } = await A.engine.rotatePhrase(rotatedEntropy, now + 200);
+    const snapshotState = A.engine.exportState();
+    for (let index = 0; index < 120; index += 1) {
+      const path = makeMembershipElementPath('config.judge.blockedDomains', `host-${index}.example`);
+      snapshotState.registers[path] = {
+        path,
+        value: true,
+        tombstone: false,
+        hlc: createHlc(A.device.deviceId, now + 250),
+        deviceId: A.device.deviceId,
+        seq: index + 1,
+        configVersion: 5,
+        category: 'filters',
+      };
+    }
+    const snapshotEngine = new SyncEngine({
+      device: A.device,
+      deviceName: 'A',
+      groupKeys: newGroupKeys,
+      configVersion: 5,
+      categories: snapshotState.categories,
+      persisted: snapshotState,
+    });
+    const snapshots = await snapshotEngine.createSnapshotRecords(now + 300);
+    expect(snapshots.length).toBeGreaterThan(1);
+    expect(snapshots.every((record) => utf8Encode(JSON.stringify(record)).byteLength <= MAX_RELAY_FRAME_BYTES)).toBe(true);
+    const D = await makePeer('D', newGroupKeys, now);
+
+    const received = await D.engine.receiveRecords(snapshots, now + 400);
+    expect(received.accepted).toBe(snapshots.length);
+    expect(D.engine.getRegisters()['config.defaultMode']?.value).toBe('academic');
+    expect(D.engine.getRegisters()['config.llm.apiKey']?.value).toBe('sk-snapshot-test');
+    expect(received.applied.some((change) => change.path === 'config.llm.apiKey')).toBe(false);
+    expect(D.engine.getVersionVector()[A.device.deviceId]).toBe(snapshotEngine.getVersionVector()[A.device.deviceId]);
+
+    const B = await makePeer('B', oldKeys, now);
+    const oldEpochResult = await B.engine.receiveRecords(snapshots, now + 400);
+    expect(oldEpochResult.accepted).toBe(0);
+    expect(oldEpochResult.rejected[0]!.reason).toMatch(/Unknown epoch/i);
+  });
+
+  it('rejects forged member joins that name another device or change a known agreement key', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', groupKeys, now);
+    const B = await makePeer('B', groupKeys, now);
+    const C = await makePeer('C', groupKeys, now);
+    await A.engine.receiveRecords(B.engine.getAllEnvelopes(), now + 10);
+    await A.engine.receiveRecords(C.engine.getAllEnvelopes(), now + 20);
+
+    const signingPublic = toBase64Url(C.device.signingPublicRaw);
+    const agreementPublic = toBase64Url(C.device.agreementPublicRaw);
+    const forgedBody = {
+      kind: 'member-join' as const,
+      deviceId: B.device.deviceId,
+      deviceName: 'forged B',
+      signingPublic,
+      agreementPublic,
+    };
+    const header = {
+      deviceId: C.device.deviceId,
+      seq: 2,
+      epoch: 1,
+      hlc: createHlc(C.device.deviceId, now + 30),
+      configVersion: 5,
+      kind: 'member-join' as const,
+    };
+    const aad = canonicalJson(header);
+    const sealed = await sealRecordBody(groupKeys.recordKey, aad, forgedBody);
+    const unsigned = { ...header, signingPublic, ...sealed };
+    const signature = await signEd25519(
+      C.device.signing.privateKey,
+      utf8Encode(`kiwi-sync-record/v1:${canonicalJson(unsigned)}`),
+    );
+    const forged = { ...unsigned, signature: toBase64Url(signature) };
+
+    const beforeAgreement = A.engine.getMembers().find((member) => member.deviceId === B.device.deviceId)?.agreementPublic;
+    const result = await A.engine.receiveRecords([forged], now + 40);
+    expect(result.accepted).toBe(0);
+    expect(result.rejected[0]!.reason).toMatch(/identity mismatch/i);
+    expect(A.engine.getMembers().find((member) => member.deviceId === B.device.deviceId)?.agreementPublic).toBe(beforeAgreement);
+
+    const changedAgreement = {
+      ...forgedBody,
+      deviceId: C.device.deviceId,
+      deviceName: 'C',
+      agreementPublic: toBase64Url(B.device.agreementPublicRaw),
+    };
+    const changedHeader = { ...header, seq: 3, hlc: createHlc(C.device.deviceId, now + 50) };
+    const changedSealed = await sealRecordBody(groupKeys.recordKey, canonicalJson(changedHeader), changedAgreement);
+    const changedUnsigned = { ...changedHeader, signingPublic, ...changedSealed };
+    const changedSignature = await signEd25519(
+      C.device.signing.privateKey,
+      utf8Encode(`kiwi-sync-record/v1:${canonicalJson(changedUnsigned)}`),
+    );
+    const changed = { ...changedUnsigned, signature: toBase64Url(changedSignature) };
+    const changedResult = await A.engine.receiveRecords([changed], now + 60);
+    expect(changedResult.accepted).toBe(0);
+    expect(changedResult.rejected[0]!.reason).toMatch(/agreement key mismatch/i);
+    expect(A.engine.getMembers().find((member) => member.deviceId === C.device.deviceId)?.agreementPublic).toBe(agreementPublic);
   });
 
   it('rejects records with >24h future clock skew and clamps invalid numeric values', async () => {
