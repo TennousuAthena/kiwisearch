@@ -1,5 +1,5 @@
 import { DEFAULT_CONFIG } from '@kiwi-search/core';
-import { preferenceKeys, storageKey } from '@kiwi-search/protocol';
+import { DEFAULT_SYNC_RELAY_URL, preferenceKeys, storageKey } from '@kiwi-search/protocol';
 import { classifySyncPath, decodeConnectionCode, encodeConnectionCode } from '@kiwi-search/sync';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -206,6 +206,35 @@ describe('syncMapping', () => {
 });
 
 describe('SyncService multi-device integration', () => {
+  it('defaults an omitted relay URL and reports it before a group exists', async () => {
+    const store = new MemorySyncStorage();
+    const service = new SyncService({
+      storage: store,
+      transportFactory: (cb) => new MockMeshBus().createTransport(cb),
+      applyRemoteConfigPatches: async () => {},
+    });
+
+    const status = await service.handleMessage({ type: 'kiwi:sync:status' });
+    expect(status.ok && status.status.relayUrl).toBe(DEFAULT_SYNC_RELAY_URL);
+
+    const created = await service.handleMessage({ type: 'kiwi:sync:create-group' });
+    expect(created.ok).toBe(true);
+    expect((await store.load())?.settings.relayUrl).toBe(DEFAULT_SYNC_RELAY_URL);
+  });
+
+  it('keeps an explicitly empty relay URL for codes-only pairing', async () => {
+    const store = new MemorySyncStorage();
+    const service = new SyncService({
+      storage: store,
+      transportFactory: (cb) => new MockMeshBus().createTransport(cb),
+      applyRemoteConfigPatches: async () => {},
+    });
+
+    const created = await service.handleMessage({ type: 'kiwi:sync:create-group', relayUrl: '' });
+    expect(created.ok).toBe(true);
+    expect((await store.load())?.settings.relayUrl).toBe('');
+  });
+
   it('syncs config between devices, suppresses echo, keeps keys off by default, and propagates via 3rd device', async () => {
     const bus = new MockMeshBus();
     const stateA = { config: structuredClone(DEFAULT_CONFIG), remoteWrites: 0 };

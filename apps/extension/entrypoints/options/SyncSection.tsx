@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { t } from '@kiwi-search/app/i18n';
+import { DEFAULT_SYNC_RELAY_URL } from '@kiwi-search/protocol';
 import type {
   SyncCategoryPrefs,
   SyncJoinConflictMode,
@@ -40,7 +41,7 @@ function statusSummary(status: SyncStatusSnapshot): string {
 export function SyncSection() {
   const [status, setStatus] = useState<SyncStatusSnapshot | null>(null);
   const [deviceName, setDeviceName] = useState('');
-  const [relayUrl, setRelayUrl] = useState('');
+  const [relayUrl, setRelayUrl] = useState(DEFAULT_SYNC_RELAY_URL);
   const [stunEnabled, setStunEnabled] = useState(false);
   const [stunUrlsText, setStunUrlsText] = useState('');
   const [joinPhrase, setJoinPhrase] = useState('');
@@ -248,6 +249,13 @@ export function SyncSection() {
               onChange={(e) => setRelayUrl(e.target.value)}
             />
           </Field>
+          {relayUrl !== DEFAULT_SYNC_RELAY_URL && (
+            <div className="sync-button-row">
+              <button type="button" className="btn small" onClick={() => setRelayUrl(DEFAULT_SYNC_RELAY_URL)}>
+                {t('options.sync.restoreRelayDefault')}
+              </button>
+            </div>
+          )}
 
           <SwitchRow
             checked={stunEnabled}

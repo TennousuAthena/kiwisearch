@@ -9,7 +9,7 @@ Decided on 2026-11-15 (WebRTC as the transport) and on 2026-11-19, when "no serv
 - **Data goes device to device over WebRTC.** Signaling (finding each other and exchanging connection details) goes through a **relay**.
 - **The relay is blind.** Everything it carries is encrypted and authenticated on the devices with keys it never has. It cannot read, forge, alter or replay anything without the devices noticing, and nothing depends on trusting it, its operator or its host. What it unavoidably sees is listed under [What the relay sees and can do](#what-the-relay-sees-and-can-do).
 - **The relay stores nothing** (decided 2026-11-19): it forwards frames only between devices connected at that moment, so two devices sync only while both are online.
-- **The relay runs on Cloudflare Workers** (`apps/relay`), and its address is a setting. Without a reachable relay, devices fall back to [connection codes](#connection-codes-fallback-without-a-relay) carried by the user, so sync never depends on one service.
+- **The relay runs on Cloudflare Workers** (`apps/relay`). The project deploys the default at `wss://relay.kiwi.moe`; users can replace it with a self-hosted relay. Leaving the address empty uses [connection codes](#connection-codes-fallback-without-a-relay) only.
 - **Identity is a 24-word recovery phrase** that the user keeps safe (the project owner's proposal of 2026-11-19). Entering it on a device joins that device to the group.
 - **STUN is optional and the user's choice**, off by default.
 - **Otherwise Kiwi's principle holds:** no accounts, nothing on `kiwi.moe`; the website and its bridge never touch sync.
@@ -129,7 +129,7 @@ The same check was run again against `apps/relay` once it replaced the experimen
 - B's browser was closed and a new one joined under the same device name: all pairs open again, and the A-C connection was kept.
 - All three sent `hello` at the same moment: all pairs stayed open and no device logged a failed negotiation.
 
-`relay-check.mjs` was run again afterwards with the same results as above. Not checked: more than three devices, devices on different networks, Firefox in the three-device check, and a deployed relay. `lib.mjs` now finds the test extension's service worker by the id Chromium derives from its path, because Chromium 158 also lists a built-in extension's `background.js`.
+`relay-check.mjs` was run again afterwards with the same results as above. At that time, more than three devices, devices on different networks, Firefox in the three-device check, and a deployed relay had not been checked. The production relay checks are recorded under [Implementation status](#implementation-status-2026-11-20). `lib.mjs` now finds the test extension's service worker by the id Chromium derives from its path, because Chromium 158 also lists a built-in extension's `background.js`.
 
 **End-to-end run of 2026-11-19, from a clean copy.** To check what CI would do, the files a commit would contain (tracked and untracked, ignored ones left out) were copied to an empty directory, and there, under Node 24 (CI's version; the development machine has 26) with pnpm 12: `pnpm install --frozen-lockfile` (the `workerd` install script is allowed in `pnpm-workspace.yaml`), typecheck, the tests of core, protocol, app, extension, web, mcp and relay (632, 35, 164, 166, 54, 18 and 13 tests), the mcp, web and relay builds, `check:dist` of the web build, and the extension builds for Chrome, Edge and Firefox all passed, and `relay-check.mjs` ran there with the results above. The extension's manifest has no relay or offscreen entry, as expected.
 
@@ -140,7 +140,7 @@ Two things the unit tests only covered at the header level were then run in real
 
 **`apps/relay`'s own tests** (`pnpm --filter @kiwi-search/relay test`, 13 tests, wrangler 4.162.0 with `workerd` 1.20261113.1; in CI too) start the Worker in a local `workerd` through wrangler's test harness and talk to it with plain WebSockets: the health route, 404/405/426 for wrong requests, 403 for web origins and 101 for extension origins, forwarding unchanged to the other sockets only and to no other topic, nothing delivered to a socket that joins later, ping/pong, forwarding after the object is evicted with its sockets hibernated, each limit, no log lines while forwarding, and a source check that the code has no storage, logging or outgoing calls. Mutation checks on 2026-11-19: logging each frame, echoing frames to the sender, keeping frames in memory for later sockets, and plain `accept()` instead of hibernation each made the matching tests fail.
 
-Not checked: a deployed Worker, Cloudflare's quotas in practice, two real devices, reachability from mainland China, idle periods of hours, many topics at once.
+The deployed Worker was checked on 2026-11-20 as recorded under [Implementation status](#implementation-status-2026-11-20). Cloudflare's quotas in practice, two real devices, reachability from mainland China, idle periods of hours, and many topics at once remain unchecked.
 
 ### Relays that run on Cloudflare Workers (researched 2026-11-19)
 
@@ -162,15 +162,15 @@ Repositories and documentation read on 2026-11-19, nothing deployed or signed up
 
 **Deploy button.** Cloudflare's "Deploy to Cloudflare" button (since 2025-04-08) clones a public GitHub or GitLab repository into the user's account and deploys it through Workers Builds, creating the Durable Object binding. The user needs a Cloudflare account and a GitHub or GitLab account. The docs say nothing about plans; it should work on Free with SQLite-backed objects, not tested. ([docs](https://developers.cloudflare.com/workers/platform/deploy-buttons/))
 
-**Mainland China.** GreatFire reports `workers.dev` blocked: all of its last 6 conclusive tests failed, the last on 2026-11-10, with interference recorded since 2022-01-02 ([GreatFire](https://en.greatfire.org/workers.dev)). User reports (anecdotal, 2022–2023) describe blocking by SNI and say a custom domain on Cloudflare works but can be slow or unstable; no recent measurement was found. So a relay needs a custom domain, it has to be tried from mainland China in phase 1, and codes stay the fallback there.
+**Mainland China.** GreatFire reports `workers.dev` blocked: all of its last 6 conclusive tests failed, the last on 2026-11-10, with interference recorded since 2022-01-02 ([GreatFire](https://en.greatfire.org/workers.dev)). User reports (anecdotal, 2022–2023) describe blocking by SNI and say a custom domain on Cloudflare works but can be slow or unstable; no recent measurement was found. The project therefore uses the custom domain `relay.kiwi.moe`; reachability from mainland China has not been verified, and connection codes remain the fallback.
 
 ### Deploying
 
-Not done by the project; whether Kiwi runs a default relay is an open decision. Anyone can run their own:
+The project runs the default relay at `wss://relay.kiwi.moe` on its Cloudflare account. The extension uses this address by default, and users can replace it or leave it empty for codes-only pairing. Forks deploying to their own Cloudflare account must change or remove the `relay.kiwi.moe` custom-domain route in `apps/relay/wrangler.jsonc`.
 
 1. A Cloudflare account (the Free plan is enough, see above) and `pnpm install` in this repository.
-2. `pnpm --filter @kiwi-search/relay exec wrangler login`, then `pnpm --filter @kiwi-search/relay run deploy`. It needs no secrets: the relay holds no keys.
-3. For devices in mainland China, add a custom domain to the Worker (`workers.dev` is blocked there), and try it from there.
+2. For a fork, change or remove the `relay.kiwi.moe` route in `wrangler.jsonc`; if needed, add a custom domain of your own.
+3. `pnpm --filter @kiwi-search/relay exec wrangler login`, then `pnpm --filter @kiwi-search/relay run deploy`. It needs no secrets: the relay holds no keys.
 4. Enter the address (`wss://…`) in each device's sync panel; the panel checks `/v1/health`.
 
 A deploy button would need the relay in a public repository of its own or a monorepo path the button supports; not set up.
@@ -316,7 +316,7 @@ Records carry the sender's `CONFIG_VERSION`. A device that does not know a path 
 | Phase | What | Done when |
 |---|---|---|
 | 0 (2026-11-19, done) | Feasibility in throwaway browsers: WebRTC in the offscreen document, codes without any server, the encrypted relay in local `workerd`; `apps/relay` built and tested | Recorded above |
-| 1 | Two real computers: deploy `apps/relay` to a Cloudflare account (whose: an open decision), load the probe in a spare browser profile on each, and connect on one LAN, then with one computer on a phone hotspot, without and with STUN; Edge and a headed Firefox; the relay reached from mainland China | A table of what connected, with which candidate pair, and what failed |
+| 1 | Two real computers: load the probe in a spare browser profile on each, and connect on one LAN, then with one computer on a phone hotspot, without and with STUN; Edge and a headed Firefox; the relay reached from mainland China. The project relay is deployed and its production transport checks passed 2026-11-20. | A table of what connected, with which candidate pair, and what failed |
 | 2 | Prototype: the recovery phrase (create, show once, join), relay signaling with the code fallback, the session inside the options page, sync of the Sources, Search settings, Site preferences, Block lists and Interface categories; `packages/sync` with tests | Two desktop browsers converge after concurrent edits on both; activated in the user's Chromium with storage (and the new IndexedDB) compared before and after |
 | 3 | The connection in the background: offscreen document (Chrome, Edge), background page (Firefox); live push while connected; ICE restart over the channel; the midnight overlap of topics; the fallback chosen for [failed direct connections](#when-a-direct-connection-fails) | Edits on one device appear on the other within seconds while both run |
 | 4 | Keys and endpoints category with its confirmation; device removal and phrase rotation; encrypted export and import file | Removed device's later records rejected in tests; export restores a device that never met the others |
@@ -330,14 +330,15 @@ Records carry the sender's `CONFIG_VERSION`. A device that does not know a path 
 - Pairing UX: [PairDrop](https://github.com/schlagmichdoch/PairDrop) (6-digit code or QR, but a signaling server and TURN for remote transfers).
 - Brave Sync: the identity and encryption layer this design started from (random seed, 24 words, everything encrypted on the device); see STATUS.md. Unlike Kiwi's relay, Brave's server stores the encrypted data, so devices need not be online together.
 
-## Open decisions
+## Decisions and open questions
 
-1. **Who runs the default relay:** nobody (each user deploys their own and enters its address; without one, codes), or the project on its own Cloudflare account with the address changeable. If the project runs one, AGENTS.md's "Kiwi provides no … servers", the website's privacy statement and the store listings have to say so, and the relay's quotas become the project's cost.
-2. **When a direct connection fails:** the [proposal](#when-a-direct-connection-fails) is to retry with STUN and then relay the encrypted records through the relay, with TURN left for later.
-3. **Whether the phrase can be shown again** (then the words must be stored on every device) or only once.
-4. Whether a STUN suggestion list is shown, and which servers it names (the default stays off).
-5. Whether the Keys and endpoints category exists in the first release.
-6. How long the offscreen document stays open when idle (phase 3).
+**Default relay decision 1 resolved on 2026-11-20:** the project runs the default relay on its Cloudflare account at `relay.kiwi.moe`. The custom domain is used because `workers.dev` is blocked in mainland China. Users can change the address or leave it empty for manual codes; mainland-China reachability remains unverified.
+
+1. **When a direct connection fails:** the [proposal](#when-a-direct-connection-fails) is to retry with STUN and then relay the encrypted records through the relay, with TURN left for later.
+2. **Whether the phrase can be shown again** (then the words must be stored on every device) or only once.
+3. Whether a STUN suggestion list is shown, and which servers it names (the default stays off).
+4. Whether the Keys and endpoints category exists in the first release.
+5. How long the offscreen document stays open when idle (phase 3).
 
 Decided on 2026-11-19: the relay stores nothing, and devices sync only while both are online.
 
@@ -354,10 +355,10 @@ Decided on 2026-11-19: the relay stores nothing, and devices sync only while bot
   - Three-device mesh probe (`relay-mesh-check.mjs`) on local `workerd` with three Chromium 158 instances (5 consecutive runs).
 - **Verified for this implementation update (2026-11-20):**
   - `pnpm typecheck`; `pnpm --filter @kiwi-search/sync test` (17 passed); `pnpm --filter @kiwi-search/extension test` (203 passed); `pnpm --filter @kiwi-search/protocol test` (35 passed); `pnpm --filter @kiwi-search/extension build`; and `pnpm --filter @kiwi-search/extension build:firefox`.
+  - Production relay at `https://relay.kiwi.moe`: `GET /v1/health` returned 200; WebSocket upgrade with `Origin: https://kiwi.moe` returned 403 and with a `chrome-extension://` origin returned 101; a 1 KiB binary frame from socket A reached socket B unchanged, was not echoed to A, and a later-joining socket received nothing.
 - **Not verified:**
   - This implementation update was not activated in the user's existing Chromium profile. The managed browser target was unavailable and the running Chrome processes used only disposable `/tmp/kiwi-sync-e2e` profiles; those profiles were left untouched.
-  - Deployed Cloudflare Workers production relay;
-  - Two different physical computers or different networks (NAT / STUN / TURN / mainland China reachability);
+  - Reachability from mainland China; two different physical computers or different networks (NAT / STUN / TURN);
   - More than three devices online simultaneously;
   - Full product sync in Firefox or Edge runtime;
   - Concurrent/offline conflict resolution in visible browsers, full manual offer/answer code pairing round-trip, forced relay-only fallback without WebRTC, remote arrival while an Options page has unsaved dirty edits, and long-duration service-worker idle/restart cycles.

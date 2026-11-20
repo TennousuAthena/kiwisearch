@@ -4,7 +4,7 @@
 
 ## 1. 总览
 
-整个系统在用户自己的电脑上，没有 Kiwi 的服务器。
+搜索和处理都在用户自己的电脑上完成。Kiwi 不提供搜索服务器；可选的多设备同步例外是只转发端到端加密帧、不存数据的盲中继。
 
 ```
                          ┌───────────────────────── 用户的浏览器 ─────────────────────────┐
@@ -36,7 +36,7 @@
 | `packages/core` | 搜索管线：来源与引擎、去重融合、决策模型、屏蔽列表、重排、摘要。TypeScript 源码，不独立发布，扩展和 MCP 直接打进各自的包 | `node-html-parser`（解析页面） |
 | `apps/extension` | WXT + React 的 Manifest V3 扩展：后台调度、新标签页、设置页、内容脚本 | `@kiwi-search/core`、React、`marked`、`dompurify` |
 | `packages/mcp` | stdio MCP 服务，把工具调用转给浏览器里的扩展 | MCP SDK、`ws`、`zod` |
-| `apps/relay` | 设备同步的中继：Cloudflare Worker，每个房间一个 Durable Object，只在同时在线的设备之间转发端到端加密的数据，什么都不存。项目没有部署它，扩展也还没用上（见 [device-sync.md](internals/device-sync.md)） | 无运行时依赖；开发用 `wrangler` |
+| `apps/relay` | 设备同步的盲中继：Cloudflare Worker，每个房间一个 Durable Object，只在同时在线的设备之间转发端到端加密的数据，什么都不存。项目部署在 `wss://relay.kiwi.moe`，扩展默认使用；用户可改地址或自建（见 [device-sync.md](internals/device-sync.md)） | 无运行时依赖；开发用 `wrangler` |
 | `packages/experiments` | 离线评测的空壳（目前没有源码和测试，README 提到的 CLI 和报告不在仓库里） | |
 
 ### core 的模块
@@ -186,7 +186,7 @@ Claude Desktop / Cursor ──stdio──▶ MCP 进程（hub 或 relay）──
 
 ## 11. 数据去了哪里
 
-没有 Kiwi 的服务器，下面每一项都是你的浏览器直接发出的：
+搜索不经过 Kiwi 的服务器，下面每一项都是你的浏览器直接发出的；设备同步的例外列在表格末尾：
 
 | 数据 | 发给谁 | 什么时候 |
 |---|---|---|
@@ -198,8 +198,9 @@ Claude Desktop / Cursor ──stdio──▶ MCP 进程（hub 或 relay）──
 | 结果里出现的域名 | 那个站点（取图标） | 站点第一次出现，之后 7 天内用缓存 |
 | 对名单文件的请求（没有 Cookie、Referer、搜索内容） | 名单所在的主机 | 订阅了屏蔽列表，每天最多一次 |
 | 配对令牌和搜索请求 | `127.0.0.1` 上的 MCP 进程 | 开了 MCP 桥 |
+| 端到端加密的同步帧 | 默认中继 `relay.kiwi.moe` 或你设置的中继 | 只有开启多设备同步时 |
 
-Kiwi 不会把这些数据发给自己的服务器，也不提供账号、Key 或代理。
+同步中继能看到连接设备的 IP 地址、连接时间和加密帧大小，不能读取帧内容，也不存储数据。除此之外，Kiwi 不提供账号、Key、代理或搜索服务器。
 
 ## 新闻搜索
 

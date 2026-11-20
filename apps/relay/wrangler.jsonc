@@ -1,9 +1,10 @@
-// Kiwi's sync relay. Deploy with `pnpm --filter @kiwi-search/relay run deploy` into your own Cloudflare account, and give it a custom
-// domain if devices in mainland China must reach it (workers.dev is blocked there). See docs/internals/device-sync.md.
+// The project deploys this relay at relay.kiwi.moe. Forks deploying to their own Cloudflare account must change or remove the
+// custom-domain route. The custom domain is used because workers.dev is blocked in mainland China. See docs/internals/device-sync.md.
 {
   "name": "kiwi-sync-relay",
   "main": "src/index.ts",
   "compatibility_date": "2026-11-01",
+  "routes": [{ "pattern": "relay.kiwi.moe", "custom_domain": true }],
   // SQLite-backed Durable Objects are the kind the Workers Free plan offers. The relay never writes to their storage.
   "durable_objects": { "bindings": [{ "name": "TOPIC", "class_name": "Topic" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Topic"] }],

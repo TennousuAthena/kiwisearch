@@ -79,7 +79,7 @@ export const options = {
 
   // SourcesSection.tsx
   'options.sources.title': '搜索范围',
-  'options.sources.lead': '选择 Kiwi 去哪些地方搜。所有数据都来自你自己的浏览器和你自己填的 Key：Kiwi 不提供账号、Key 或服务器。',
+  'options.sources.lead': '选择 Kiwi 去哪些地方搜。搜索数据来自你自己的浏览器和你填的 Key；Kiwi 不提供搜索服务器，唯一例外是可选的设备同步盲中继。',
   'options.sources.enabledCount': '已开 {enabled} / {total}',
   'options.sources.communityNote':
     '小红书分国内站和国际站（RedNote），账号各自独立，勾选你登录的那个，同一条笔记会合并。X 限制自动化使用，请求间隔也更长，账号仍有被限制的风险，建议不要使用主账号。',
@@ -452,8 +452,9 @@ example.com/blog             只屏蔽网站里的这个栏目
   'options.sync.deviceNameLabel': '本机名称',
   'options.sync.deviceNamePlaceholder': '例如：MacBook Pro',
   'options.sync.relayUrlLabel': '中继地址（WebSocket）',
-  'options.sync.relayUrlPlaceholder': 'wss://your-relay.example/ws',
-  'options.sync.relayUrlHint': '可选。填写自建盲转发中继地址用于自动发现和在线同步；留空时仍可用手动连接码配对。',
+  'options.sync.relayUrlPlaceholder': 'wss://relay.kiwi.moe',
+  'options.sync.relayUrlHint': '默认使用 Kiwi 的盲转发中继 relay.kiwi.moe，只转发端到端加密帧、不保存数据。可改用自建中继；留空时仅能用手动连接码配对。',
+  'options.sync.restoreRelayDefault': '恢复默认',
   'options.sync.stunTitle': '启用可选 STUN 跨网穿透',
   'options.sync.stunHint': '不同局域网之间直连失败时可开启。STUN 仅用于发现公网地址，不包含同步内容。',
   'options.sync.stunUrlsLabel': 'STUN 服务器（每行一个）',

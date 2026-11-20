@@ -1,5 +1,7 @@
 export type SyncCategoryKey = 'search' | 'filters' | 'ui' | 'keys';
 
+export const DEFAULT_SYNC_RELAY_URL = 'wss://relay.kiwi.moe';
+
 export interface SyncCategoryPrefs {
   search: boolean;
   filters: boolean;

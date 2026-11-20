@@ -19,6 +19,7 @@ import {
   type SyncRecordEnvelope,
   type VersionVector,
 } from '@kiwi-search/sync';
+import { DEFAULT_SYNC_RELAY_URL } from '@kiwi-search/protocol';
 import type {
   SyncJoinConflictMode,
   SyncPeerChannel,
@@ -223,7 +224,7 @@ export class SyncService {
         deviceId: null,
         deviceName: defaultDeviceName(),
         epoch: 0,
-        relayUrl: '',
+        relayUrl: DEFAULT_SYNC_RELAY_URL,
         stunEnabled: false,
         stunUrls: [...DEFAULT_STUN_URLS],
         categories: { ...DEFAULT_SYNC_CATEGORIES },
@@ -608,7 +609,7 @@ export class SyncService {
         const groupKeys = await deriveGroupKeys(groupSecret, 1);
         const settings: SyncLocalSettings = {
           deviceName: message.deviceName?.trim() || defaultDeviceName(),
-          relayUrl: (message.relayUrl ?? '').trim(),
+          relayUrl: message.relayUrl === undefined ? DEFAULT_SYNC_RELAY_URL : message.relayUrl.trim(),
           stunEnabled: Boolean(message.stunEnabled),
           stunUrls: message.stunUrls?.length ? message.stunUrls : [...DEFAULT_STUN_URLS],
           categories: { ...DEFAULT_SYNC_CATEGORIES },
@@ -654,7 +655,7 @@ export class SyncService {
         const groupKeys = await deriveGroupKeys(groupSecret, 1);
         const settings: SyncLocalSettings = {
           deviceName: message.deviceName?.trim() || defaultDeviceName(),
-          relayUrl: (message.relayUrl ?? '').trim(),
+          relayUrl: message.relayUrl === undefined ? DEFAULT_SYNC_RELAY_URL : message.relayUrl.trim(),
           stunEnabled: Boolean(message.stunEnabled),
           stunUrls: message.stunUrls?.length ? message.stunUrls : [...DEFAULT_STUN_URLS],
           categories: { ...DEFAULT_SYNC_CATEGORIES },

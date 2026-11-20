@@ -14,7 +14,7 @@
 
 Kiwi Search is a browser extension that searches from your own browser and shows the results on a page of its own. Supported browsers are listed in the [install guide](docs/USAGE.md#安装).
 
-**Your browser, your data.** Every result comes from your own browser, your own logins and your own API keys. Kiwi runs no accounts, proxies or servers, and results are shown only to you.
+**Your browser, your data.** Every result comes from your own browser, your own logins and your own API keys. Kiwi runs no accounts, proxies or search servers. The optional exception is the blind device-sync relay, which forwards end-to-end encrypted frames and stores nothing; search results are shown only to you.
 
 ## Features
 

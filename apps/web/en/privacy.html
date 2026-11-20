@@ -27,20 +27,21 @@
       <h1>Privacy</h1>
       <p class="note">This is the privacy statement for the Kiwi Search extension and the website kiwi.moe.</p>
       <h2>In one sentence</h2>
-      <p>Searching happens in your own browser. Kiwi runs no accounts, proxies or back-end servers, so no “Kiwi server” receives your searches.</p>
+      <p>Searching happens in your own browser. Kiwi runs no accounts, proxies or search servers, so your searches do not reach Kiwi. The only exception is the optional blind device-sync relay, which does not handle search content.</p>
       <h2>The extension</h2>
       <ul>
         <li><strong>Your search goes to the sources you have switched on.</strong> A source rendered by the browser (search engines, video sites, community platforms) is opened by your own browser, with your IP address and your logins in that browser; an API source uses the key you entered. The sources that are on by default, and a switch for each, are in the extension's settings; you can turn any of them off.</li>
         <li><strong>AI features are used only once configured.</strong> When you enter an API key and turn on the summary or the decision model, your search, the titles, addresses and snippets of results, and the page text used for the summary are sent to the service you configured. The decision model's preset service is TypeSafe; nothing is sent while no key is entered. With the browser's built-in model the content is processed on your device.</li>
         <li><strong>Site icons</strong> are requested by your browser directly from the site a result is on (its <code>/favicon.ico</code> and its home page), not through a third-party icon service. A site you have never visited therefore receives one icon request.</li>
         <li><strong>Block-list subscriptions</strong> are off by default. When you turn one on, the extension downloads the list from the third-party host you chose.</li>
-        <li><strong>Kept on your device:</strong> your settings, the API keys you entered, source status and the icon cache, in the browser's extension storage. They are not uploaded. The extension does not write searches or results to storage; they stay in the open page and are gone when it is closed.</li>
+        <li><strong>Kept on your device:</strong> your settings, the API keys you entered, source status and the icon cache, in the browser's extension storage. Settings sync only if you separately enable multi-device sync. The extension does not write searches or results to storage; they stay in the open page and are gone when it is closed.</li>
+        <li><strong>Multi-device sync:</strong> only when you enable sync does the extension connect to the default relay at <code>relay.kiwi.moe</code>, or to a relay you set. The relay sees connecting IP addresses, connection times and the sizes of end-to-end encrypted frames, but cannot read their contents and stores nothing. It runs on Cloudflare Workers with Workers Logs off.</li>
         <li>The <strong>MCP server</strong> listens only on <code>127.0.0.1</code> on your machine, and the extension connects to it only after you have paired a token.</li>
-        <li>The extension has no analytics, advertising or telemetry, and sends nothing to any server of Kiwi's.</li>
+        <li>The extension has no analytics, advertising or telemetry; apart from multi-device sync, it sends nothing to servers operated by Kiwi.</li>
       </ul>
       <h2>The website kiwi.moe</h2>
       <ul>
-        <li>The website is static pages: no back end, no cookies, no analytics, no third-party scripts. The search page (the home page) carries a content security policy that forbids any network connection.</li>
+        <li>The website is static pages with no application back end, cookies, analytics or third-party scripts. Multi-device sync uses the separate blind relay at <code>relay.kiwi.moe</code>. The search page (the home page) carries a content security policy that forbids any network connection.</li>
         <li>Your search is written after the <code>#</code> in the address. A browser does not send what follows the <code>#</code> when it requests a page, so the search does not reach the website's server.</li>
         <li>The hosting provider sees, as for any website, the visitor's IP address, the time, the browser identifier and the requested path.</li>
         <li>No address on the website takes a search: it only ever appears after the <code>#</code>.</li>
