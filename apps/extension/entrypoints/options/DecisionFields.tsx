@@ -1,7 +1,6 @@
 import { DEFAULT_SYSTEMONE_ENDPOINT, type FusionConfig } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
 import { raw, t } from '@kiwi-search/app/i18n';
-import { tr } from '@kiwi-search/app/i18n/rich';
 import { Field, SecretInput } from './controls';
 import { TestRow, type TestReply } from './TestRow';
 
@@ -21,7 +20,7 @@ export function DecisionFields({ judge, onChange }: { judge: Judge; onChange: (p
         </button>
       </div>
       <div className="field-grid">
-        <Field label={t('options.decision.endpointLabel')} wide hint={isTypeSafe ? undefined : t('options.decision.endpointHint')}>
+        <Field label={t('options.decision.endpointLabel')} wide>
           <input value={judge.endpoint} placeholder="https://decide.example.com/v1/decide" onChange={(event) => onChange({ endpoint: event.target.value.trim() })} />
         </Field>
         <Field label={t('options.decision.modelLabel')}>
@@ -37,9 +36,7 @@ export function DecisionFields({ judge, onChange }: { judge: Judge; onChange: (p
       />
       <details className="inline-details">
         <summary>{t('options.decision.protocolSummary')}</summary>
-        <p className="note">{t('options.decision.protocolIntro')}</p>
         <pre className="protocol">{raw('options.decision.protocol.raw')}</pre>
-        <p className="note">{tr('options.decision.protocolDocs', { tags: { code: (text) => <code>{text}</code> } })}</p>
       </details>
     </>
   );

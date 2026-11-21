@@ -24,11 +24,17 @@ export function UiPreferencesPanel() {
           <span>{t(summaryMode === 'on-demand' ? 'ux.preferences.onDemand' : `ux.preferences.${summaryMode}`)}</span>
         </label>)}
       </div>
-      <p>{t('ux.preferences.summaryHint')}</p>
     </fieldset>
-    <label className="preference-check"><input type="checkbox" disabled={!ready} checked={preferences.openNewTab} onChange={(e) => change({ openNewTab: e.target.checked })} /><span>{t('ux.preferences.newTab')}</span></label>
-    <label className="preference-check"><input type="checkbox" disabled={!ready} checked={preferences.recentQueries} onChange={(e) => change({ recentQueries: e.target.checked })} /><span>{t('ux.preferences.recent')}</span></label>
-    <p className="preference-hint">{t('ux.preferences.recentHint')}</p>
+    <div className="preference-switches">
+      <label className="preference-check">
+        <span>{t('ux.preferences.newTab')}</span>
+        <input type="checkbox" role="switch" disabled={!ready} checked={preferences.openNewTab} onChange={(e) => change({ openNewTab: e.target.checked })} />
+      </label>
+      <label className="preference-check">
+        <span>{t('ux.preferences.recent')}</span>
+        <input type="checkbox" role="switch" disabled={!ready} checked={preferences.recentQueries} onChange={(e) => change({ recentQueries: e.target.checked })} />
+      </label>
+    </div>
     {error && <div className="preference-error" role="alert"><p>{t('ux.preferences.error', { detail: error })}</p>{!ready && <button type="button" className="btn" onClick={() => void initializeUiPreferences().catch(() => {})}>{t('ux.preferences.retry')}</button>}</div>}
   </div>;
 }

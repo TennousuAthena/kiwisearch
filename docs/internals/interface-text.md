@@ -14,3 +14,7 @@ Shopping adds `mode.shopping`, `newtab.shopping.*`, `newtab.status.emptyHint.sho
 ## Frontend interaction catalogs (2026-11-13)
 
 `frontendUx`, `sessionUx`, `resultUx` and `settingsUx` are merged into the Chinese catalog for history/suggestions/preferences, session failure handling, result/overview controls, and settings recovery/source filtering. Components read their messages with `t()` at render or event time. The legacy summary switch text now points to the shared three-state preference. The i18n placeholder, copy-style and hardcoded-text guards passed with the final 235-test extension suite.
+
+On 2026-11-21 the options page dropped standing explanations of subscription mechanics, false positives and several section introductions. Rule counts, download errors and recovery actions remain attached to their controls. Checked the filter page and six labeled navigation icons in the installed Chromium extension, including the 320px directory.
+
+The 2026-11-21 AI settings pass also covered conditional hints for a configured model and a custom decision endpoint. The endpoint field uses its label and example URL. The protocol example remains available on demand. Language selections no longer repeat their selected labels in helper paragraphs.

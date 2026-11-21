@@ -7,16 +7,12 @@ import { tr } from '@kiwi-search/app/i18n/rich';
 import { SOURCE_INFO } from '@/lib/sourceCatalog';
 import { sourceLabel } from '@/lib/sourceMeta';
 import type { BridgeSettings } from '@/lib/settings';
-import { StartSection } from './StartSection';
-import type { SourceHealthMap } from '@/lib/sourceHealth';
+import { SyncSection } from './SyncSection';
 import { Field, NumberField, SecretInput, SwitchRow } from './controls';
 
 interface Props {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   config: FusionConfig;
   bridge: BridgeSettings;
-  health: SourceHealthMap;
   onChange: (update: (config: FusionConfig) => FusionConfig) => void;
   onBridge: (patch: Partial<BridgeSettings>) => void;
   onWeight: (id: SourceId, weight: number) => void;
@@ -24,7 +20,7 @@ interface Props {
 }
 
 /** Everything that has a sensible default and that most people never touch, folded away. */
-export function AdvancedSection({ open, onOpenChange, config, bridge, health, onChange, onBridge, onWeight, onReset }: Props) {
+export function AdvancedSection({ config, bridge, onChange, onBridge, onWeight, onReset }: Props) {
   const setRenderer = (patch: Partial<FusionConfig['renderer']>) => onChange((c) => ({ ...c, renderer: { ...c.renderer, ...patch } }));
   const setJudge = (patch: Partial<FusionConfig['judge']>) => onChange((c) => ({ ...c, judge: { ...c.judge, ...patch } }));
   const setIntent = (patch: Partial<FusionConfig['intent']>) => onChange((c) => ({ ...c, intent: { ...c.intent, ...patch } }));
@@ -33,12 +29,8 @@ export function AdvancedSection({ open, onOpenChange, config, bridge, health, on
   const browserTag = useMemo(() => browserLanguage(), []);
   return (
     <section className="section" id="advanced" aria-labelledby="advanced-title">
-      <details className="advanced" open={open} onToggle={(event) => onOpenChange(event.currentTarget.open)}>
-        <summary>
-          <h2 id="advanced-title">{t('options.advanced.title')}</h2>
-          <span>{t('options.advanced.summary')}</span>
-        </summary>
-
+      <h2 id="advanced-title">{t('options.advanced.title')}</h2>
+      <SyncSection connectionOnly />
         <div className="adv-block">
           <h3>{t('options.advanced.countsTitle')}</h3>
           <div className="field-grid">
@@ -132,14 +124,10 @@ export function AdvancedSection({ open, onOpenChange, config, bridge, health, on
 
         <div className="adv-block">
           <h3>{t('options.advanced.guideTitle')}</h3>
-          <p className="note">{t('options.advanced.guideRerunNote')}</p>
           <button type="button" className="btn" onClick={() => void browser.tabs.create({ url: browser.runtime.getURL('/onboarding.html') })}>
             {t('options.advanced.guideRerun')}
           </button>
-          <details className="inline-details">
-            <summary>{t('options.advanced.guideSummary')}</summary>
-            <StartSection config={config} health={health} />
-          </details>
+
         </div>
 
         <div className="adv-block">
@@ -149,7 +137,6 @@ export function AdvancedSection({ open, onOpenChange, config, bridge, health, on
             {t('options.advanced.resetButton')}
           </button>
         </div>
-      </details>
     </section>
   );
 }

@@ -164,7 +164,7 @@ export const newtab = {
   'newtab.status.emptyHint.shopping': '试试换个商品名称，或在设置里启用淘宝、京东、Amazon。淘宝和京东可能需要先在这个浏览器里登录。',
   'newtab.status.emptyHint.zhihu': '知乎搜索需要在这个浏览器里登录知乎，并在设置里启用知乎。',
   'newtab.status.emptyHint.x': 'X 搜索需要在这个浏览器里登录 X，并在设置里启用 X。X 限制自动化使用，请适度使用。',
-  'newtab.status.emptyHint.wechat': '公众号搜索需要启用“搜狗微信”（浏览器渲染），可在设置里检查。搜狗偶尔会要求人机验证。',
+  'newtab.status.emptyHint.wechat': '请在设置中检查是否已启用“搜狗微信”。',
   'newtab.status.emptyHint.xiaohongshu': '小红书搜索需要在这个浏览器里登录小红书（国内站或 RedNote），并在设置里启用你登录的那个站点。',
   'newtab.status.emptyHint.academic': '试试用英文关键词或论文标题，也可以在设置里启用更多学术来源。',
 
@@ -217,9 +217,9 @@ export const newtab = {
   'newtab.plan.queries': '检索式',
   'newtab.plan.keywords': '关键词',
   'newtab.plan.landmarksTitle': '核心文献',
-  'newtab.plan.landmarksNote': 'AI 模型推测你最可能要找的论文；每一篇都已在文献库核对，确实存在。',
 
   // ModeTabs.tsx
+  'newtab.tabs.more': '更多',
   'newtab.tabs.label': '搜索类型',
   'newtab.tabs.community': '社区',
   'newtab.tabs.communityMode': '社区 · {mode}',

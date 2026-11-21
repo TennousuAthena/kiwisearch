@@ -254,3 +254,6 @@ Checked on 2026-11-18:
 - The real `/releases/latest` resolved to `/releases/tag/v0.1.0` with HTTP 200. The Chrome, Edge and Firefox ZIPs and `SHA256SUMS.txt` downloaded from that release and matched the published SHA-256 values. Chrome and Edge: `40c96e212c27ec6d8ec1ddeb931ea4bdc1711783109a22656d8610bddca02ad7`; Firefox: `fe999e37b2fb9b6558bbd1ddf924d66980a1b40abfc43273e14329c158c60a1d`. These are published assets, not a release of this website change.
 
 Evidence is in `/tmp/kiwi-release-downloads-qa/` (18 screenshots, `results.json`, redirect receipt and downloaded assets); check logs are `/tmp/kiwi-release-{typecheck,tests,mcp-build}.log`. The check script uses the existing installed Chromium, removes only its own disposable profile and does not access personal profiles or reload extensions. This record covers the local production build; production deployment and native Edge/Firefox installation are not part of this verification.
+# Extension header links (2026-11-21)
+
+The options and onboarding wordmarks link to the selected search interface. Both links were clicked in the original Chromium profile and navigated the current tab to the configured website home. The local-interface destination was checked in code only.

@@ -132,3 +132,12 @@ The final production build additionally changes the settings draft observer from
 Checked on 2026-11-15: reducer tests (buffering and swap, failure and stop, kept, in-place final, stray preliminary event) and controller tests (stop during update, snapshot buffering, built-in phases, built-in swap); 161 app tests, copy and hardcoded-text guards pass. Live behavior is recorded in [testing.md](testing.md#early-overview-activation-and-live-timing-2026-11-15). Not checked: a narrow viewport, the dark theme and the website (`kiwi.moe`) with this build; the built-in model path in a real browser.
 
 `reduce` returns the state unchanged for an event it does not know (2026-11-16): the website and the extension are updated separately, and an event added to the extension must not be an error in an older page. The controller also sends `phases: true` with every search, which is how the extension knows to write an early overview for this page; see [pipeline.md](pipeline.md#pages-that-do-not-know-the-early-overview-2026-11-16).
+
+## Mode filters and answer placement (2026-11-21)
+
+News and academic filters render directly after the mode navigation in both idle and result views. Up to 600 CSS pixels the mode row shows Web, the selected mode and an overflow menu. Quick answers and the overview share one area before the results on desktop and mobile. The overview retains its existing generation and citation controls.
+
+On the installed Chromium extension, a search for James Webb Space Telescope produced 20 image tiles and an opening preview. The selected academic year and news time range changed in the results view. The web answer contained four citation links. The production website bundle was built locally; the public website was not deployed in this change.
+## Compact quick settings (2026-11-21)
+
+The popover groups two three-way radio selectors above two labeled switches and a full-width settings link. In the installed Chromium extension the complete panel fit without internal scrolling at 320 × 568 and 1280 × 800 CSS pixels. Escape closed it and returned focus to its trigger at both sizes. The local storage snapshot matched after the checks.

@@ -132,6 +132,7 @@ export class SyncService {
   private epochGroupKeys = new Map<number, GroupKeys>();
   private previousGroupSecrets: PreviousGroupSecret[] = [];
   private epochKeys: Record<number, CryptoKey> = {};
+  private connectionDefaults = { relayUrl: DEFAULT_SYNC_RELAY_URL, stunEnabled: true, stunUrls: [...DEFAULT_STUN_URLS] };
   private settings: SyncLocalSettings | null = null;
 
   private transportState: SyncTransportState = 'idle';
@@ -165,6 +166,10 @@ export class SyncService {
     this.initPromise = (async () => {
       try {
         const stored = await this.storage.load();
+        if (!stored) {
+          const { syncConnection } = await browser.storage.local.get('syncConnection');
+          if (syncConnection) Object.assign(this.connectionDefaults, syncConnection);
+        }
         if (stored) {
           stored.device.agreementSig = await memberCertificate(stored.device);
           this.device = stored.device;
@@ -180,6 +185,7 @@ export class SyncService {
           this.epochKeys = { ...stored.epochKeys };
           this.settings = {
             ...stored.settings,
+            stunEnabled: stored.settings.stunEnabled ?? true,
             epochEstablished: stored.settings.epochEstablished ?? true,
           };
           this.pendingInitialJoinSync = stored.settings.pendingInitialJoinSync ?? false;
@@ -284,9 +290,7 @@ export class SyncService {
         deviceId: null,
         deviceName: defaultDeviceName(),
         epoch: 0,
-        relayUrl: DEFAULT_SYNC_RELAY_URL,
-        stunEnabled: false,
-        stunUrls: [...DEFAULT_STUN_URLS],
+        ...this.connectionDefaults,
         categories: { ...DEFAULT_SYNC_CATEGORIES },
         transportState: 'idle',
         peers: [],
@@ -935,9 +939,9 @@ export class SyncService {
         const groupKeys = await deriveGroupKeys(groupSecret, 1);
         const settings: SyncLocalSettings = {
           deviceName: message.deviceName?.trim() || defaultDeviceName(),
-          relayUrl: message.relayUrl === undefined ? DEFAULT_SYNC_RELAY_URL : message.relayUrl.trim(),
-          stunEnabled: Boolean(message.stunEnabled),
-          stunUrls: message.stunUrls?.length ? message.stunUrls : [...DEFAULT_STUN_URLS],
+          relayUrl: message.relayUrl?.trim() ?? this.connectionDefaults.relayUrl,
+          stunEnabled: message.stunEnabled ?? this.connectionDefaults.stunEnabled,
+          stunUrls: message.stunUrls ?? this.connectionDefaults.stunUrls,
           categories: { ...DEFAULT_SYNC_CATEGORIES },
           joinConflictMode: 'group',
           epochEstablished: true,
@@ -986,9 +990,9 @@ export class SyncService {
         const groupKeys = await deriveGroupKeys(groupSecret, 1);
         const settings: SyncLocalSettings = {
           deviceName: message.deviceName?.trim() || defaultDeviceName(),
-          relayUrl: message.relayUrl === undefined ? DEFAULT_SYNC_RELAY_URL : message.relayUrl.trim(),
-          stunEnabled: Boolean(message.stunEnabled),
-          stunUrls: message.stunUrls?.length ? message.stunUrls : [...DEFAULT_STUN_URLS],
+          relayUrl: message.relayUrl?.trim() ?? this.connectionDefaults.relayUrl,
+          stunEnabled: message.stunEnabled ?? this.connectionDefaults.stunEnabled,
+          stunUrls: message.stunUrls ?? this.connectionDefaults.stunUrls,
           categories: { ...DEFAULT_SYNC_CATEGORIES },
           joinConflictMode: message.conflictMode ?? 'group',
           epochEstablished: false,
@@ -1019,6 +1023,12 @@ export class SyncService {
 
       if (message.type === 'kiwi:sync:leave-group') {
         await this.transport.stop();
+        if (this.settings) {
+          const { relayUrl, stunEnabled, stunUrls } = this.settings;
+          const connection = { relayUrl, stunEnabled, stunUrls };
+          await browser.storage.local.set({ syncConnection: connection });
+          this.connectionDefaults = connection;
+        }
         await this.storage.clear();
         this.engine = null;
         this.device = null;
@@ -1037,7 +1047,17 @@ export class SyncService {
 
       if (message.type === 'kiwi:sync:update-settings') {
         if (!this.engine || !this.settings) {
-          return { ok: false, error: 'Sync is not enabled' };
+          if (message.relayUrl === undefined || message.categories || message.deviceName !== undefined) {
+            return { ok: false, error: 'Sync is not enabled' };
+          }
+          const connection = {
+            relayUrl: message.relayUrl.trim(),
+            stunEnabled: message.stunEnabled ?? this.connectionDefaults.stunEnabled,
+            stunUrls: message.stunUrls ?? this.connectionDefaults.stunUrls,
+          };
+          await browser.storage.local.set({ syncConnection: connection });
+          this.connectionDefaults = connection;
+          return { ok: true, status: this.getStatus() };
         }
         const prevKeysEnabled = this.settings.categories.keys;
 

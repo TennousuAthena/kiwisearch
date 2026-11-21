@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { browser } from 'wxt/browser';
+import { SITE_ORIGIN } from './webOrigins';
 import { parseUiSource, UI_FALLBACK_KEY, UI_SOURCE_KEY, type UiSource } from './uiSource';
 
 /** The interface source and the fallback switch, kept in step with `storage` (the settings page and the service worker both read them). */
@@ -21,5 +22,6 @@ export function useUiSource() {
     browser.storage.onChanged.addListener(onChanged);
     return () => { live = false; browser.storage.onChanged.removeListener(onChanged); };
   }, []);
-  return state;
+  const homeUrl = state.source === 'local' ? browser.runtime.getURL('/app.html') : SITE_ORIGIN + '/';
+  return { ...state, homeUrl };
 }

@@ -109,8 +109,6 @@ export function BlocklistsPanel({ config, meta, onChange }: Props) {
           </button>
         </div>
       </div>
-      <p className="note">{t('options.blocklist.note')}</p>
-      <p className="note">{t('options.blocklist.noteMistakes')}</p>
       <ul className="sources">
         {RECOMMENDED_BLOCKLISTS.map((entry) => {
           const on = lists.recommended.includes(entry.id);

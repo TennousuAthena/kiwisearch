@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { OptionsLink } from './OptionsLink';
 import { t } from '../i18n';
-import { CloseIcon, SlidersIcon } from '../lib/icons';
+import { ArrowRightIcon, CloseIcon, SlidersIcon } from '../lib/icons';
 import { UiPreferencesPanel } from '../lib/UiPreferencesPanel';
 
 export function QuickSettings() {
@@ -25,7 +25,7 @@ export function QuickSettings() {
     {open && <section id={id} className="quick-settings-panel" role="dialog" aria-labelledby={`${id}-title`}>
       <header><h2 id={`${id}-title`}>{t('ux.quick.title')}</h2><button ref={closeButton} type="button" className="icon-btn" aria-label={t('ux.quick.close')} onClick={close}><CloseIcon /></button></header>
       <UiPreferencesPanel />
-      <footer><OptionsLink>{t('ux.quick.all')}</OptionsLink><p>{t('ux.quick.keyboard')}</p></footer>
+      <footer><OptionsLink>{t('ux.quick.all')}<ArrowRightIcon /></OptionsLink></footer>
     </section>}
   </div>;
 }

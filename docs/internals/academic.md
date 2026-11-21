@@ -34,3 +34,5 @@ Checked on 2026-11-13, through the real source code with real requests (a tempor
 The layout of the chips was checked by screenshot and by measuring the boxes (`~/.kiwi-search/e2e/lang-shot.sh`, 2026-11-13): dark and light at 1280 px wide, dark at 390 px, English only on, and the state with nothing left to show (language row alone, the one-line note, the hidden results below); the language row is left-aligned with the first time chip, below the toolbar, inside the column, and the page does not scroll sideways. The first version of this change was only checked through the DOM and had the language chips right-aligned on a second line.
 
 Not checked: Google Scholar's `lr=lang_en` (a plain request from Node gets HTTP 403 "Sorry" with or without it, and it was not run in a browser); Baidu Scholar, CNKI, Web of Science and Crossref only through the title check; Firefox; the dev browser; any language but English.
+
+On 2026-11-21 the smart search switch lost its standing walkthrough and timing estimate. An unavailable model still has a setup hint. The landmarks heading now leads directly into the papers.

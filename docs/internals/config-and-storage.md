@@ -53,3 +53,9 @@ Taobao (`taobao`), JD (`jd`) and Amazon (`amazon`) have explicit enabled default
 Checked on 2026-11-13 for shopping activation: the original profile/extension ID/path were retained and saved config, keys, bridge and sync storage matched the protected pre-update snapshot. Only source-status records and favicon cache entries changed during live checks; cache pruning is the existing favicon service behavior. See [shopping.md](shopping.md).
 
 `summary.hedgeMs` (3000) and `summary.early.thinking` (`'off'`) (2026-11-16) are scalars inside the existing `summary` object, so `mergeConfig` fills them into configs saved before they existed; `CONFIG_VERSION` stays 5 and there is no migration. What `chatStream` learns about an endpoint's thinking switch is kept in the worker's memory only.
+
+## Settings directory (2026-11-21)
+
+The options hash selects one section. Desktop shows the directory alongside it. At 900 CSS pixels and below the directory and detail occupy separate views. Returning to the directory focuses the last visited link. Existing section hashes still work; `#sync-connection` opens Advanced. General includes the interface-source setting and default-search instructions. The config autosave owner remains mounted across navigation.
+
+Verified the join form, advanced connection editor, 320-pixel directory, sources and browser Back in the installed Chromium profile. Before the live searches, all 416 local storage entries matched the backup. After searching, only favicon cache and source-health entries differed.

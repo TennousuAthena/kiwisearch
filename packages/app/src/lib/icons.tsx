@@ -111,6 +111,20 @@ export const HeartIcon = (props: SVGProps<SVGSVGElement>) => (
   </Icon>
 );
 
+export const FilterIcon = (props: SVGProps<SVGSVGElement>) => (
+  <Icon {...props}><path d="M3 5h18l-7 8v6l-4 2v-8z" /></Icon>
+);
+
+export const SyncIcon = (props: SVGProps<SVGSVGElement>) => (
+  <Icon {...props}>
+    <path d="M4 10a8 8 0 0 1 14-4l2 2m0-5v5h-5M20 14a8 8 0 0 1-14 4l-2-2m0 5v-5h5" />
+  </Icon>
+);
+
+export const ToolsIcon = (props: SVGProps<SVGSVGElement>) => (
+  <Icon {...props}><path d="M15 4a6 6 0 0 0-7 7l-5 5a2.5 2.5 0 0 0 3.5 3.5l5-5A6 6 0 0 0 20 8l-4 3-4-4z" /></Icon>
+);
+
 // Search navigation glyphs from Lucide; see assets/interface-icons/NOTICE.md.
 // Paths are unchanged; the shared wrapper uses Kiwi’s existing 1.75px stroke.
 export const GlobeIcon = (props: SVGProps<SVGSVGElement>) => (

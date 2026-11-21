@@ -1,7 +1,7 @@
 /* The onboarding page: one narrow column, one primary action per step. Controls, cards and fields come from the settings page's style sheet. */
 .onboarding { min-height: 100vh; }
 .ob-bar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 0.75rem; max-width: 46rem; margin: 0 auto; padding: 0.75rem 1.5rem; background: var(--bg); }
-.ob-brand { color: var(--accent); font-size: 1.125rem; font-weight: 700; }
+.ob-brand { color: var(--accent); font-size: 1.125rem; font-weight: 700; text-decoration: none; }
 .ob-bar .save-state { margin-left: auto; }
 .ob-skip { margin-left: auto; color: var(--fg-3); font-size: 0.8125rem; }
 .ob-bar .save-state + .ob-skip, .ob-bar .btn + .ob-skip { margin-left: 0.5rem; }

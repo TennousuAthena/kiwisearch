@@ -1,12 +1,13 @@
 import { DEFAULT_CONFIG, type FusionConfig, type SourceId } from '@kiwi-search/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
-import { CheckIcon, CircleAlertIcon } from '@kiwi-search/app/icons';
+import { CheckIcon, CircleAlertIcon, FilterIcon, GlobeIcon, SlidersIcon, SparkleIcon, SyncIcon, ToolsIcon } from '@kiwi-search/app/icons';
 import { loadBlocklistMeta, watchBlocklistMeta } from '@/lib/blocklistService';
 import type { BlocklistMetaMap } from '@/lib/blocklistState';
 import { resetKeepingSecrets, tidyConfig } from '@/lib/configReset';
 import { t } from '@kiwi-search/app/i18n';
 import { KiwiLogo } from '@kiwi-search/app/KiwiLogo';
+import { useUiSource } from '@/lib/useUiSource';
 import { UiPreferencesPanel } from '@kiwi-search/app/UiPreferencesPanel';
 import {
   DEFAULT_BRIDGE,
@@ -17,6 +18,7 @@ import {
 } from '@/lib/settings';
 import type { SourceHealthMap } from '@/lib/sourceHealth';
 import { loadSourceStatus, watchSourceStatus } from '@/lib/sourceStatus';
+import { StartSection } from './StartSection';
 import { AdvancedSection } from './AdvancedSection';
 import { AiSection } from './AiSection';
 import { ConfirmDialog } from './controls';
@@ -27,6 +29,7 @@ import { SyncSection } from './SyncSection';
 import { useAutosave } from './useAutosave';
 
 export default function OptionsApp() {
+  const { homeUrl } = useUiSource();
   const [config, setConfig] = useState<FusionConfig>(() => structuredClone(DEFAULT_CONFIG));
   const [bridge, setBridge] = useState<BridgeSettings>(DEFAULT_BRIDGE);
   const [health, setHealth] = useState<SourceHealthMap>({});
@@ -37,8 +40,8 @@ export default function OptionsApp() {
   const baseline = useRef<{ config: FusionConfig; bridge: BridgeSettings } | null>(null);
   const saveVersion = useRef(0);
   const savedVersion = useRef(0);
-  const [advancedOpen, setAdvancedOpen] = useState(() => location.hash === '#advanced');
-  const [currentSection, setCurrentSection] = useState('sources');
+  const lastSection = useRef('preferences');
+  const [fragment, setFragment] = useState(() => location.hash.slice(1));
   const [confirming, setConfirming] = useState<SourceId | null>(null);
   const [resetting, setResetting] = useState(false);
 
@@ -111,37 +114,33 @@ export default function OptionsApp() {
     change((current) => ({ ...current, sources: { ...current.sources, [id]: { ...(current.sources[id] ?? { enabled: false }), weight } } }));
 
   const sections = [
-    { id: 'preferences', label: t('options.ux.preferences') },
-    { id: 'sources', label: t('options.nav.sources') },
-    { id: 'ai', label: t('options.nav.ai') },
-    { id: 'filters', label: t('options.nav.filters') },
-    { id: 'sync', label: t('options.nav.sync') },
-    { id: 'advanced', label: t('options.nav.advanced') },
+    { id: 'preferences', icon: SlidersIcon, label: t('options.ux.preferences') },
+    { id: 'sources', icon: GlobeIcon, label: t('options.nav.sources') },
+    { id: 'ai', icon: SparkleIcon, label: t('options.nav.ai') },
+    { id: 'filters', icon: FilterIcon, label: t('options.nav.filters') },
+    { id: 'sync', icon: SyncIcon, label: t('options.nav.sync') },
+    { id: 'advanced', icon: ToolsIcon, label: t('options.nav.advanced') },
   ];
 
+  const currentSection = fragment === 'sync-connection' ? 'advanced'
+    : sections.some(({ id }) => id === fragment) ? fragment : 'preferences';
   useEffect(() => {
-    if (!loaded) return;
-    let frame = 0;
-    const update = () => {
-      frame = 0;
-      const ids = ['preferences', 'sources', 'ai', 'filters', 'sync', 'advanced'];
-      const positions = ids.map((id) => ({ id, top: document.getElementById(id)?.getBoundingClientRect().top ?? Infinity }));
-      const atBottom = window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
-      setCurrentSection(atBottom ? ids.at(-1)! : positions.filter((item) => item.top <= 150).at(-1)?.id ?? ids[0]);
-    };
-    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
-    const onHash = () => {
-      if (location.hash === '#advanced') setAdvancedOpen(true);
-      const id = location.hash.slice(1);
-      if (id) requestAnimationFrame(() => { document.getElementById(id)?.scrollIntoView(); update(); });
-    };
-    window.addEventListener('scroll', schedule, { passive: true });
-    window.addEventListener('resize', schedule);
-    window.addEventListener('hashchange', onHash);
-    onHash();
-    update();
-    return () => { cancelAnimationFrame(frame); window.removeEventListener('scroll', schedule); window.removeEventListener('resize', schedule); window.removeEventListener('hashchange', onHash); };
-  }, [loaded]);
+    const navigate = () => { setFragment(location.hash.slice(1)); window.scrollTo(0, 0); };
+    window.addEventListener('hashchange', navigate);
+    return () => window.removeEventListener('hashchange', navigate);
+  }, []);
+
+  useEffect(() => {
+    if (!loaded || !fragment) return;
+    const destination = fragment === 'directory'
+      ? document.querySelector<HTMLElement>(`.options-nav a[href="#${lastSection.current}"]`)
+      : document.querySelector<HTMLElement>(`#${currentSection} h2`);
+    if (fragment !== 'directory') lastSection.current = currentSection;
+    if (destination) {
+      if (destination.tagName === 'H2') destination.tabIndex = -1;
+      destination.focus({ preventScroll: true });
+    }
+  }, [fragment, currentSection, loaded]);
 
   if (!loaded) return (
     <div className="options-page"><main className="options-load" aria-busy={!loadError}>
@@ -154,7 +153,7 @@ export default function OptionsApp() {
     <div className="options-page">
       <div className="options-bar">
         <div className="options-bar-inner">
-          <span className="options-brand"><KiwiLogo fullName /></span>
+          <a className="options-brand" href={homeUrl} aria-label={t('brand.home')}><KiwiLogo fullName /></a>
           <div className="options-bar-side">
             <span className={`save-state ${saveState}`} role="status">
               {saveState === 'saving' && t('options.app.saving')}
@@ -175,42 +174,41 @@ export default function OptionsApp() {
         </div>
       </div>
 
-      <div className="options-body">
+      <div className="options-body" data-directory={!fragment || fragment === 'directory'}>
         <nav className="options-nav" aria-label={t('options.app.navLabel')}>
           {sections.map((section) => (
-            <a key={section.id} href={`#${section.id}`} aria-current={currentSection === section.id ? 'location' : undefined} onClick={() => { setCurrentSection(section.id); if (section.id === 'advanced') setAdvancedOpen(true); }}>
+            <a key={section.id} href={`#${section.id}`} aria-current={currentSection === section.id ? 'location' : undefined}>
+              <section.icon />
               {section.label}
             </a>
           ))}
         </nav>
 
         <main className="options-main">
+          <a href="#directory" className="settings-back">{t('options.ux.directory')}</a>
           <header className="options-header">
             <h1>{t('options.app.title')}</h1>
-            <p>{t('options.app.intro')}</p>
           </header>
           {saveState === 'error' && <p className="notice save-draft-notice" role="alert">{t('options.ux.unsavedHint')}</p>}
 
-          <section className="section" id="preferences" aria-labelledby="preferences-title">
+          <section hidden={currentSection !== 'preferences'} className="section" id="preferences" aria-labelledby="preferences-title">
             <h2 id="preferences-title">{t('options.ux.preferences')}</h2>
             <UiPreferencesPanel />
+            <StartSection config={config} health={health} />
           </section>
 
-          <SourcesSection config={config} health={health} onUpdate={updateSource} onSetEnabled={setEnabled} onConfirmEnable={setConfirming} />
-          <AiSection config={config} onChange={change} />
-          <FiltersSection config={config} blocklistMeta={blocklistMeta} onChange={change} />
-          <SyncSection />
-          <AdvancedSection
-            open={advancedOpen}
-            onOpenChange={setAdvancedOpen}
+          <div hidden={currentSection !== 'sources'}><SourcesSection config={config} health={health} onUpdate={updateSource} onSetEnabled={setEnabled} onConfirmEnable={setConfirming} /></div>
+          <div hidden={currentSection !== 'ai'}><AiSection config={config} onChange={change} /></div>
+          <div hidden={currentSection !== 'filters'}><FiltersSection config={config} blocklistMeta={blocklistMeta} onChange={change} /></div>
+          <div hidden={currentSection !== 'sync'}><SyncSection /></div>
+          {currentSection === 'advanced' && <AdvancedSection
             config={config}
             bridge={bridge}
-            health={health}
             onChange={change}
             onBridge={(patch) => setBridge((current) => ({ ...current, ...patch }))}
             onWeight={setWeight}
             onReset={() => setResetting(true)}
-          />
+          />}
         </main>
       </div>
 

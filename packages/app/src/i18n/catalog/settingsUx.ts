@@ -5,7 +5,7 @@ export const settingsUx = {
   'options.ux.retry': '重试',
   'options.ux.retrySave': '重试保存',
   'options.ux.unsavedHint': '修改仍保留在此页，保存成功前请勿关闭。',
-  'options.ux.preferences': '外观与搜索偏好',
+  'options.ux.preferences': '常规',
   'options.ux.sourceSearch': '查找搜索来源',
   'options.ux.sourceSearchPlaceholder': '按名称或用途查找',
   'options.ux.sourceFilter': '显示的搜索来源',
@@ -19,4 +19,9 @@ export const settingsUx = {
   'options.ux.undoPreset': '撤销预设',
   'options.ux.presetApplied': '已应用“{group}”预设，可撤销本组开关的更改',
   'options.ux.presetUndone': '已撤销“{group}”预设，保留之后调整的开关',
+  'options.sync.back': '返回同步设置',
+  'options.sync.nextDevice': '在另一台设备打开 Kiwi，选择“加入同步组”，输入这组恢复短语。',
+  'options.sync.connection': '同步连接',
+  'options.sync.saveName': '保存设备名称',
+  'options.ux.directory': '返回设置目录',
 } as const;

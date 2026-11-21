@@ -50,7 +50,6 @@ export function Landmarks({ results, citedUrls }: { results: FusedResult[]; cite
   return (
     <section className="landmarks" aria-labelledby="landmarks-title">
       <h2 id="landmarks-title">{t('newtab.plan.landmarksTitle')}</h2>
-      <p className="note">{t('newtab.plan.landmarksNote')}</p>
       <ResultList results={results} mode="academic" hoverCite={null} citedUrls={citedUrls} />
     </section>
   );

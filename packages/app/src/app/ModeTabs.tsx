@@ -15,7 +15,16 @@ export function ModeTabs({ mode, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLSpanElement>(null);
   const menu = useRef<HTMLDivElement>(null);
-  const inCommunity = isCommunityMode(mode);
+  const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 600px)').matches);
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 600px)');
+    const resize = () => setCompact(query.matches);
+    query.addEventListener('change', resize);
+    return () => query.removeEventListener('change', resize);
+  }, []);
+  const visible = compact ? MODES.filter((id) => id === 'web' || id === mode) : MODES.filter((id) => !isCommunityMode(id));
+  const overflow = compact ? MODES.filter((id) => !visible.includes(id)) : COMMUNITY_MODES;
+  const inCommunity = !compact && isCommunityMode(mode);
 
   useLayoutEffect(() => {
     if (!open || !menu.current) return;
@@ -51,7 +60,7 @@ export function ModeTabs({ mode, onChange }: Props) {
 
   return (
     <nav className="tabs" aria-label={t('newtab.tabs.label')}>
-      {MODES.filter((id) => !isCommunityMode(id)).map((id) => (
+      {visible.map((id) => (
         <button key={id} type="button" className="tab" aria-current={id === mode ? 'page' : undefined} onClick={() => onChange(id)}>
           <ModeIcon mode={id} className="mode-icon" />
           <span>{modeLabel(id)}</span>
@@ -60,12 +69,12 @@ export function ModeTabs({ mode, onChange }: Props) {
       <span className="tab-wrap" ref={wrap}>
         <button type="button" className="tab" aria-current={inCommunity ? 'page' : undefined} aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
           <ModeIcon mode="community" className="mode-icon" />
-          <span>{inCommunity ? t('newtab.tabs.communityMode', { mode: modeLabel(mode) }) : t('newtab.tabs.community')}</span>
+          <span>{inCommunity ? t('newtab.tabs.communityMode', { mode: modeLabel(mode) }) : t(compact ? 'newtab.tabs.more' : 'newtab.tabs.community')}</span>
           <ChevronDownIcon className="tab-caret" />
         </button>
         {open && (
-          <div className="tab-menu" ref={menu} role="group" aria-label={t('newtab.tabs.communityMenuLabel')}>
-            {COMMUNITY_MODES.map((id) => (
+          <div className="tab-menu" ref={menu} role="group" aria-label={t(compact ? 'newtab.tabs.more' : 'newtab.tabs.communityMenuLabel')}>
+            {overflow.map((id) => (
               <button
                 key={id}
                 type="button"

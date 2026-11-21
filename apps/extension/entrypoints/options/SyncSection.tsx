@@ -38,12 +38,13 @@ function statusSummary(status: SyncStatusSnapshot): string {
   return t('options.sync.statusIdle');
 }
 
-export function SyncSection() {
+export function SyncSection({ connectionOnly = false }: { connectionOnly?: boolean }) {
   const [status, setStatus] = useState<SyncStatusSnapshot | null>(null);
   const [deviceName, setDeviceName] = useState('');
   const [relayUrl, setRelayUrl] = useState(DEFAULT_SYNC_RELAY_URL);
-  const [stunEnabled, setStunEnabled] = useState(false);
+  const [stunEnabled, setStunEnabled] = useState(true);
   const [stunUrlsText, setStunUrlsText] = useState('');
+  const [setup, setSetup] = useState<'create' | 'join' | null>(null);
   const [joinPhrase, setJoinPhrase] = useState('');
   const [conflictMode, setConflictMode] = useState<SyncJoinConflictMode>('group');
   const [revealedPhrase, setRevealedPhrase] = useState<string | null>(null);
@@ -52,6 +53,7 @@ export function SyncSection() {
   const [answerCode, setAnswerCode] = useState('');
   const [remoteCode, setRemoteCode] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmKeys, setConfirmKeys] = useState(false);
@@ -74,19 +76,20 @@ export function SyncSection() {
       const res = await sendSyncMessage({ type: 'kiwi:sync:status' });
       if (res.ok) {
         hydrateFromStatus(res.status, syncInputs);
-      }
+      } else if (syncInputs) setError(res.error);
     } catch {
-      // Background might be waking up.
+      if (connectionOnly) setError(t('options.ux.loadFailed'));
     }
-  }, [hydrateFromStatus]);
+  }, [hydrateFromStatus, connectionOnly]);
 
   useEffect(() => {
     void refresh(true);
+    if (connectionOnly) return;
     const timer = window.setInterval(() => {
       void refresh(false);
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [refresh]);
+  }, [refresh, connectionOnly]);
 
   const parseStunUrls = () =>
     stunUrlsText
@@ -120,9 +123,6 @@ export function SyncSection() {
       {
         type: 'kiwi:sync:create-group',
         deviceName: deviceName.trim() || undefined,
-        relayUrl: relayUrl.trim(),
-        stunEnabled,
-        stunUrls: parseStunUrls(),
       },
       (res) => {
         if (res.phrase) {
@@ -139,9 +139,6 @@ export function SyncSection() {
         type: 'kiwi:sync:join-group',
         phrase: joinPhrase,
         deviceName: deviceName.trim() || undefined,
-        relayUrl: relayUrl.trim(),
-        stunEnabled,
-        stunUrls: parseStunUrls(),
         conflictMode,
       },
       () => {
@@ -153,11 +150,10 @@ export function SyncSection() {
   const handleSaveConnection = () => {
     void runAction({
       type: 'kiwi:sync:update-settings',
-      deviceName: deviceName.trim() || undefined,
       relayUrl: relayUrl.trim(),
       stunEnabled,
       stunUrls: parseStunUrls(),
-    });
+    }, () => setSaved(true));
   };
 
   const updateCategory = (key: keyof SyncCategoryPrefs, value: boolean) => {
@@ -188,10 +184,53 @@ export function SyncSection() {
 
   const enabled = Boolean(status?.enabled);
 
+  if (connectionOnly) return (
+    <div className="adv-block" id="sync-connection">
+      <h3>{t('options.sync.connection')}</h3>
+      <fieldset disabled={!status || busy} onChange={() => setSaved(false)}>
+          <Field label={t('options.sync.relayUrlLabel')} hint={t('options.sync.relayUrlHint')} wide>
+            <input
+              type="url"
+              value={relayUrl}
+              placeholder={t('options.sync.relayUrlPlaceholder')}
+              onChange={(e) => setRelayUrl(e.target.value)}
+            />
+          </Field>
+          {relayUrl !== DEFAULT_SYNC_RELAY_URL && (
+            <div className="sync-button-row">
+              <button type="button" className="btn small" onClick={() => { setRelayUrl(DEFAULT_SYNC_RELAY_URL); setSaved(false); }}>
+                {t('options.sync.restoreRelayDefault')}
+              </button>
+            </div>
+          )}
+
+          <SwitchRow
+            checked={stunEnabled}
+            onChange={setStunEnabled}
+            title={t('options.sync.stunTitle')}
+          />
+
+          {stunEnabled && (
+            <Field label={t('options.sync.stunUrlsLabel')} wide>
+              <textarea
+                rows={2}
+                value={stunUrlsText}
+                placeholder={t('options.sync.stunUrlsPlaceholder')}
+                onChange={(e) => setStunUrlsText(e.target.value)}
+              />
+            </Field>
+          )}
+
+        <button type="button" className="btn" onClick={handleSaveConnection}>{t('options.sync.saveConnection')}</button>
+      </fieldset>
+      {saved && <span role="status">{t('options.app.saved')}</span>}
+      {error && <p role="alert">{error} {!status && <button type="button" onClick={() => { setError(null); void refresh(true); }}>{t('options.ux.retry')}</button>}</p>}
+    </div>
+  );
+
   return (
     <section className="section" id="sync" aria-labelledby="sync-title">
       <h2 id="sync-title">{t('options.sync.title')}</h2>
-      <p className="lead">{t('options.sync.lead')}</p>
 
       {error && (
         <p className="notice save-draft-notice" role="alert">
@@ -204,6 +243,7 @@ export function SyncSection() {
           <div className="card-body flat">
             <h3>{t('options.sync.phraseBannerTitle')}</h3>
             <p className="note">{t('options.sync.phraseBannerNote')}</p>
+            <p>{t('options.sync.nextDevice')}</p>
             <pre className="sync-phrase-box" data-testid="sync-recovery-phrase">{revealedPhrase}</pre>
             <div className="sync-button-row">
               <button
@@ -229,56 +269,28 @@ export function SyncSection() {
         <div className="card-body flat">
           <p className="sync-status-line" data-testid="sync-status-line">
             <strong>{t('options.sync.statusLabel')}: </strong>
-            <span>{status ? statusSummary(status) : t('options.sync.statusDisabled')}</span>
+            <span>{status ? statusSummary(status) : t('options.ux.loading')}</span>
           </p>
 
-          <Field label={t('options.sync.deviceNameLabel')}>
+          {!enabled && !setup && <div className="sync-button-row">
+            <button type="button" disabled={!status} className="btn" aria-pressed={setup === 'create'} onClick={() => setSetup('create')}>{t('options.sync.createButton')}</button>
+            <button type="button" disabled={!status} className="btn" aria-pressed={setup === 'join'} onClick={() => setSetup('join')}>{t('options.sync.joinButton')}</button>
+          </div>}
+          {!enabled && setup && <button type="button" className="btn small" onClick={() => setSetup(null)}>{t('options.sync.back')}</button>}
+          {status?.transportState === 'error' && <a href="#sync-connection">{t('options.sync.connection')}</a>}
+          {(enabled || setup) && <Field label={t('options.sync.deviceNameLabel')}>
             <input
               type="text"
               value={deviceName}
               placeholder={t('options.sync.deviceNamePlaceholder')}
               onChange={(e) => setDeviceName(e.target.value)}
             />
-          </Field>
-
-          <Field label={t('options.sync.relayUrlLabel')} hint={t('options.sync.relayUrlHint')} wide>
-            <input
-              type="url"
-              value={relayUrl}
-              placeholder={t('options.sync.relayUrlPlaceholder')}
-              onChange={(e) => setRelayUrl(e.target.value)}
-            />
-          </Field>
-          {relayUrl !== DEFAULT_SYNC_RELAY_URL && (
-            <div className="sync-button-row">
-              <button type="button" className="btn small" onClick={() => setRelayUrl(DEFAULT_SYNC_RELAY_URL)}>
-                {t('options.sync.restoreRelayDefault')}
-              </button>
-            </div>
-          )}
-
-          <SwitchRow
-            checked={stunEnabled}
-            onChange={setStunEnabled}
-            title={t('options.sync.stunTitle')}
-            hint={t('options.sync.stunHint')}
-          />
-
-          {stunEnabled && (
-            <Field label={t('options.sync.stunUrlsLabel')} wide>
-              <textarea
-                rows={2}
-                value={stunUrlsText}
-                placeholder={t('options.sync.stunUrlsPlaceholder')}
-                onChange={(e) => setStunUrlsText(e.target.value)}
-              />
-            </Field>
-          )}
+          </Field>}
 
           {enabled && (
             <div className="sync-button-row">
-              <button type="button" className="btn" disabled={busy} onClick={handleSaveConnection}>
-                {t('options.sync.saveConnection')}
+              <button type="button" className="btn" disabled={busy} onClick={() => void runAction({ type: 'kiwi:sync:update-settings', deviceName: deviceName.trim() })}>
+                {t('options.sync.saveName')}
               </button>
               <button
                 type="button"
@@ -293,92 +305,59 @@ export function SyncSection() {
         </div>
       </div>
 
-      {!enabled ? (
+      {!enabled ? setup && (
         <div className="card">
           <div className="card-body flat">
-            <h3>{t('options.sync.setupTitle')}</h3>
-            <div className="sync-button-row">
-              <button
-                type="button"
-                className="btn btn-primary"
-                data-testid="sync-create-group"
-                disabled={busy}
-                onClick={handleCreateGroup}
-              >
-                {busy ? t('options.sync.creating') : t('options.sync.createButton')}
-              </button>
-            </div>
-
-            <hr className="sync-divider" />
-
-            <Field label={t('options.sync.joinTitle')} wide>
-              <textarea
-                rows={3}
-                data-testid="sync-join-phrase"
-                value={joinPhrase}
-                placeholder={t('options.sync.joinPlaceholder')}
-                onChange={(e) => setJoinPhrase(e.target.value)}
-              />
-            </Field>
-
-            <Field label={t('options.sync.joinConflictLabel')} wide>
-              <Segmented<SyncJoinConflictMode>
-                label={t('options.sync.joinConflictLabel')}
-                value={conflictMode}
-                onChange={setConflictMode}
-                options={[
-                  { value: 'group', label: t('options.sync.joinConflictGroup') },
-                  { value: 'merge', label: t('options.sync.joinConflictMerge') },
-                  { value: 'local', label: t('options.sync.joinConflictLocal') },
-                ]}
-              />
-            </Field>
-
-            <div className="sync-button-row">
-              <button
-                type="button"
-                className="btn btn-primary"
-                data-testid="sync-join-group"
-                disabled={busy || !joinPhrase.trim()}
-                onClick={handleJoinGroup}
-              >
-                {busy ? t('options.sync.joining') : t('options.sync.joinButton')}
-              </button>
-            </div>
+            {setup === 'create' ? (
+              <div className="sync-button-row">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  data-testid="sync-create-group"
+                  disabled={busy}
+                  onClick={handleCreateGroup}
+                >
+                  {busy ? t('options.sync.creating') : t('options.sync.createButton')}
+                </button>
+              </div>
+            ) : <>
+              <Field label={t('options.sync.joinTitle')} wide>
+                <textarea
+                  rows={3}
+                  data-testid="sync-join-phrase"
+                  value={joinPhrase}
+                  placeholder={t('options.sync.joinPlaceholder')}
+                  onChange={(e) => setJoinPhrase(e.target.value)}
+                />
+              </Field>
+              <Field label={t('options.sync.joinConflictLabel')} wide>
+                <Segmented<SyncJoinConflictMode>
+                  label={t('options.sync.joinConflictLabel')}
+                  value={conflictMode}
+                  onChange={setConflictMode}
+                  options={[
+                    { value: 'group', label: t('options.sync.joinConflictGroup') },
+                    { value: 'merge', label: t('options.sync.joinConflictMerge') },
+                    { value: 'local', label: t('options.sync.joinConflictLocal') },
+                  ]}
+                />
+              </Field>
+              <div className="sync-button-row">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  data-testid="sync-join-group"
+                  disabled={busy || !joinPhrase.trim()}
+                  onClick={handleJoinGroup}
+                >
+                  {busy ? t('options.sync.joining') : t('options.sync.joinButton')}
+                </button>
+              </div>
+            </>}
           </div>
         </div>
       ) : (
         <>
-          <div className="card">
-            <div className="card-body flat">
-              <h3>{t('options.sync.categoriesTitle')}</h3>
-              <SwitchRow
-                checked={status?.categories.search ?? true}
-                onChange={(val) => updateCategory('search', val)}
-                title={t('options.sync.catSearchTitle')}
-                hint={t('options.sync.catSearchHint')}
-              />
-              <SwitchRow
-                checked={status?.categories.filters ?? true}
-                onChange={(val) => updateCategory('filters', val)}
-                title={t('options.sync.catFiltersTitle')}
-                hint={t('options.sync.catFiltersHint')}
-              />
-              <SwitchRow
-                checked={status?.categories.ui ?? true}
-                onChange={(val) => updateCategory('ui', val)}
-                title={t('options.sync.catUiTitle')}
-                hint={t('options.sync.catUiHint')}
-              />
-              <SwitchRow
-                checked={status?.categories.keys ?? false}
-                onChange={(val) => updateCategory('keys', val)}
-                title={t('options.sync.catKeysTitle')}
-                hint={t('options.sync.catKeysHint')}
-              />
-            </div>
-          </div>
-
           <div className="card">
             <div className="card-body flat">
               <h3>{t('options.sync.devicesTitle')}</h3>
@@ -432,6 +411,36 @@ export function SyncSection() {
                   {t('options.sync.leaveGroup')}
                 </button>
               </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-body flat">
+              <h3>{t('options.sync.categoriesTitle')}</h3>
+              <SwitchRow
+                checked={status?.categories.search ?? true}
+                onChange={(val) => updateCategory('search', val)}
+                title={t('options.sync.catSearchTitle')}
+                hint={t('options.sync.catSearchHint')}
+              />
+              <SwitchRow
+                checked={status?.categories.filters ?? true}
+                onChange={(val) => updateCategory('filters', val)}
+                title={t('options.sync.catFiltersTitle')}
+                hint={t('options.sync.catFiltersHint')}
+              />
+              <SwitchRow
+                checked={status?.categories.ui ?? true}
+                onChange={(val) => updateCategory('ui', val)}
+                title={t('options.sync.catUiTitle')}
+                hint={t('options.sync.catUiHint')}
+              />
+              <SwitchRow
+                checked={status?.categories.keys ?? false}
+                onChange={(val) => updateCategory('keys', val)}
+                title={t('options.sync.catKeysTitle')}
+                hint={t('options.sync.catKeysHint')}
+              />
             </div>
           </div>
 
