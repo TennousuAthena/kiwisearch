@@ -53,7 +53,7 @@ export default function OnboardingApp() {
   const touched = useRef(new Set<SourceId>());
   const probeRun = useRef<AbortController | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  const { source: uiSource } = useUiSource();
+  const { source: uiSource, homeUrl } = useUiSource();
 
   useEffect(() => {
     void Promise.all([loadConfig(), loadBridge(), loadSourceStatus().catch(() => ({})), loadOnboarding()]).then(([nextConfig, nextBridge, nextHealth, state]) => {
@@ -148,7 +148,7 @@ export default function OnboardingApp() {
   return (
     <div className="options-page onboarding">
       <header className="ob-bar">
-        <span className="ob-brand"><KiwiLogo fullName /></span>
+        <a className="ob-brand" href={homeUrl} aria-label={t('brand.home')}><KiwiLogo fullName /></a>
         <span className={`save-state ${saveState}`} role="status">
           {saveState === 'saving' && t('options.app.saving')}
           {saveState === 'saved' && <><CheckIcon /> {t('options.app.saved')}</>}

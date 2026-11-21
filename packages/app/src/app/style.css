@@ -432,3 +432,6 @@ a.cite:hover { background: var(--accent-solid); color: var(--on-accent); }
   .result.news-result { gap: 0.75rem; }
   .news-thumbnail { flex-basis: 5.5rem; width: 5.5rem; }
 }
+
+.answer-area { max-width: var(--col-w); }
+.content.mode-filters { padding-bottom: 0; }

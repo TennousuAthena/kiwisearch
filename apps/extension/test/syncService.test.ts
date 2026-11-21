@@ -465,11 +465,33 @@ describe('SyncService multi-device integration', () => {
     });
 
     const status = await service.handleMessage({ type: 'kiwi:sync:status' });
-    expect(status.ok && status.status.relayUrl).toBe(DEFAULT_SYNC_RELAY_URL);
+    expect(status.ok && status.status).toMatchObject({ relayUrl: DEFAULT_SYNC_RELAY_URL, stunEnabled: true });
 
     const created = await service.handleMessage({ type: 'kiwi:sync:create-group' });
     expect(created.ok).toBe(true);
-    expect((await store.load())?.settings.relayUrl).toBe(DEFAULT_SYNC_RELAY_URL);
+    expect((await store.load())?.settings).toMatchObject({ relayUrl: DEFAULT_SYNC_RELAY_URL, stunEnabled: true });
+  });
+
+  it.each(['wss://sync.example', ''])('uses the saved connection after restarting before setup (%s)', async (relayUrl) => {
+    const store = new MemorySyncStorage();
+    const service = () => new SyncService({
+      storage: store,
+      transportFactory: (cb) => new MockMeshBus().createTransport(cb, store),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const connection = { relayUrl, stunEnabled: false, stunUrls: ['stun:example.org'] };
+    const saved = await service().handleMessage({ type: 'kiwi:sync:update-settings', ...connection });
+    expect(saved.ok && saved.status).toMatchObject({ enabled: false, ...connection });
+    const creator = service();
+    const created = await creator.handleMessage({ type: 'kiwi:sync:create-group' });
+    expect(created.ok && created.status).toMatchObject(connection);
+    if (!created.ok) return;
+    await creator.handleMessage({ type: 'kiwi:sync:leave-group' });
+    const joining = service();
+    const joined = await joining.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! });
+    expect(joined.ok && joined.status).toMatchObject(connection);
+    const renamed = await joining.handleMessage({ type: 'kiwi:sync:update-settings', deviceName: 'Office' });
+    expect(renamed.ok && renamed.status).toMatchObject({ deviceName: 'Office', ...connection });
   });
 
   it('keeps an explicitly empty relay URL for codes-only pairing', async () => {

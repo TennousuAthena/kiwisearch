@@ -40,11 +40,9 @@ export function AiSection({ config, onChange }: Props) {
   return (
     <section className="section" id="ai" aria-labelledby="ai-title">
       <h2 id="ai-title">{t('options.ai.title')}</h2>
-      <p className="lead">{t('options.ai.lead')}</p>
 
       <div className="card">
         <strong className="card-title">{t('options.ai.modelTitle')}</strong>
-        <p className="card-lead">{t('options.ai.modelLead')}</p>
         <div className="card-body">
           <LlmFields value={config.llm} onChange={setLlm} label={t('options.ai.modelLabel')} />
         </div>
@@ -52,7 +50,7 @@ export function AiSection({ config, onChange }: Props) {
 
       <div className="card">
         <strong className="card-title">{t('options.ai.summaryTitle')}</strong>
-        <p className="card-lead">{t('options.ai.summaryHint')} <a href="#preferences">{t('options.ai.summaryPreferences')}</a></p>
+        <p className="card-lead"><a href="#preferences">{t('options.ai.summaryPreferences')}</a></p>
         <div className="card-body">
           <Field label={t('options.ai.summarySourceLabel')}>
             <select value={config.summary.provider} onChange={(event) => setSummary({ provider: event.target.value as FusionConfig['summary']['provider'] })}>
@@ -70,13 +68,12 @@ export function AiSection({ config, onChange }: Props) {
           disabled={!modelReady}
           onChange={(smart) => onChange((c) => ({ ...c, academic: { ...c.academic, smart } }))}
           title={t('options.ai.smartTitle')}
-          hint={modelReady ? t('options.ai.smartHint') : t('options.ai.smartNeedsModel')}
+          hint={!modelReady && t('options.ai.smartNeedsModel')}
         />
       </div>
 
       <div className="card">
         <strong className="card-title">{t('options.ai.decisionTitle')}</strong>
-        <p className="card-lead">{t('options.ai.decisionLead')}</p>
         <div className="card-body">
           <Segmented label={t('options.ai.providerLabel')} value={provider} options={PROVIDERS.map((value) => ({ value, label: t(`options.ai.provider.${value}`) }))} onChange={(next) => setJudge({ provider: next })} />
 
@@ -93,18 +90,15 @@ export function AiSection({ config, onChange }: Props) {
               checked={judge.fallbackToLlm}
               onChange={(fallbackToLlm) => setJudge({ fallbackToLlm })}
               title={t('options.ai.fallbackTitle')}
-              hint={t('options.ai.fallbackHint')}
             />
           )}
 
           {chatModelInUse && (
             <>
-              {provider === 'systemone' && <p className="card-lead">{t('options.ai.standInLead')}</p>}
               <SwitchRow
                 checked={judge.llmShared}
                 onChange={(llmShared) => setJudge({ llmShared })}
                 title={t('options.ai.sharedTitle')}
-                hint={judge.llmShared ? t('options.ai.sharedHintShared') : t('options.ai.sharedHintSeparate')}
               />
               {!judge.llmShared && <LlmFields value={judge.llm} onChange={setJudgeLlm} label={t('options.ai.decisionLabel')} />}
               {judge.llmShared && !modelReady && <p className="note">{t('options.ai.sharedNeedsModel')}</p>}
@@ -126,7 +120,7 @@ export function AiSection({ config, onChange }: Props) {
                 disabled={!decisionReady}
                 onChange={(enabled) => onChange((c) => ({ ...c, intent: { ...c.intent, enabled } }))}
                 title={t('options.ai.intentTitle')}
-                hint={decisionReady ? t('options.ai.intentHint') : t('options.ai.intentNeedsDecision')}
+                hint={!decisionReady && t('options.ai.intentNeedsDecision')}
               />
               <RuleList
                 label={t('options.ai.rulesLabel')}
@@ -140,7 +134,6 @@ export function AiSection({ config, onChange }: Props) {
           {!decisionReady && (
             <details className="inline-details">
               <summary>{t('options.ai.rerankSummary')}</summary>
-              <p className="note">{t('options.ai.rerankNote')}</p>
               <div className="field-grid">
                 <Field label={t('options.ai.rerankLabel')}>
                   <select value={config.rerank.provider} onChange={(event) => setRerank({ provider: event.target.value as FusionConfig['rerank']['provider'] })}>

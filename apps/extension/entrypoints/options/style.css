@@ -10,7 +10,7 @@
   margin: 0 auto;
   padding: 0.625rem 1.75rem;
 }
-.options-brand { color: var(--accent); font-size: 1.125rem; font-weight: 700; letter-spacing: -0.01em; }
+.options-brand { color: var(--accent); font-size: 1.125rem; font-weight: 700; letter-spacing: -0.01em; text-decoration: none; }
 .options-bar-side { display: flex; align-items: center; gap: 0.75rem; }
 .save-state { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--fg-3); font-size: 0.8125rem; }
 .save-state svg { width: 1.1em; height: 1.1em; }
@@ -27,6 +27,9 @@
 }
 .options-nav { position: sticky; top: 5.5rem; align-self: start; display: flex; flex-direction: column; gap: 0.125rem; }
 .options-nav a {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
   padding: 0.45rem 0.75rem;
   border-radius: var(--radius-sm);
   color: var(--fg-2);
@@ -34,6 +37,7 @@
   text-decoration: none;
   transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
 }
+.options-nav a svg { flex: none; font-size: 1.125rem; }
 .options-nav a:hover { background: var(--surface-2); color: var(--fg); }
 .options-nav a[aria-current='location'] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .options-load { max-width: 36rem; margin: 12vh auto; padding: 2rem; display: grid; gap: 1.5rem; }
@@ -271,3 +275,14 @@
 .sync-device-list { list-style: none; padding: 0; margin: 0.5rem 0; display: grid; gap: 0.5rem; }
 .sync-device-item { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
 .sync-device-meta { color: var(--fg-3); font-size: 0.8125rem; }
+
+.options-main [hidden] { display: none; }
+.settings-back { display: none; }
+#sync-connection fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 0.75rem; }
+#sync-connection fieldset > button { justify-self: start; }
+@media (max-width: 900px) {
+  .options-nav { flex-direction: column; }
+  .options-body[data-directory='true'] .options-main,
+  .options-body[data-directory='false'] .options-nav { display: none; }
+  .settings-back { display: inline-block; margin-bottom: 1rem; }
+}

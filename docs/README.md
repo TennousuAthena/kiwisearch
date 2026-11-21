@@ -14,6 +14,7 @@
 | [PLAN.md](PLAN.md) | 计划书：设计理由、各阶段状态、逐条的已知缺口 |
 | [KNOWLEDGE-CARDS.md](KNOWLEDGE-CARDS.md) | 右侧资料卡策划：现有卡片提取、多源聚合、证据内生成、页面布局与分期验收（尚未实现） |
 | [FRONTEND-PLAN.md](FRONTEND-PLAN.md) | 前端改进计划：竞品观察、代码审计、六批实施范围、依赖与验收条件 |
+| [UI-NAVIGATION.md](UI-NAVIGATION.md) | 设置与结果页：官方设计依据、任务分区、设备同步流程和分批验收标准 |
 | [SEARCH-MODULES-PLAN.md](SEARCH-MODULES-PLAN.md) | 搜索模块策划：七家竞品资料、80 项能力台账、数据与组件架构、分批实施与验收 |
 | [../DESIGN.md](../DESIGN.md) | 界面设计：颜色、字体、组件、动效、文案规范 |
 | [../AGENTS.md](../AGENTS.md) | 给 AI 编码助手和开发者的入口说明（英文）：项目简介、命令、代码地图、文档索引、容易踩的规则 |

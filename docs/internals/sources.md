@@ -133,3 +133,7 @@ Asked by the owner: which other search APIs with web results could be added. Met
 **Suggested order** (the owner decides): Tavily first (the only one with a monthly free tier and no card, and the shape is the same as Exa's); Serper next (Google results with no captcha); for Chinese users Zhipu (cheapest) and Bocha; Mojeek and Marginalia only if a second independent index is wanted. Perplexity, Linkup, Parallel and You.com are paid and overlap Exa, so they come last. Neither Bing's nor Google's own API can be used.
 
 Not checked: any request or response shape beyond what the pages above state (the Serper, Perplexity and Metaso shapes come from third-party pages); prices that carry (3rd); each service's terms for caching or showing results (Brave's and Mojeek's terms were reported to limit storing results; Kiwi keeps results in memory for five minutes); whether any of these are reachable from the networks the onboarding check is meant for.
+
+On 2026-11-21 all 36 source descriptions were checked on the installed Chromium options page. Descriptions state what the source searches. An actual verification challenge still uses the existing source status and action.
+
+The SearXNG row describes its web result aggregation. Its revised text was verified in the same Chromium profile on 2026-11-21.

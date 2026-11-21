@@ -203,10 +203,14 @@ export default function App() {
     writeEntry(entryUrl(host.urlStyle, '', mode, newsRef.current), 'push'); document.title = 'Kiwi Search';
     pendingPosition.current = { y: 0 }; setRestoreTick((value) => value + 1);
   };
+  const pushSearchView = (nextMode: SearchMode, news: NewsOptions, nextSince?: number, nextSort?: PaperSort) => {
+    const query = readPageParams(location).get('q') ?? '';
+    writeEntry(entryUrl(host.urlStyle, query, nextMode, news, nextSince, nextSort), 'push');
+  };
   const changeAcademicFilters = (nextSince: number | undefined, nextSort: PaperSort) => {
     navigationRevision.current++;
     saveSnapshot(); setSince(nextSince); setSort(nextSort);
-    writeEntry(entryUrl(host.urlStyle, state?.query ?? '', mode, newsRef.current, nextSince, nextSort), 'push');
+    pushSearchView(mode, newsRef.current, nextSince, nextSort);
   };
   const onSiteAction = async (action: 'only' | 'exclude' | 'block' | 'boost', domain: string) => {
     if (action === 'only' || action === 'exclude') { setSiteFilter({ kind: action, domain }); return; }
@@ -230,7 +234,7 @@ export default function App() {
     if (state) go(state.query, next, 'push');
     else {
       navigationRevision.current++; saveSnapshot(); setMode(next);
-      writeEntry(entryUrl(host.urlStyle, '', next, newsRef.current), 'push');
+      pushSearchView(next, newsRef.current, since, sort);
     }
   };
 
@@ -240,7 +244,7 @@ export default function App() {
     newsRef.current = next;
     setNewsOptions(next);
     if (state) go(state.query, 'news', 'push', { news: next });
-    else { saveSnapshot(); writeEntry(entryUrl(host.urlStyle, '', 'news', next), 'push'); }
+    else { saveSnapshot(); pushSearchView('news', next); }
   };
   const refreshNews = () => {
     if (state) go(state.query, 'news', 'replace', { news: newsRef.current, refresh: true });
@@ -253,7 +257,7 @@ export default function App() {
     setAcademicLanguage(next);
     void host.academicLanguage.save(next);
     // The same search again with the new limit, in the same history entry.
-    if (state?.mode === 'academic') go(state.query, 'academic', 'replace');
+    if (state?.mode === 'academic') go(state.query, 'academic', 'replace', { since, sort });
   };
 
   const suggestion: SuggestionAction | null = useMemo(
@@ -291,7 +295,7 @@ export default function App() {
   const visible = useMemo(() => siteFilter ? allVisible.filter((row) => domainMatches(resultHost(row.url), siteFilter.domain) === (siteFilter.kind === 'only')) : allVisible, [allVisible, siteFilter]);
   const citedUrls = useMemo(() => new Map(state?.citations.map((c) => [c.url, c.n]) ?? []), [state?.citations]);
   const quickAnswer = useMemo(() => state ? extractQuickAnswer(state) : null, [state?.mode, state?.summary, state?.summaryStatus, state?.citations]);
-  const showOverview = !!state && preferences.summaryMode !== 'off' && modeHasOverview(state.mode) && (!quickAnswer || !!quickAnswer.remainder);
+  const showOverview = !!state && preferences.summaryMode !== 'off' && modeHasOverview(state.mode);
   // The papers the model named sit in their own block; the filters below apply to the rest.
   const landmarkResults = useMemo(() => (state?.mode === 'academic' ? pickLandmarks(visible, state.landmarks) : []), [state?.mode, state?.landmarks, visible]);
   const papers = useMemo(() => {
@@ -328,11 +332,36 @@ export default function App() {
         <h1 className="brand">
           <a href={host.homeUrl} aria-label={t('brand.home')} onClick={(event) => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); goHome(); } }}><KiwiLogo /></a>
         </h1>
-        <SearchBox resetToken={`${entryId.current}:${restoreTick}`} value={input} onChange={(value) => { navigationRevision.current++; setInput(value); }} onSubmit={(query) => go(query ?? input, mode, 'push', { typed: true })} recentQueries={preferences.recentQueries ? recentQueries : []} onClearRecent={() => setRecentQueries([])} />
+        <SearchBox resetToken={`${entryId.current}:${restoreTick}`} value={input} onChange={(value) => { navigationRevision.current++; setInput(value); }} onSubmit={(query) => go(query ?? input, mode, 'push', { typed: true, since, sort })} recentQueries={preferences.recentQueries ? recentQueries : []} onClearRecent={() => setRecentQueries([])} />
         <QuickSettings />
       </header>
       <ModeTabs mode={mode} onChange={changeMode} />
-      {idle && mode === 'news' && <div className="news-idle-toolbar"><NewsToolbar value={newsOptions} onChange={changeNews} /></div>}
+      {mode === 'news' && <div className={idle ? 'news-idle-toolbar' : 'content mode-filters'}><NewsToolbar value={newsOptions} onChange={changeNews} onRefresh={state ? refreshNews : undefined} busy={searching} /></div>}
+      {mode === 'academic' && <div className={idle ? 'news-idle-toolbar' : 'content mode-filters'}>
+        <div className="toolbar" role="group" aria-label={t('newtab.app.filterLabel')}>
+          <div className="chips">
+            <button type="button" className="chip" aria-pressed={since === undefined} onClick={() => changeAcademicFilters(undefined, sort)}>
+              {t('newtab.app.anyTime')}
+            </button>
+            {years.map((year) => (
+              <button key={year} type="button" className="chip" aria-pressed={since === year} onClick={() => changeAcademicFilters(year, sort)}>
+                {t('newtab.app.sinceYear', { year })}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="chip" aria-pressed={sort === 'citations'} onClick={() => changeAcademicFilters(since, sort === 'citations' ? 'relevance' : 'citations')}>
+            {t('newtab.app.sortByCitations')}
+          </button>
+        </div>
+        <div className="chips lang-chips" role="group" aria-label={t('newtab.academic.languageLabel')}>
+          <button type="button" className="chip" aria-pressed={academicLanguage === 'any'} onClick={() => changeLanguage('any')}>
+            {t('newtab.academic.languageAny')}
+          </button>
+          <button type="button" className="chip" aria-pressed={academicLanguage === 'en'} onClick={() => changeLanguage('en')}>
+            {t('newtab.academic.languageEn')}
+          </button>
+        </div>
+      </div>}
       <p className="sr-only" role="status">
         {liveStatus}
       </p>
@@ -350,11 +379,15 @@ export default function App() {
           <SuggestionLine moved={state.query === moved?.query && state.mode === moved?.mode ? moved : null} offer={moved ? null : suggestion?.kind === 'offer' ? suggestion.mode : null} onStayOnWeb={stayOnWeb} onSwitch={changeMode} />
           {state.fatal && <FatalError message={state.fatal} onRetry={() => go(state.query, state.mode, 'replace', { news: newsOptions, since, sort })} />}
 
-          {/* The overview comes first in the DOM: above the results when the page is narrow, in a column to their right when there is room (see .body in style.css). */}
-          <div className={showOverview ? 'body with-rail' : 'body'}>
+          <div className="body">
             {showOverview && (
-              <div className="rail">
-                <Overview key={`${state.query}|${state.mode}|${state.startedAt}`} state={state} text={quickAnswer?.remainder} onHoverCite={setHoverCite} expanded={overviewExpanded} onExpandedChange={setOverviewExpanded} summaryMode={preferences.summaryMode} onGenerate={() => summarize()} onRetry={() => summarize()} onRefresh={() => summarize({ fresh: true })} onStop={stopSummary} />
+              <div className="answer-area">
+              {quickAnswer && <>
+                <QuickAnswer answer={quickAnswer} citations={state.citations} onHoverCite={setHoverCite} />
+                {!quickAnswer.remainder && <Overview state={state} controlsOnly onHoverCite={setHoverCite} summaryMode={preferences.summaryMode} onRetry={() => summarize()} onRefresh={() => summarize({ fresh: true })} onStop={stopSummary} />}
+              </>}
+
+                {(!quickAnswer || quickAnswer.remainder) && <Overview key={`${state.query}|${state.mode}|${state.startedAt}`} state={state} text={quickAnswer?.remainder} onHoverCite={setHoverCite} expanded={overviewExpanded} onExpandedChange={setOverviewExpanded} summaryMode={preferences.summaryMode} onGenerate={() => summarize()} onRetry={() => summarize()} onRefresh={() => summarize({ fresh: true })} onStop={stopSummary} />}
                 {state.mode === 'news' && state.summary && state.news?.summaryAt && (
                   <p className="overview-note">{t('newtab.news.summaryAt', { time: formatNewsDate(state.news.summaryAt) ?? state.news.summaryAt })}</p>
                 )}
@@ -368,42 +401,9 @@ export default function App() {
             )}
             <div className="results">
               {siteFilter && <div className="active-filter"><span>{t(siteFilter.kind === 'only' ? 'ux.site.only' : 'ux.site.exclude', { domain: siteFilter.domain })}</span><button type="button" onClick={() => setSiteFilter(null)}>{t('ux.site.clear')}</button></div>}
-              {quickAnswer && preferences.summaryMode !== 'off' && <>
-                <QuickAnswer answer={quickAnswer} citations={state.citations} onHoverCite={setHoverCite} />
-                {!quickAnswer.remainder && <Overview state={state} controlsOnly onHoverCite={setHoverCite} summaryMode={preferences.summaryMode} onRetry={() => summarize()} onRefresh={() => summarize({ fresh: true })} onStop={stopSummary} />}
-              </>}
-              {state.mode === 'news' && <NewsToolbar value={newsOptions} onChange={changeNews} onRefresh={refreshNews} busy={searching} />}
               {state.mode === 'academic' && state.plan && <PlanLine plan={state.plan} />}
           {state.mode === 'academic' && <Landmarks results={landmarkResults} citedUrls={citedUrls} />}
 
-              {state.mode === 'academic' && (
-                <div className="toolbar" role="group" aria-label={t('newtab.app.filterLabel')}>
-                  <div className="chips">
-                    <button type="button" className="chip" aria-pressed={since === undefined} onClick={() => changeAcademicFilters(undefined, sort)}>
-                      {t('newtab.app.anyTime')}
-                    </button>
-                    {years.map((year) => (
-                      <button key={year} type="button" className="chip" aria-pressed={since === year} onClick={() => changeAcademicFilters(year, sort)}>
-                        {t('newtab.app.sinceYear', { year })}
-                      </button>
-                    ))}
-                  </div>
-                  <button type="button" className="chip" aria-pressed={sort === 'citations'} onClick={() => changeAcademicFilters(since, sort === 'citations' ? 'relevance' : 'citations')}>
-                    {t('newtab.app.sortByCitations')}
-                  </button>
-                </div>
-              )}
-              {/* Its own row: the time chips and the sort chip already fill the column (42rem), so a third group would wrap by chance. */}
-              {state.mode === 'academic' && (
-                <div className="chips lang-chips" role="group" aria-label={t('newtab.academic.languageLabel')}>
-                  <button type="button" className="chip" aria-pressed={academicLanguage === 'any'} onClick={() => changeLanguage('any')}>
-                    {t('newtab.academic.languageAny')}
-                  </button>
-                  <button type="button" className="chip" aria-pressed={academicLanguage === 'en'} onClick={() => changeLanguage('en')}>
-                    {t('newtab.academic.languageEn')}
-                  </button>
-                </div>
-              )}
               {state.mode === 'academic' && academicLanguage === 'en' && state.stage === 'done' && !state.plan && hasCjk(state.query) && (
                 <p className="lang-note">{t('newtab.academic.languageNoPlan')}</p>
               )}

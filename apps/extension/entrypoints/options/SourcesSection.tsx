@@ -148,7 +148,6 @@ export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfi
   return (
     <section className="section" id="sources" aria-labelledby="sources-title">
       <h2 id="sources-title">{t('options.sources.title')}</h2>
-      <p className="lead">{t('options.sources.lead')}</p>
       <div className="sources-toolbar">
         <input id="source-search" type="search" aria-label={t('options.ux.sourceSearch')} placeholder={t('options.ux.sourceSearchPlaceholder')} value={query} onChange={(event) => setQuery(event.target.value)} />
         <Segmented label={t('options.ux.sourceFilter')} value={filter} options={[{ value: 'all', label: t('options.ux.sourceAll') }, { value: 'enabled', label: t('options.ux.sourceEnabled') }, { value: 'attention', label: t('options.ux.sourceAttention') }]} onChange={setFilter} />

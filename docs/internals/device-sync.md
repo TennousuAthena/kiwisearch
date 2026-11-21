@@ -12,7 +12,7 @@ Decided on 2026-11-15 (WebRTC as the transport) and on 2026-11-19, when "no serv
 - **Offline phrase rotations have a bounded rendezvous window:** a device keeps up to three previous non-extractable group secrets for up to 30 days. Relay-only beacons on those old topics carry missing rotation/removal records and their prerequisites; an old topic closes earlier once every attested active member has acknowledged the transition. A device offline longer than 30 days must re-enter using the current phrase.
 - **The relay runs on Cloudflare Workers** (`apps/relay`). The project deploys the default at `wss://relay.kiwi.moe`; users can replace it with a self-hosted relay. Leaving the address empty uses [connection codes](#connection-codes-fallback-without-a-relay) only.
 - **Identity is a 24-word recovery phrase** that the user keeps safe (the project owner's proposal of 2026-11-19). Entering it on a device joins that device to the group.
-- **STUN is optional and the user's choice**, off by default.
+- **STUN defaults on for new devices.** Advanced → Sync connection controls the switch and server list. A stored false is preserved.
 - **Otherwise Kiwi's principle holds:** no accounts, nothing on `kiwi.moe`; the website and its bridge never touch sync.
 
 Not goals for the first versions: phones and Safari (no Kiwi client there yet), syncing when the devices are never online at the same time (the relay holds nothing; only the encrypted export file of phase 4 helps there), browser logins and cookies (they belong to the browser profile, not to Kiwi), and search history (Kiwi does not persist query text today).
@@ -223,8 +223,8 @@ If PeerJS is chosen, the safer shape is to use only the server, as a mailbox for
 
 ## NAT traversal and STUN
 
-- **No STUN (default):** only host candidates. Enough on one LAN, and across networks when both have public IPv6 addresses whose firewalls allow the outgoing-then-incoming UDP of hole punching. Two devices behind IPv4 NATs on different networks cannot connect.
-- **With STUN:** each side also learns its public address and port (server-reflexive candidate), and simultaneous checks punch through most home NATs. It still fails when either side's NAT maps each destination to a different port (symmetric NAT, common on mobile carriers' CGNAT and some company networks); see [When a direct connection fails](#when-a-direct-connection-fails). How often that happens is poorly documented: the one published measurement found, in 2015–2016 conference data, that 22% of calls needed a TURN relay ([callstats.io via webrtcHacks](https://webrtchacks.com/usage-stats/)); nothing newer from a primary source was found. Sync between one person's own devices is often on one LAN or at home, so the real share for Kiwi is unknown until phase 1 is tried.
+- **No STUN:** only host candidates. Enough on one LAN, and across networks when both have public IPv6 addresses whose firewalls allow the outgoing-then-incoming UDP of hole punching. Two devices behind IPv4 NATs on different networks cannot connect.
+- **With STUN (default):** each side also learns its public address and port (server-reflexive candidate), and simultaneous checks punch through most home NATs. It still fails when either side's NAT maps each destination to a different port (symmetric NAT, common on mobile carriers' CGNAT and some company networks); see [When a direct connection fails](#when-a-direct-connection-fails). How often that happens is poorly documented: the one published measurement found, in 2015–2016 conference data, that 22% of calls needed a TURN relay ([callstats.io via webrtcHacks](https://webrtchacks.com/usage-stats/)); nothing newer from a primary source was found. Sync between one person's own devices is often on one LAN or at home, so the real share for Kiwi is unknown until phase 1 is tried.
 - **What a STUN server learns:** the public IP address and port of the device (RFC 8489: it echoes them back), and when it connects. It sees none of the data and no SDP. The setting is a list of `stun:` URLs typed by the user; a self-hosted one (for example coturn) works the same. If suggestions are shown: Cloudflare documents `stun.cloudflare.com:3478` as free and unlimited ([FAQ](https://developers.cloudflare.com/realtime/turn/faq/)); `stun.l.google.com:19302` is the one most libraries default to, but no Google documentation or terms for it were found.
 - **What can block even a LAN connection:** a privacy extension or policy that limits WebRTC to the public interface or to proxied traffic (`webRTCIPHandlingPolicy`: `default_public_interface_only` and `disable_non_proxied_udp` drop private host candidates, RFC 8828), networks that do not pass mDNS when the candidates are mDNS names (Firefox's background page used them; Chrome has hidden page addresses this way since M76 for sites without camera or microphone permission, and Google measured 2 to 7% fewer connections from it), client isolation on guest Wi-Fi, VPNs, and on macOS 15 and later the system's Local Network permission for the browser. The panel explains these when no candidate or no pair appears instead of failing silently.
 - **Addresses stay inside the encryption.** Chromium's extension context puts real local IPv4 and IPv6 addresses in the candidates (checked above), and an IPv6 address can be globally unique. Candidates travel only inside encrypted relay frames or encrypted codes, so neither the relay nor whoever carries a code sees them (checked above for the relay). A STUN server, if set, sees the public address.
@@ -276,7 +276,7 @@ The removed device keeps everything it already had, and can still derive the old
 | The relay, its operator and its host (Cloudflare) | Topic ids of the day, IP addresses, timing, the number of devices and of frames | Frames encrypted with the signal key and padded to one size, topic ids rotate daily, nothing stored (checked locally above) |
 | Whoever carries a connection code (a chat service, email) | Nothing | Every code is encrypted with the signal key |
 | Whoever learns the recovery phrase | Everything synced, and the ability to join | By design; shown once, with plain instructions to keep it; rotating the phrase locks out later changes |
-| The STUN server, if the user set one | The public address and timing | By design; off unless chosen |
+| The configured STUN server when enabled | The public address and timing | Enabled by default; can be disabled |
 | A web page, the Kiwi website, an MCP client, another extension | No access | Sync messages are accepted only from Kiwi's own extension pages |
 | A lost or removed device | What it already had, and what members that have not yet heard of the removal still give it | Removal rotates the phrase and caps the removed device's records; protection covers only changes made after the members learn of it |
 | Malware with access to the browser profile | Everything, as today | Out of scope: it can already read `config` and its API keys |
@@ -338,7 +338,7 @@ Records carry the sender's `CONFIG_VERSION`. A device that does not know a path 
 
 1. **When a direct connection fails:** the [proposal](#when-a-direct-connection-fails) is to retry with STUN and then relay the encrypted records through the relay, with TURN left for later.
 2. **Whether the phrase can be shown again** (then the words must be stored on every device) or only once.
-3. Whether a STUN suggestion list is shown, and which servers it names (the default stays off).
+3. Whether a STUN suggestion list is shown, and which servers it names.
 4. Whether the Keys and endpoints category exists in the first release.
 5. How long the offscreen document stays open when idle (phase 3).
 
@@ -385,3 +385,9 @@ Decided on 2026-11-19: the relay stores nothing, and devices sync only while bot
   - Full product sync in Firefox or Edge runtime;
   - Concurrent/offline conflict resolution in visible browsers, full manual offer/answer code pairing round-trip, forced relay-only fallback without WebRTC, remote arrival while an Options page has unsaved dirty edits, and long-duration service-worker idle/restart cycles.
 - **Security boundary on device removal:** a removed device keeps whatever data and old-epoch keys it already received before removal; members that have not yet learned of the removal may continue syncing with it until they meet a member carrying the new epoch. Rejoining requires the new recovery phrase.
+
+## Connection preferences before setup (2026-11-21)
+
+Advanced settings exposes the relay and STUN editor before and after enrollment. While unenrolled the service saves these fields in local storage under `syncConnection`. Creation and joining inherit them when the corresponding message fields are absent. An empty URL selects manual pairing. Active groups continue using their existing local sync settings. Leaving a group retains its connection preferences for the next setup. Renaming sends only the device name.
+
+Service tests exercise worker restart before enrollment, creating and joining with a custom or empty URL, and renaming without changing the endpoint. The original Chromium profile was used to open the join form and the advanced editor. A second physical device was not enrolled.
