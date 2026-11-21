@@ -145,3 +145,5 @@ On the installed Chromium extension, a search for James Webb Space Telescope pro
 ## Compact quick settings (2026-11-21)
 
 The popover groups two three-way radio selectors above two labeled switches and a full-width settings link. In the installed Chromium extension the complete panel fit without internal scrolling at 320 × 568 and 1280 × 800 CSS pixels. Escape closed it and returned focus to its trigger at both sizes. The local storage snapshot matched after the checks.
+
+Checked on 2026-11-21 in isolated Chrome 154: clicking the visible Light label on a dark page briefly moves focus to no element before Chrome activates the radio. Both the installed PR build and a fixture served from master closed the popover during that focus transition. The proposed fix closes on focus loss only when focus has a destination outside the popover. In a local fixture using the fixed source, the same click changed the page to Light and kept the popover open; outside focus and Escape still dismissed it. Native accessibility activation and a rebuilt extension were not checked for this fix.

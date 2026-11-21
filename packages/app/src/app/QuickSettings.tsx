@@ -20,7 +20,7 @@ export function QuickSettings() {
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('pointerdown', onPointer); document.removeEventListener('keydown', onKey); };
   }, [open]);
-  return <div ref={container} className="settings quick-settings" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
+  return <div ref={container} className="settings quick-settings" onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
     <button ref={trigger} type="button" className="icon-btn" aria-label={t('ux.quick.title')} title={t('ux.quick.title')} aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)}><SlidersIcon /></button>
     {open && <section id={id} className="quick-settings-panel" role="dialog" aria-labelledby={`${id}-title`}>
       <header><h2 id={`${id}-title`}>{t('ux.quick.title')}</h2><button ref={closeButton} type="button" className="icon-btn" aria-label={t('ux.quick.close')} onClick={close}><CloseIcon /></button></header>
