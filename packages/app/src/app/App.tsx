@@ -203,10 +203,14 @@ export default function App() {
     writeEntry(entryUrl(host.urlStyle, '', mode, newsRef.current), 'push'); document.title = 'Kiwi Search';
     pendingPosition.current = { y: 0 }; setRestoreTick((value) => value + 1);
   };
+  const pushSearchView = (nextMode: SearchMode, news: NewsOptions, nextSince?: number, nextSort?: PaperSort) => {
+    const query = readPageParams(location).get('q') ?? '';
+    writeEntry(entryUrl(host.urlStyle, query, nextMode, news, nextSince, nextSort), 'push');
+  };
   const changeAcademicFilters = (nextSince: number | undefined, nextSort: PaperSort) => {
     navigationRevision.current++;
     saveSnapshot(); setSince(nextSince); setSort(nextSort);
-    writeEntry(entryUrl(host.urlStyle, state?.query ?? '', mode, newsRef.current, nextSince, nextSort), 'push');
+    pushSearchView(mode, newsRef.current, nextSince, nextSort);
   };
   const onSiteAction = async (action: 'only' | 'exclude' | 'block' | 'boost', domain: string) => {
     if (action === 'only' || action === 'exclude') { setSiteFilter({ kind: action, domain }); return; }
@@ -230,7 +234,7 @@ export default function App() {
     if (state) go(state.query, next, 'push');
     else {
       navigationRevision.current++; saveSnapshot(); setMode(next);
-      writeEntry(entryUrl(host.urlStyle, '', next, newsRef.current), 'push');
+      pushSearchView(next, newsRef.current);
     }
   };
 
@@ -240,7 +244,7 @@ export default function App() {
     newsRef.current = next;
     setNewsOptions(next);
     if (state) go(state.query, 'news', 'push', { news: next });
-    else { saveSnapshot(); writeEntry(entryUrl(host.urlStyle, '', 'news', next), 'push'); }
+    else { saveSnapshot(); pushSearchView('news', next); }
   };
   const refreshNews = () => {
     if (state) go(state.query, 'news', 'replace', { news: newsRef.current, refresh: true });
