@@ -234,7 +234,7 @@ export default function App() {
     if (state) go(state.query, next, 'push');
     else {
       navigationRevision.current++; saveSnapshot(); setMode(next);
-      pushSearchView(next, newsRef.current);
+      pushSearchView(next, newsRef.current, since, sort);
     }
   };
 

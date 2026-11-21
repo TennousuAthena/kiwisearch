@@ -76,3 +76,32 @@ it('keeps the committed query through filter and mode changes after an academic 
   await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ query: 'NASA', mode: 'news', news: { range: 'week', sort: 'date' } })));
   expect(input().value).toBe('NASA');
 });
+
+it('restores the selected academic filters when switching back to an expired Academic search', async () => {
+  const year = new Date().getFullYear() - 4;
+  const academicHash = `#m=academic&since=${year}&paperSort=citations&q=NASA`;
+  window.history.replaceState({ kiwiEntry: 'expired' }, '', '/' + academicHash);
+  const navigation = vi.spyOn(performance, 'getEntriesByType').mockReturnValue([{ type: 'back_forward' } as PerformanceNavigationTiming]);
+  mount();
+  await vi.waitFor(expired);
+
+  const expectAcademicFilters = () => {
+    const selected = [...container.querySelectorAll('.toolbar button[aria-pressed="true"]')].map((item) => item.textContent?.trim());
+    expect(selected).toEqual([t('newtab.app.sinceYear', { year }), t('newtab.app.sortByCitations')]);
+  };
+  button(t('mode.news'));
+  expect(location.hash).toBe('#m=news&q=NASA');
+  button(t('mode.academic'));
+  expectAcademicFilters();
+  expect(location.hash).toBe(academicHash);
+  expired();
+  expect(connect).not.toHaveBeenCalled();
+
+  root?.unmount();
+  navigation.mockReturnValue([{ type: 'reload' } as PerformanceNavigationTiming]);
+  connect.mockReturnValue({ postMessage, disconnect: () => {}, onMessage: { addListener: () => {} }, onDisconnect: { addListener: () => {} } });
+  mount();
+  await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ query: 'NASA', mode: 'academic' })));
+  expectAcademicFilters();
+  expect(location.hash).toBe(academicHash);
+});
