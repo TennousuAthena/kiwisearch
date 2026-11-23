@@ -38,6 +38,7 @@ vi.mock('wxt/browser', () => ({
 }));
 
 import { applySettingsPatch, type SettingsPatch } from '../lib/configUpdates';
+import { applyRemoteConfigPatches, handleConfigUpdate } from '../lib/backgroundConfig';
 import { MemorySyncStorage, type StoredSyncRecord } from '../lib/syncDb';
 import {
   appliedChangesToLocalUpdates,
@@ -380,6 +381,104 @@ describe('syncMapping', () => {
 });
 
 describe('SyncService multi-device integration', () => {
+  it.each([false, true])('replays a held SearXNG address on upgrade, with local key configured=%s', async (localKey) => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const svcB = new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
+      applyRemoteConfigPatches,
+    });
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!created.ok) throw new Error(created.error);
+    await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! });
+    await flushMicrotasks();
+    await svcB.handleMessage({ type: 'kiwi:sync:update-settings', categories: { search: false } });
+    const path = 'config.sources.searxng.baseUrl';
+    const address = 'https://search.androw.eu/';
+    await svcA.recordLocalChanges([{ path, value: address }]);
+    await vi.waitFor(async () => expect((await storeB.load())?.engineState.registers[path]?.value).toBe(address));
+    const beforeUpgrade = (await storeB.load())!;
+    beforeUpgrade.engineState.registers[path]!.category = 'keys';
+    beforeUpgrade.settings.categories.search = true;
+    beforeUpgrade.engineState.categories.search = true;
+    await storeB.save(beforeUpgrade);
+    const localAddress = 'https://local.example/';
+    if (localKey) {
+      await handleConfigUpdate({
+        type: 'kiwi:update-settings',
+        config: [{ path: ['sources', 'searxng'], value: { enabled: true, baseUrl: localAddress, apiKey: 'test-local' } }],
+      });
+    }
+    const before = storage.set.mock.calls.length;
+
+    const restore = () => new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => new MockMeshBus().createTransport(cb, storeB),
+      applyRemoteConfigPatches,
+    });
+    await restore().init();
+    expect(storage.set).toHaveBeenCalledTimes(before + 1);
+    expect(storage.value.config).toMatchObject({ sources: { searxng: { baseUrl: localKey ? localAddress : address } } });
+    expect((await storeB.load())?.engineState.registers[path]?.category).toBe('search');
+    const restarted = restore();
+    await restarted.init();
+    expect(storage.set).toHaveBeenCalledTimes(before + 1);
+    if (localKey) {
+      await restarted.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
+      expect(storage.value.config).toMatchObject({ sources: { searxng: { baseUrl: address, apiKey: 'test-local' } } });
+    }
+  });
+
+  it('applies held remote winners when enabling search and preserves a newer local edit across restart', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const makeServiceB = () => new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
+      applyRemoteConfigPatches,
+    });
+    const svcB = makeServiceB();
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!created.ok) throw new Error(created.error);
+    await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! });
+    await flushMicrotasks();
+    await svcB.handleMessage({ type: 'kiwi:sync:update-settings', categories: { search: false } });
+    await svcA.recordLocalChanges([
+      { path: 'config.llm.model', value: 'remote-model' },
+      { path: 'config.imageCount', value: 17 },
+    ]);
+    await vi.waitFor(async () =>
+      expect((await storeB.load())?.engineState.registers['config.imageCount']?.value).toBe(17));
+    expect(storage.value.config).toMatchObject({ imageCount: DEFAULT_CONFIG.imageCount });
+    await handleConfigUpdate({ type: 'kiwi:update-settings', config: [{ path: ['imageCount'], value: 19 }] });
+    await svcB.recordLocalChanges([{ path: 'config.imageCount', value: 19 }]);
+    const held = (await storeB.load())!;
+    expect(held.engineState.registers['config.imageCount']?.value).toBe(17);
+    const localClock = held.engineState.excludedLocalEditClocks?.['config.imageCount'];
+    expect(localClock).toBeDefined();
+
+    bus.setOnline(svcA.getStatus().deviceId!, false);
+    const restarted = makeServiceB();
+    await restarted.handleMessage({ type: 'kiwi:sync:update-settings', categories: { search: true } });
+    expect(storage.value.config).toMatchObject({ imageCount: 19, llm: { model: 'remote-model' } });
+    expect((await storeB.load())?.engineState.registers['config.imageCount']).toMatchObject({
+      value: 19, hlc: localClock,
+    });
+  });
+
   it('catches up records missed during relay downtime after reconnect', async () => {
     const bus = new MockMeshBus();
     const storeA = new MemorySyncStorage();

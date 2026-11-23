@@ -717,6 +717,27 @@ describe('SyncEngine multi-device synchronization', () => {
     expect(resBOn.applied[0]).toMatchObject({ path: 'config.llm.apiKey', value: 'sk-test-3', category: 'keys' });
   });
 
+  it('keeps a held deletion available through compaction until its category is enabled', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', groupKeys, now);
+    const B = await makePeer('B', groupKeys, now);
+    await B.engine.setCategories({ filters: false });
+    const before = B.engine.getCategories();
+    const path = makeMembershipElementPath('config.judge.blockedDomains', 'old.test');
+    await A.engine.applyLocalChanges([{ path, tombstone: true }], now + 100);
+    const result = await B.engine.receiveRecords(A.engine.getAllEnvelopes(), now + 200);
+    expect(result.applied).toEqual([]);
+    await B.engine.recordPeerAck(A.device.deviceId, A.engine.getVersionVector());
+    await B.engine.compact();
+    await B.engine.setCategories({ filters: true });
+
+    const replay = await B.engine.reconcileIncludedRegisters(before, async () => [], false);
+    expect(replay.toApplyLocally).toEqual([{ path, category: 'filters', tombstone: true, value: undefined }]);
+    await B.engine.compact();
+    expect(B.engine.getRegisters()[path]).toBeUndefined();
+  });
+
   it('keeps the version vector at a contiguous prefix for out-of-order records', async () => {
     const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
     const now = 1_700_000_000_000;

@@ -22,6 +22,7 @@ import {
   type HandshakeHello,
   type HandshakeProof,
   type LocalChangeInput,
+  type SyncCategorySettings,
   type SyncRecordBody,
   type SyncRecordEnvelope,
   type VersionVector,
@@ -48,6 +49,7 @@ import {
 import {
   appliedChangesToLocalUpdates,
   extractNonDefaultLocalChanges,
+  readLocalSyncChanges,
   uiStorageChangesToSyncChanges,
 } from './syncMapping';
 import { ExtensionSyncTransport, type SyncTransport } from './syncTransportBridge';
@@ -199,6 +201,7 @@ export class SyncService {
             persisted: stored.engineState,
           });
           for (const keys of previousKeys) await this.engine.registerEpochKeys(keys);
+          if (await this.reconcileIncludedRegisters(stored.settings.categories)) await this.persist();
           await this.startTransport();
         }
       } catch (error) {
@@ -359,7 +362,6 @@ export class SyncService {
     await this.init();
     if (!this.engine || !changes.length) return;
     const emitted = await this.engine.applyLocalChanges(changes);
-    if (!emitted.length) return;
     await this.persist();
     await this.broadcastEnvelopes(emitted);
   }
@@ -923,6 +925,17 @@ export class SyncService {
     }
   }
 
+  private async reconcileIncludedRegisters(previousCategories: SyncCategorySettings): Promise<boolean> {
+    const result = await this.engine!.reconcileIncludedRegisters(
+      previousCategories,
+      async (paths) => readLocalSyncChanges(paths, await loadConfig(), await browser.storage.local.get(null)),
+      this.pendingInitialJoinSync,
+    );
+    await this.applyAppliedChanges(result.toApplyLocally);
+    await this.broadcastEnvelopes(result.emitted);
+    return result.reclassified;
+  }
+
   async handleMessage(message: SyncRuntimeMessage): Promise<SyncRuntimeResponse> {
     return this.enqueueMutation(() => this.handleMessageNow(message));
   }
@@ -1061,7 +1074,7 @@ export class SyncService {
           this.connectionDefaults = connection;
           return { ok: true, status: this.getStatus() };
         }
-        const prevKeysEnabled = this.settings.categories.keys;
+        const previousCategories = this.settings.categories;
 
         if (message.deviceName !== undefined && message.deviceName.trim()) {
           this.settings.deviceName = message.deviceName.trim();
@@ -1081,23 +1094,16 @@ export class SyncService {
             ...message.categories,
           };
           await this.engine.setCategories(this.settings.categories);
+          await this.reconcileIncludedRegisters(previousCategories);
         }
 
-        // If the user just explicitly enabled `keys` on this device:
-        // 1) Apply any already-received remote key registers that were stored but skipped earlier.
-        // 2) Publish this device's existing non-default API keys/endpoints if any.
-        if (!prevKeysEnabled && this.settings.categories.keys) {
-          const remoteKeys = this.engine.exportState().registers;
-          const toApply = Object.values(remoteKeys)
-            .filter((r) => classifySyncPath(r.path) === 'keys' && r.deviceId !== this.device?.deviceId)
-            .map((r) => ({ path: r.path, value: r.value, tombstone: r.tombstone, category: 'keys' as const }));
-          if (toApply.length) {
-            await this.applyAppliedChanges(toApply);
-          }
+        // Publish pre-existing local keys that have never been registered.
+        if (!previousCategories.keys && this.settings.categories.keys) {
+          const registers = this.engine.getRegisters();
           const config = await loadConfig();
           const storageVals = await browser.storage.local.get(null);
           const localKeyChanges = extractNonDefaultLocalChanges(config, storageVals).filter(
-            (c) => classifySyncPath(c.path) === 'keys',
+            (c) => classifySyncPath(c.path) === 'keys' && !registers[c.path],
           );
           if (localKeyChanges.length) {
             const emitted = await this.engine.applyLocalChanges(localKeyChanges);

@@ -174,6 +174,28 @@ export function extractNonDefaultLocalChanges(
   return out.filter((change) => classifySyncPath(change.path) !== null);
 }
 
+export function readLocalSyncChanges(
+  paths: readonly string[],
+  config: FusionConfig,
+  storageValues: Record<string, unknown>,
+): LocalChangeInput[] {
+  const configValue = (path: string): unknown =>
+    path.slice('config.'.length).split('.').reduce<unknown>(
+      (value, key) => isPlainObject(value) ? value[key] : undefined, config,
+    );
+  return paths.map((path) => {
+    const membership = parseMembershipElementPath(path);
+    if (membership) {
+      const members = configValue(membership.basePath);
+      return Array.isArray(members) && members.includes(membership.element)
+        ? { path, value: true }
+        : { path, tombstone: true };
+    }
+    const value = path.startsWith('config.') ? configValue(path) : storageValues[path];
+    return value === undefined ? { path, tombstone: true } : { path, value };
+  });
+}
+
 function diffAgainstDefault(
   prefix: string,
   defVal: unknown,

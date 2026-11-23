@@ -164,6 +164,7 @@ export interface PersistedSyncEngineState {
   peerAcks: Record<string, VersionVector>;
   members: Record<string, SyncMember>;
   registers: Record<string, RegisterState>;
+  excludedLocalEditClocks?: Record<string, Hlc>;
   recordLog: SyncRecordEnvelope[];
 }
 
@@ -210,6 +211,7 @@ export class SyncEngine {
   private peerAcks: Record<string, VersionVector>;
   private members: Record<string, SyncMember>;
   private registers: Record<string, RegisterState>;
+  private readonly excludedLocalEditClocks = new Map<string, Hlc>();
   private recordLog: Map<string, SyncRecordEnvelope>;
   private mutationQueue: Promise<void> = Promise.resolve();
 
@@ -250,6 +252,9 @@ export class SyncEngine {
         ownMember.agreementSig = this.device.agreementSig;
       }
       this.registers = structuredClone(params.persisted.registers);
+      for (const [path, clock] of Object.entries(params.persisted.excludedLocalEditClocks ?? {})) {
+        this.excludedLocalEditClocks.set(path, { ...clock });
+      }
       this.recordLog = new Map(params.persisted.recordLog.map((r) => [this.recordKeyId(r.deviceId, r.seq), r]));
     } else {
       const now = params.nowMs ?? Date.now();
@@ -353,6 +358,55 @@ export class SyncEngine {
   private setCategoriesLocked(next: Partial<SyncCategorySettings>): SyncCategorySettings {
     this.categories = { ...this.categories, ...next };
     return this.getCategories();
+  }
+
+  reconcileIncludedRegisters(
+    previousCategories: SyncCategorySettings,
+    readLocalChanges: (paths: string[]) => Promise<LocalChangeInput[]>,
+    initialJoinPending: boolean,
+  ): Promise<{ reclassified: boolean; toApplyLocally: AppliedChange[]; emitted: SyncRecordEnvelope[] }> {
+    return this.withMutationLock(async () => {
+      let reclassified = false;
+      const toApplyLocally: AppliedChange[] = [];
+      const localWinners = new Map<string, Hlc>();
+      const considered = new Set<string>();
+      for (const register of Object.values(this.registers)) {
+        const previousCategory = register.category;
+        const category = classifySyncPath(register.path);
+        if (previousCategory !== category) {
+          register.category = category;
+          reclassified = true;
+        }
+        const searxngOriginMayNowSync = register.path === 'config.sources.searxng.baseUrl' &&
+          !previousCategories.keys && this.categories.keys;
+        if (
+          initialJoinPending || category === null || !isCategoryEnabled(this.categories, category) ||
+          (isCategoryEnabled(previousCategories, previousCategory) && !searxngOriginMayNowSync)
+        ) continue;
+        considered.add(register.path);
+        const localClock = this.excludedLocalEditClocks.get(register.path);
+        if (localClock && compareHlc(localClock, register.hlc) > 0) {
+          localWinners.set(register.path, localClock);
+        } else if (register.deviceId !== this.device.deviceId) {
+          toApplyLocally.push({ path: register.path, value: register.value, tombstone: register.tombstone, category });
+        }
+      }
+      if (!initialJoinPending) {
+        for (const [path, clock] of this.excludedLocalEditClocks) {
+          if (this.registers[path]) continue;
+          const category = classifySyncPath(path);
+          if (isCategoryEnabled(this.categories, category) && !isCategoryEnabled(previousCategories, category)) {
+            considered.add(path);
+            localWinners.set(path, clock);
+          }
+        }
+      }
+      const emitted = localWinners.size
+        ? await this.applyLocalChangesLocked(await readLocalChanges([...localWinners.keys()]), Date.now(), localWinners)
+        : [];
+      for (const path of considered) this.excludedLocalEditClocks.delete(path);
+      return { reclassified, toApplyLocally, emitted };
+    });
   }
 
   getVersionVector(): VersionVector {
@@ -493,6 +547,7 @@ export class SyncEngine {
       peerAcks: structuredClone(this.peerAcks),
       members: structuredClone(this.members),
       registers: structuredClone(this.registers),
+      excludedLocalEditClocks: structuredClone(Object.fromEntries(this.excludedLocalEditClocks)),
       recordLog: [...this.recordLog.values()],
     };
   }
@@ -612,11 +667,22 @@ export class SyncEngine {
     return this.withMutationLock(() => this.applyLocalChangesLocked(changes, nowMs));
   }
 
-  private async applyLocalChangesLocked(changes: readonly LocalChangeInput[], nowMs: number): Promise<SyncRecordEnvelope[]> {
+  private async applyLocalChangesLocked(
+    changes: readonly LocalChangeInput[],
+    nowMs: number,
+    deferredClocks?: ReadonlyMap<string, Hlc>,
+  ): Promise<SyncRecordEnvelope[]> {
     const emitted: SyncRecordEnvelope[] = [];
     for (const change of changes) {
       const category = classifySyncPath(change.path);
-      if (!isCategoryEnabled(this.categories, category)) continue;
+      if (!category) continue;
+      if (!isCategoryEnabled(this.categories, category)) {
+        this.hlc = tickHlc(this.hlc, this.device.deviceId, nowMs);
+        this.excludedLocalEditClocks.set(change.path, this.hlc);
+        continue;
+      }
+      this.excludedLocalEditClocks.delete(change.path);
+      const deferredClock = deferredClocks?.get(change.path);
       const isTombstone = Boolean(change.tombstone);
       if (!isTombstone) {
         const checked = validateAndClampSyncValue(change.path, change.value);
@@ -625,6 +691,7 @@ export class SyncEngine {
           'set',
           { kind: 'set', path: change.path, value: checked.value },
           nowMs,
+          deferredClock,
         );
         this.registers[change.path] = {
           path: change.path,
@@ -638,7 +705,7 @@ export class SyncEngine {
         };
         emitted.push(env);
       } else {
-        const env = await this.appendEnvelope('tombstone', { kind: 'tombstone', path: change.path }, nowMs);
+        const env = await this.appendEnvelope('tombstone', { kind: 'tombstone', path: change.path }, nowMs, deferredClock);
         this.registers[change.path] = {
           path: change.path,
           hlc: env.hlc,
@@ -1098,7 +1165,7 @@ export class SyncEngine {
     let removedTombstones = 0;
 
     for (const [path, reg] of Object.entries(this.registers)) {
-      if (reg.tombstone && isAckedByAll(reg.deviceId, reg.seq)) {
+      if (reg.tombstone && isCategoryEnabled(this.categories, reg.category) && isAckedByAll(reg.deviceId, reg.seq)) {
         delete this.registers[path];
         removedTombstones += 1;
       } else {
@@ -1178,8 +1245,9 @@ export class SyncEngine {
     kind: SyncRecordKind,
     body: SyncRecordBody,
     nowMs: number,
+    clock?: Hlc,
   ): Promise<SyncRecordEnvelope> {
-    const envelope = await this.createEnvelope(kind, body, nowMs);
+    const envelope = await this.createEnvelope(kind, body, nowMs, clock);
     return this.commitEnvelope(envelope);
   }
 
@@ -1187,6 +1255,7 @@ export class SyncEngine {
     kind: SyncRecordKind,
     body: SyncRecordBody,
     nowMs: number,
+    clock?: Hlc,
   ): Promise<SyncRecordEnvelope> {
     const keys = this.epochKeys.get(this.currentEpoch);
     if (!keys) throw new Error(`Missing keys for current epoch ${this.currentEpoch}`);
@@ -1195,7 +1264,7 @@ export class SyncEngine {
       deviceId: this.device.deviceId,
       seq: this.seq + 1,
       epoch: this.currentEpoch,
-      hlc: tickHlc(this.hlc, this.device.deviceId, nowMs),
+      hlc: clock ?? tickHlc(this.hlc, this.device.deviceId, nowMs),
       configVersion: this.configVersion,
       kind,
     };
@@ -1213,7 +1282,7 @@ export class SyncEngine {
 
   private commitEnvelope(envelope: SyncRecordEnvelope): SyncRecordEnvelope {
     this.seq = envelope.seq;
-    this.hlc = { ...envelope.hlc };
+    if (compareHlc(envelope.hlc, this.hlc) > 0) this.hlc = { ...envelope.hlc };
     this.recordLog.set(this.recordKeyId(envelope.deviceId, envelope.seq), envelope);
     this.versionVector[envelope.deviceId] = envelope.seq;
     return envelope;
