@@ -364,6 +364,7 @@ export class SyncEngine {
     previousCategories: SyncCategorySettings,
     readLocalChanges: (paths: string[]) => Promise<LocalChangeInput[]>,
     initialJoinPending: boolean,
+    reconsiderPaths: readonly string[] = [],
   ): Promise<{ reclassified: boolean; toApplyLocally: AppliedChange[]; emitted: SyncRecordEnvelope[] }> {
     return this.withMutationLock(async () => {
       let reclassified = false;
@@ -377,11 +378,9 @@ export class SyncEngine {
           register.category = category;
           reclassified = true;
         }
-        const searxngOriginMayNowSync = register.path === 'config.sources.searxng.baseUrl' &&
-          !previousCategories.keys && this.categories.keys;
         if (
           initialJoinPending || category === null || !isCategoryEnabled(this.categories, category) ||
-          (isCategoryEnabled(previousCategories, previousCategory) && !searxngOriginMayNowSync)
+          (isCategoryEnabled(previousCategories, previousCategory) && !reconsiderPaths.includes(register.path))
         ) continue;
         considered.add(register.path);
         const localClock = this.excludedLocalEditClocks.get(register.path);
@@ -1140,11 +1139,11 @@ export class SyncEngine {
    * Compacts superseded record envelopes and tombstones once every active member
    * has acknowledged up to the winning/tombstone (deviceId, seq).
    */
-  compact(): Promise<{ removedEnvelopes: number; removedTombstones: number }> {
-    return this.withMutationLock(async () => this.compactLocked());
+  compact(retainTombstonesFor: readonly string[] = []): Promise<{ removedEnvelopes: number; removedTombstones: number }> {
+    return this.withMutationLock(async () => this.compactLocked(retainTombstonesFor));
   }
 
-  private compactLocked(): { removedEnvelopes: number; removedTombstones: number } {
+  private compactLocked(retainTombstonesFor: readonly string[]): { removedEnvelopes: number; removedTombstones: number } {
     const activeMemberIds = this.getActiveMembers()
       .map((m) => m.deviceId)
       .filter((id) => id !== this.device.deviceId);
@@ -1165,7 +1164,8 @@ export class SyncEngine {
     let removedTombstones = 0;
 
     for (const [path, reg] of Object.entries(this.registers)) {
-      if (reg.tombstone && isCategoryEnabled(this.categories, reg.category) && isAckedByAll(reg.deviceId, reg.seq)) {
+      if (reg.tombstone && isCategoryEnabled(this.categories, reg.category) && !retainTombstonesFor.includes(path) &&
+          isAckedByAll(reg.deviceId, reg.seq)) {
         delete this.registers[path];
         removedTombstones += 1;
       } else {
