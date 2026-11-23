@@ -13,6 +13,7 @@ import {
   importGroupSecret,
   memberCertificate,
   openRecordBody,
+  SEARXNG_KEY_PATH,
   phraseToEntropy,
   toBase64Url,
   verifyHandshakeProof,
@@ -58,8 +59,6 @@ import type { SettingsPatch } from './configUpdates';
 import { loadConfig } from './settings';
 
 export const DEFAULT_STUN_URLS = ['stun:stun.cloudflare.com:3478'];
-const SEARXNG_ADDRESS_PATH = 'config.sources.searxng.baseUrl';
-const SEARXNG_KEY_PATH = 'config.sources.searxng.apiKey';
 
 interface PeerWireHello {
   type: 'hello';
@@ -115,7 +114,7 @@ function peerSessionKey(peerId: string, epoch: number): string {
 export interface SyncServiceDeps {
   storage?: SyncStorageAdapter;
   transportFactory?: (onEvent: (event: TransportEvent) => void) => SyncTransport;
-  applyRemoteConfigPatches: (patches: SettingsPatch[], syncKeys: boolean) => Promise<void>;
+  applyRemoteConfigPatches: (patches: SettingsPatch[], pairedSearxngUrl?: string) => Promise<void>;
 }
 
 function defaultDeviceName(): string {
@@ -364,12 +363,6 @@ export class SyncService {
     await this.init();
     if (!this.engine || !changes.length) return;
     const emitted = await this.engine.applyLocalChanges(changes);
-    const categories = this.engine.getCategories();
-    if (!categories.keys && changes.some((change) =>
-      change.path === SEARXNG_KEY_PATH && (change.tombstone || change.value === ''),
-    )) {
-      await this.reconcileIncludedRegisters(categories, [SEARXNG_ADDRESS_PATH]);
-    }
     await this.persist();
     await this.broadcastEnvelopes(emitted);
   }
@@ -792,7 +785,7 @@ export class SyncService {
           };
           await this.sendPeerPayload(peer, JSON.stringify(response));
         }
-        await this.compactRecords();
+        await this.engine.compact();
         await this.persist();
         return;
       }
@@ -833,7 +826,7 @@ export class SyncService {
         coveredVector,
       };
       await this.sendPeerPayload(peer, JSON.stringify(payload));
-      await this.compactRecords();
+      await this.engine.compact();
       await this.persist();
       return;
     }
@@ -888,7 +881,7 @@ export class SyncService {
       }
 
       this.lastSyncAt = Date.now();
-      await this.compactRecords();
+      await this.engine.compact();
       await this.persist();
 
       const ack: PeerWireAck = { type: 'ack', vector: this.engine.getVersionVector() };
@@ -904,7 +897,7 @@ export class SyncService {
       peer.remoteVector = { ...msg.vector };
       await this.engine.recordPeerAck(peerId, msg.vector);
       await this.pruneAcknowledgedPreviousSecrets();
-      await this.compactRecords();
+      await this.engine.compact();
       this.lastSyncAt = Date.now();
       await this.persist();
     }
@@ -913,7 +906,8 @@ export class SyncService {
   private async applyAppliedChanges(applied: readonly import('@kiwi-search/sync').AppliedChange[]): Promise<void> {
     const { configPatches, storageUpdates, storageRemovals } = appliedChangesToLocalUpdates(applied);
     if (configPatches.length) {
-      await this.applyRemoteConfigPatches(configPatches, this.settings?.categories.keys ?? false);
+      const searxngKey = applied.findLast((change) => change.path === SEARXNG_KEY_PATH);
+      await this.applyRemoteConfigPatches(configPatches, searxngKey?.pairedUrl);
     }
     const keysToSuppress = [...Object.keys(storageUpdates), ...storageRemovals];
     if (keysToSuppress.length) {
@@ -933,19 +927,11 @@ export class SyncService {
     }
   }
 
-  private async compactRecords(): Promise<void> {
-    await this.engine!.compact(this.settings?.categories.keys ? [] : [SEARXNG_ADDRESS_PATH]);
-  }
-
-  private async reconcileIncludedRegisters(
-    previousCategories: SyncCategorySettings,
-    reconsiderPaths: readonly string[] = [],
-  ): Promise<boolean> {
+  private async reconcileIncludedRegisters(previousCategories: SyncCategorySettings): Promise<boolean> {
     const result = await this.engine!.reconcileIncludedRegisters(
       previousCategories,
       async (paths) => readLocalSyncChanges(paths, await loadConfig(), await browser.storage.local.get(null)),
       this.pendingInitialJoinSync,
-      reconsiderPaths,
     );
     await this.applyAppliedChanges(result.toApplyLocally);
     await this.broadcastEnvelopes(result.emitted);
@@ -1110,8 +1096,7 @@ export class SyncService {
             ...message.categories,
           };
           await this.engine.setCategories(this.settings.categories);
-          const reconsiderPaths = !previousCategories.keys && this.settings.categories.keys ? [SEARXNG_ADDRESS_PATH] : [];
-          await this.reconcileIncludedRegisters(previousCategories, reconsiderPaths);
+          await this.reconcileIncludedRegisters(previousCategories);
         }
 
         // Publish pre-existing local keys that have never been registered.

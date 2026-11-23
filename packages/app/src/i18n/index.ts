@@ -1,5 +1,6 @@
 import { createI18n, resolveLocale } from './runtime';
 import { zhCN } from './zh-CN';
+import { en } from './en';
 
 export { formatMessage, parseRich, resolveLocale, type ParamValue, type Params, type RichPart, type Tags } from './runtime';
 
@@ -11,7 +12,7 @@ export type MessageKey = keyof Catalog & string;
  * Other languages go in here as `{ 'en': en, … }`, each a `Partial<Record<MessageKey, string>>`. Whatever one leaves out is
  * read from Chinese. `test/i18n.test.ts` checks that a translation keeps the placeholders of the text it translates.
  */
-export const i18n = createI18n(zhCN, 'zh-CN', {});
+export const i18n = createI18n(zhCN, 'zh-CN', { en });
 
 /** `t('newtab.status.results', { count: 3 })`. A key or a placeholder that does not exist is a type error. */
 export const t = i18n.t;

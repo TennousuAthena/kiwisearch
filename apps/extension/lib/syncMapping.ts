@@ -2,10 +2,11 @@ import {
   classifySyncPath,
   makeMembershipElementPath,
   parseMembershipElementPath,
+  SEARXNG_KEY_PATH,
   type AppliedChange,
   type LocalChangeInput,
 } from '@kiwi-search/sync';
-import { DEFAULT_CONFIG, type FusionConfig } from '@kiwi-search/core';
+import { DEFAULT_CONFIG, httpOrigin, type FusionConfig } from '@kiwi-search/core';
 import { preferenceKeys, storageKey, type DomainPreferenceState } from '@kiwi-search/protocol';
 import type { SettingsPatch } from './configUpdates';
 
@@ -17,7 +18,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /** Convert settings patches produced by the options page or web bridge into sync engine changes. */
-export function settingsPatchesToSyncChanges(patches: readonly SettingsPatch[]): LocalChangeInput[] {
+export function settingsPatchesToSyncChanges(patches: readonly SettingsPatch[], config?: FusionConfig): LocalChangeInput[] {
   const out: LocalChangeInput[] = [];
   for (const patch of patches) {
     if (!patch.path.length) continue;
@@ -45,7 +46,16 @@ export function settingsPatchesToSyncChanges(patches: readonly SettingsPatch[]):
     }
     flattenConfigValue(basePath, patch.value, out);
   }
-  return out;
+  return out.filter((change) => classifySyncPath(change.path) !== null).map((change) => withPairedUrl(change, config));
+}
+
+function withPairedUrl(change: LocalChangeInput, config?: FusionConfig): LocalChangeInput {
+  const source = config?.sources.searxng;
+  if (change.path === SEARXNG_KEY_PATH && change.value && source?.baseUrl && source.apiKeyOrigin &&
+      httpOrigin(source.baseUrl) === source.apiKeyOrigin) {
+    return { ...change, pairedUrl: source.baseUrl };
+  }
+  return change;
 }
 
 /** Convert a single domain preference transition into membership-element sync changes. */
@@ -171,7 +181,7 @@ export function extractNonDefaultLocalChanges(
       out.push({ path: key, value: storageValues[key] });
     }
   }
-  return out.filter((change) => classifySyncPath(change.path) !== null);
+  return out.filter((change) => classifySyncPath(change.path) !== null).map((change) => withPairedUrl(change, config));
 }
 
 export function readLocalSyncChanges(
@@ -192,7 +202,7 @@ export function readLocalSyncChanges(
         : { path, tombstone: true };
     }
     const value = path.startsWith('config.') ? configValue(path) : storageValues[path];
-    return value === undefined ? { path, tombstone: true } : { path, value };
+    return value === undefined ? { path, tombstone: true } : withPairedUrl({ path, value }, config);
   });
 }
 

@@ -54,6 +54,8 @@ Checked on 2026-11-13 for shopping activation: the original profile/extension ID
 
 `summary.hedgeMs` (3000) and `summary.early.thinking` (`'off'`) (2026-11-16) are scalars inside the existing `summary` object, so `mergeConfig` fills them into configs saved before they existed; `CONFIG_VERSION` stays 5 and there is no migration. What `chatStream` learns about an endpoint's thinking switch is kept in the worker's memory only.
 
+Migration 5→6 (2026-11-23) binds an existing SearXNG key to the saved instance's HTTP(S) origin. Future address-only edits do not change the binding; see [device sync](device-sync.md#what-syncs).
+
 ## Settings directory (2026-11-21)
 
 The options hash selects one section. Desktop shows the directory alongside it. At 900 CSS pixels and below the directory and detail occupy separate views. Returning to the directory focuses the last visited link. Existing section hashes still work; `#sync-connection` opens Advanced. General includes the interface-source setting and default-search instructions. The config autosave owner remains mounted across navigation.

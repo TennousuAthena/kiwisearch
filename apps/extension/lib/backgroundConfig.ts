@@ -1,4 +1,5 @@
 import { browser } from 'wxt/browser';
+import { httpOrigin, type FusionConfig } from '@kiwi-search/core';
 import { applySettingsPatch, type DomainPreferenceState, type SettingsPatch, type SettingsUpdate, type SettingsUpdateResponse } from './configUpdates';
 import { normalizeDomain } from '@kiwi-search/protocol';
 import { loadBridge, loadConfig } from './settings';
@@ -9,34 +10,36 @@ let writes: Promise<unknown> = Promise.resolve();
 const REVISION_KEY = 'domainPreferenceRevisions';
 
 let onLocalSyncChanges: ((changes: LocalChangeInput[]) => void) | null = null;
+const SEARXNG_KEY = 'sources.searxng.apiKey';
+const SEARXNG_ORIGIN = 'sources.searxng.apiKeyOrigin';
 
 /** Subscribe to local config edits (never fired for remote sync writes). */
 export function setOnLocalSyncChanges(listener: ((changes: LocalChangeInput[]) => void) | null): void {
   onLocalSyncChanges = listener;
 }
 
-function httpOrigin(url: string | undefined): string | undefined {
-  if (!url) return;
-  const parsed = URL.parse(url);
-  if (parsed?.protocol === 'https:' || parsed?.protocol === 'http:') return parsed.origin;
+function applyConfigWithKeyBinding(
+  current: FusionConfig,
+  patches: SettingsPatch[],
+  bindingUrl: (config: FusionConfig) => unknown,
+): FusionConfig {
+  const config = applySettingsPatch(current, patches);
+  const previous = current.sources.searxng;
+  const source = config.sources?.searxng;
+  if (source && typeof source === 'object') {
+    const writesKey = patches.some((patch) => patch.path.join('.') === SEARXNG_KEY) || source.apiKey !== previous?.apiKey;
+    const origin = source.apiKey && (writesKey ? httpOrigin(bindingUrl(config)) : previous?.apiKeyOrigin);
+    if (origin) source.apiKeyOrigin = origin;
+    else delete source.apiKeyOrigin;
+  }
+  return config;
 }
 
 /** Apply remote sync patches through the same serialized writer without emitting local sync echoes. */
-export function applyRemoteConfigPatches(patches: SettingsPatch[], syncKeys: boolean): Promise<void> {
+export function applyRemoteConfigPatches(patches: SettingsPatch[], pairedSearxngUrl?: string): Promise<void> {
   if (!patches.length) return Promise.resolve();
   const job = writes.then(async (): Promise<void> => {
-    const current = await loadConfig();
-    const config = applySettingsPatch(current, patches);
-    const localSearxng = current.sources.searxng;
-    const remoteSearxng = config.sources?.searxng;
-    if (!syncKeys && localSearxng?.apiKey && remoteSearxng &&
-        remoteSearxng.baseUrl !== localSearxng.baseUrl) {
-      const origin = httpOrigin(localSearxng.baseUrl);
-      if (!origin || origin !== httpOrigin(remoteSearxng.baseUrl)) {
-        if (localSearxng.baseUrl === undefined) delete remoteSearxng.baseUrl;
-        else remoteSearxng.baseUrl = localSearxng.baseUrl;
-      }
-    }
+    const config = applyConfigWithKeyBinding(await loadConfig(), patches, () => pairedSearxngUrl);
     await browser.storage.local.set({ config });
   });
   writes = job.catch(() => {});
@@ -86,8 +89,13 @@ export function handleConfigUpdate(message: unknown): Promise<SettingsUpdateResp
       return 'undo' in message ? { ok: true, restored: true } : { ok: true, undo: { domain, before, after, revision } };
     }
     const changes: Record<string, unknown> = {};
+    let config: FusionConfig | undefined;
     if (message.config?.length) {
-      changes.config = applySettingsPatch(await loadConfig(), message.config);
+      const binding = message.config.findLast((patch) => patch.path.join('.') === SEARXNG_ORIGIN);
+      config = applyConfigWithKeyBinding(await loadConfig(), message.config, (next) =>
+        binding ? ('value' in binding ? binding.value : undefined) : next.sources.searxng?.baseUrl,
+      );
+      changes.config = config;
       const domains = message.config.filter((patch) => patch.path[0] === 'judge' && ['blockedDomains', 'boostedDomains'].includes(patch.path[1]));
       if (domains.length) {
         const revisions = await loadDomainRevisions();
@@ -101,7 +109,7 @@ export function handleConfigUpdate(message: unknown): Promise<SettingsUpdateResp
     if (message.bridge?.length) changes.bridge = applySettingsPatch(await loadBridge(), message.bridge);
     if (Object.keys(changes).length) await browser.storage.local.set(changes);
     if (onLocalSyncChanges && message.config?.length) {
-      const syncChanges = settingsPatchesToSyncChanges(message.config);
+      const syncChanges = settingsPatchesToSyncChanges(message.config, config);
       if (syncChanges.length) onLocalSyncChanges(syncChanges);
     }
     return { ok: true };

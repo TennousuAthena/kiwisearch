@@ -1,9 +1,9 @@
-import { DEFAULT_CONFIG } from '@kiwi-search/core';
+import { DEFAULT_CONFIG, SOURCES } from '@kiwi-search/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const storage = vi.hoisted(() => ({ value: {} as Record<string, unknown>, get: vi.fn(), set: vi.fn(), send: vi.fn() }));
 vi.mock('wxt/browser', () => ({ browser: { storage: { local: { get: storage.get, set: storage.set } }, runtime: { sendMessage: storage.send } } }));
-import { applyRemoteConfigPatches, handleConfigUpdate } from '../lib/backgroundConfig';
+import { applyRemoteConfigPatches, handleConfigUpdate, setOnLocalSyncChanges } from '../lib/backgroundConfig';
 import { applySettingsPatch, diffSettings, diffSettingsFromBaselines, undoDomainPreference, updateDomainPreference } from '../lib/configUpdates';
 import { DEFAULT_BRIDGE, loadConfig, saveConfig, saveSettings } from '../lib/settings';
 import { createAutosaveQueue } from '../entrypoints/options/autosaveQueue';
@@ -16,31 +16,81 @@ beforeEach(() => {
 });
 
 describe('settings writes from multiple pages', () => {
-  it.each([
-    { url: 'https://other.example/', key: 'test-local', syncKeys: false, allowed: false },
-    { url: 'http://old.example/', key: 'test-local', syncKeys: false, allowed: false },
-    { url: 'https://old.example:8443/', key: 'test-local', syncKeys: false, allowed: false },
-    { url: 'https://old.example/other/', key: 'test-local', syncKeys: false, allowed: true },
-    { url: '', key: 'test-local', syncKeys: false, allowed: false },
-    { url: undefined, key: 'test-local', syncKeys: false, allowed: false },
-    { url: undefined, key: '', syncKeys: false, allowed: true },
-    { url: undefined, key: 'test-local', syncKeys: true, allowed: true },
-    { url: 'https://other.example/', key: '', syncKeys: false, allowed: true },
-    { url: 'https://other.example/', key: 'test-local', syncKeys: true, allowed: true },
-  ])('protects a local SearXNG key when applying $url with syncKeys=$syncKeys', async ({ url, key, syncKeys, allowed }) => {
-    const previousUrl = 'https://old.example/';
-    const source = ['sources', 'searxng'];
+  const source = ['sources', 'searxng'];
+  const urlPath = [...source, 'baseUrl'];
+  const keyPath = [...source, 'apiKey'];
+  const originPath = [...source, 'apiKeyOrigin'];
+  const oldUrl = 'https://old.example';
+  const newUrl = 'https://other.example';
+
+  async function authorization() {
+    const config = await loadConfig();
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ results: [] })));
+    await SOURCES.searxng.search('sample', {
+      env: { fetch }, settings: config.sources.searxng!, mode: 'web', count: 1,
+      signal: new AbortController().signal, onBlocked: () => {}, onStart: () => {}, renderer: config.renderer,
+    });
+    return new Headers(fetch.mock.calls[0][1]?.headers).get('Authorization');
+  }
+
+  it('syncs the URL without the key header until re-saving the same key for that server', async () => {
     await handleConfigUpdate({
       type: 'kiwi:update-settings',
-      config: [{ path: source, value: { enabled: false, baseUrl: previousUrl, apiKey: key } }],
+      config: [{ path: source, value: { enabled: true, baseUrl: oldUrl, apiKey: 'test-local' } }],
     });
-    await applyRemoteConfigPatches([
-      url === undefined ? { path: [...source, 'baseUrl'], remove: true } : { path: [...source, 'baseUrl'], value: url },
-      { path: [...source, 'enabled'], value: true },
-    ], syncKeys);
-    expect((await loadConfig()).sources.searxng).toEqual({
-      enabled: true, apiKey: key, baseUrl: allowed ? url : previousUrl,
+    expect(await authorization()).toBe('Bearer test-local');
+    await applyRemoteConfigPatches([{ path: urlPath, value: newUrl }, { path: originPath, value: newUrl }]);
+    const config = await loadConfig();
+    expect(config.sources.searxng).toMatchObject({ baseUrl: newUrl, apiKeyOrigin: oldUrl });
+    expect(await authorization()).toBeNull();
+
+    const next = structuredClone(config);
+    next.sources.searxng!.apiKeyOrigin = newUrl;
+    const recorded = vi.fn();
+    setOnLocalSyncChanges(recorded);
+    try {
+      await saveSettings({ config: next, bridge: DEFAULT_BRIDGE }, { config, bridge: DEFAULT_BRIDGE });
+      expect(recorded).toHaveBeenCalledWith([
+        { path: 'config.sources.searxng.apiKey', value: 'test-local', pairedUrl: newUrl },
+      ]);
+    } finally {
+      setOnLocalSyncChanges(null);
+    }
+    expect(await authorization()).toBe('Bearer test-local');
+  });
+
+  it('keeps a rotating key bound to the address shown when editing began across a peer URL update', async () => {
+    await handleConfigUpdate({
+      type: 'kiwi:update-settings',
+      config: [{ path: source, value: { enabled: true, baseUrl: oldUrl, apiKey: 'test-local' } }],
     });
+    const previous = await loadConfig();
+    const blank = structuredClone(previous);
+    blank.sources.searxng!.apiKey = '';
+    delete blank.sources.searxng!.apiKeyOrigin;
+    await saveSettings({ config: blank, bridge: DEFAULT_BRIDGE }, { config: previous, bridge: DEFAULT_BRIDGE });
+    expect(await authorization()).toBeNull();
+    await applyRemoteConfigPatches([{ path: urlPath, value: newUrl }]);
+    const replacement = await loadConfig();
+    const next = structuredClone(replacement);
+    next.sources.searxng!.apiKey = 'test-rotated';
+    next.sources.searxng!.apiKeyOrigin = oldUrl;
+    await saveSettings({ config: next, bridge: DEFAULT_BRIDGE }, { config: replacement, bridge: DEFAULT_BRIDGE });
+    expect(await authorization()).toBeNull();
+    await applyRemoteConfigPatches([{ path: urlPath, value: oldUrl }]);
+    expect(await authorization()).toBe('Bearer test-rotated');
+  });
+
+  it('binds a synced key only to its paired URL and never to an unrelated receiver URL', async () => {
+    await applyRemoteConfigPatches([{ path: urlPath, value: oldUrl }, { path: keyPath, value: 'legacy' }]);
+    expect(await authorization()).toBeNull();
+    await applyRemoteConfigPatches([{ path: keyPath, value: 'paired' }], newUrl + '/search-service');
+    expect(await authorization()).toBeNull();
+    await applyRemoteConfigPatches([{ path: urlPath, value: newUrl }]);
+    expect(await authorization()).toBe('Bearer paired');
+    await applyRemoteConfigPatches([{ path: urlPath, remove: true }]);
+    expect((await loadConfig()).sources.searxng).toMatchObject({ apiKeyOrigin: newUrl });
+    expect((await loadConfig()).sources.searxng?.baseUrl).toBeUndefined();
   });
 
   it('applies only fields edited against the original page baseline', async () => {

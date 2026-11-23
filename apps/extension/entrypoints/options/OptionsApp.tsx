@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, type FusionConfig, type SourceId } from '@kiwi-search/core';
+import { DEFAULT_CONFIG, httpOrigin, type FusionConfig, type SourceId } from '@kiwi-search/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { CheckIcon, CircleAlertIcon, FilterIcon, GlobeIcon, SlidersIcon, SparkleIcon, SyncIcon, ToolsIcon } from '@kiwi-search/app/icons';
@@ -100,8 +100,12 @@ export default function OptionsApp() {
 
   const change = useCallback((update: (current: FusionConfig) => FusionConfig) => setConfig(update), []);
 
-  const updateSource = (id: SourceId, field: 'enabled' | 'apiKey' | 'baseUrl', value: boolean | string) =>
-    change((current) => ({ ...current, sources: { ...current.sources, [id]: { ...(current.sources[id] ?? { enabled: false }), [field]: value } } }));
+  const updateSource = (id: SourceId, field: 'enabled' | 'apiKey' | 'baseUrl', value: boolean | string, keyUrl?: string | null) =>
+    change((current) => {
+      const source = { ...(current.sources[id] ?? { enabled: false }), [field]: value };
+      if (id === 'searxng' && field === 'apiKey') source.apiKeyOrigin = value ? httpOrigin(keyUrl) : undefined;
+      return { ...current, sources: { ...current.sources, [id]: source } };
+    });
 
   const setEnabled = (enabled: Partial<Record<SourceId, boolean>>) =>
     change((current) => {

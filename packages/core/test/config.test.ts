@@ -4,6 +4,12 @@ import { BROWSER_ENGINES } from '../src/engines';
 import { llmUsable } from '../src/llm';
 
 describe('config versioning', () => {
+  it('binds legacy SearXNG keys to the saved origin but never reinterprets a current unbound key', () => {
+    const sources = { searxng: { enabled: true, apiKey: 'test-local', baseUrl: 'https://searx.example:8443/instance' } };
+    expect(migrateConfig({ version: 5, sources })?.sources?.searxng?.apiKeyOrigin).toBe('https://searx.example:8443');
+    expect(migrateConfig({ version: CONFIG_VERSION, sources })?.sources?.searxng?.apiKeyOrigin).toBeUndefined();
+  });
+
   it('treats an unversioned stored config as current and stamps the version on merge', () => {
     const stored = { llm: { apiKey: '{{SECRET_llmkey01}}' }, sources: { google: { enabled: false } } };
     const migrated = migrateConfig(stored);

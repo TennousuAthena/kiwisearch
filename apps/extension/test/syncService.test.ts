@@ -38,7 +38,7 @@ vi.mock('wxt/browser', () => ({
 }));
 
 import { applySettingsPatch, type SettingsPatch } from '../lib/configUpdates';
-import { applyRemoteConfigPatches, handleConfigUpdate, setOnLocalSyncChanges } from '../lib/backgroundConfig';
+import { applyRemoteConfigPatches, handleConfigUpdate } from '../lib/backgroundConfig';
 import { MemorySyncStorage, type StoredSyncRecord } from '../lib/syncDb';
 import {
   appliedChangesToLocalUpdates,
@@ -381,7 +381,7 @@ describe('syncMapping', () => {
 });
 
 describe('SyncService multi-device integration', () => {
-  it.each([false, true])('replays a held SearXNG address on upgrade, with local key configured=%s', async (localKey) => {
+  it.each([false, true])('replays a held SearXNG address on upgrade without rebinding a local key, with local key configured=%s', async (localKey) => {
     const bus = new MockMeshBus();
     const storeA = new MemorySyncStorage();
     const storeB = new MemorySyncStorage();
@@ -425,7 +425,9 @@ describe('SyncService multi-device integration', () => {
     });
     await restore().init();
     expect(storage.set).toHaveBeenCalledTimes(before + 1);
-    expect(storage.value.config).toMatchObject({ sources: { searxng: { baseUrl: localKey ? localAddress : address } } });
+    expect(storage.value.config).toMatchObject({
+      sources: { searxng: { baseUrl: address, ...(localKey ? { apiKeyOrigin: 'https://local.example' } : {}) } },
+    });
     expect((await storeB.load())?.engineState.registers[path]?.category).toBe('search');
     const restarted = restore();
     await restarted.init();
@@ -436,10 +438,12 @@ describe('SyncService multi-device integration', () => {
     }
   });
 
-  it.each([false, true])('retries a held SearXNG address when the local-only key is cleared (remote removal=%s)', async (remoteRemoval) => {
+  it('compacts a SearXNG address removal normally and allows joining through another peer', async () => {
     const bus = new MockMeshBus();
     const storeA = new MemorySyncStorage();
     const storeB = new MemorySyncStorage();
+    const storeC = new MemorySyncStorage();
+    let joinerConfig = structuredClone(DEFAULT_CONFIG);
     const svcA = new SyncService({
       storage: storeA,
       transportFactory: (cb) => bus.createTransport(cb, storeA),
@@ -449,6 +453,11 @@ describe('SyncService multi-device integration', () => {
       storage: storeB,
       transportFactory: (cb) => bus.createTransport(cb, storeB),
       applyRemoteConfigPatches,
+    });
+    const svcC = new SyncService({
+      storage: storeC,
+      transportFactory: (cb) => bus.createTransport(cb, storeC),
+      applyRemoteConfigPatches: async (patches) => { joinerConfig = applySettingsPatch(joinerConfig, patches); },
     });
     const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
     if (!created.ok) throw new Error(created.error);
@@ -462,33 +471,25 @@ describe('SyncService multi-device integration', () => {
       type: 'kiwi:update-settings',
       config: [{ path: source, value: { enabled: true, baseUrl: localAddress, apiKey: 'test-local' } }],
     });
-    await svcA.recordLocalChanges([remoteRemoval ? { path, tombstone: true } : { path, value: groupAddress }]);
-    const sender = (await storeA.load())!.device.deviceId;
-    const seq = (await storeA.load())!.engineState.seq;
+    await svcA.recordLocalChanges([{ path, value: groupAddress }, { path: 'config.sources.searxng.enabled', value: true }]);
+    const readSearxng = () => (storage.value.config as typeof DEFAULT_CONFIG).sources.searxng;
+    await vi.waitFor(() => expect(readSearxng()?.baseUrl).toBe(groupAddress));
+    await svcA.recordLocalChanges([{ path, tombstone: true }]);
+    const a = (await storeA.load())!;
+    const sender = a.device.deviceId;
+    const seq = a.engineState.seq;
     await svcA.handleMessage({ type: 'kiwi:sync:sync-now' });
     await vi.waitFor(async () => {
       const state = (await storeB.load())!.engineState;
       expect(state.peerAcks[sender]?.[sender]).toBeGreaterThanOrEqual(seq);
-      expect(state.registers[path]).toMatchObject({ tombstone: remoteRemoval });
+      expect(state.registers[path]).toBeUndefined();
+      expect(readSearxng()?.baseUrl).toBeUndefined();
     });
-    const readSearxng = () => (storage.value.config as typeof DEFAULT_CONFIG).sources.searxng;
-    expect(readSearxng()).toMatchObject({ baseUrl: localAddress, apiKey: 'test-local' });
-
-    let recorded: Promise<void> | undefined;
-    setOnLocalSyncChanges((changes) => { recorded = svcB.recordLocalChanges(changes); });
-    try {
-      const keyPath = [...source, 'apiKey'];
-      expect(await handleConfigUpdate({
-        type: 'kiwi:update-settings',
-        config: [remoteRemoval ? { path: keyPath, remove: true } : { path: keyPath, value: '' }],
-      })).toEqual({ ok: true });
-      expect(recorded).toBeDefined();
-      await recorded;
-    } finally {
-      setOnLocalSyncChanges(null);
-    }
-    expect(readSearxng()?.apiKey).toBeFalsy();
-    expect(readSearxng()?.baseUrl).toBe(remoteRemoval ? undefined : groupAddress);
+    expect(readSearxng()).toMatchObject({ apiKey: 'test-local', apiKeyOrigin: 'https://local.example' });
+    await svcA.handleMessage({ type: 'kiwi:sync:update-settings', relayUrl: '' });
+    expect((await svcC.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! })).ok).toBe(true);
+    await vi.waitFor(() => expect(joinerConfig.sources.searxng?.enabled).toBe(true));
+    expect(joinerConfig.sources.searxng?.baseUrl).toBeUndefined();
   });
 
   it('applies held remote winners when enabling search and preserves a newer local edit across restart', async () => {

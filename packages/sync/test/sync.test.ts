@@ -224,6 +224,7 @@ describe('HLC and category classification', () => {
     expect(classifySyncPath(makeMembershipElementPath('config.judge.blockedDomains', 'spam.test'))).toBe('filters');
     expect(classifySyncPath('config.judge.blocklists.recommended')).toBe('filters');
     expect(classifySyncPath('config.judge.rules')).toBe('filters');
+    expect(classifySyncPath('config.sources.searxng.apiKeyOrigin')).toBeNull();
     expect(classifySyncPath('ui:theme')).toBe('ui');
     expect(classifySyncPath('preferences.theme')).toBeNull();
     expect(classifySyncPath('bridge.mcpToken')).toBeNull();
@@ -763,6 +764,7 @@ describe('SyncEngine multi-device synchronization', () => {
     await A.engine.applyLocalChanges([
       { path: 'config.defaultMode', value: 'academic' },
       { path: 'config.llm.apiKey', value: 'sk-snapshot-test' },
+      { path: 'config.sources.searxng.apiKey', value: 'test-searxng', pairedUrl: 'https://searx.example/instance' },
     ], now + 100);
     const { entropy: rotatedEntropy } = await generateRecoveryPhrase();
     const { newGroupKeys } = await A.engine.rotatePhrase(rotatedEntropy, now + 200);
@@ -798,6 +800,13 @@ describe('SyncEngine multi-device synchronization', () => {
     expect(D.engine.getRegisters()['config.defaultMode']?.value).toBe('academic');
     expect(D.engine.getRegisters()['config.llm.apiKey']?.value).toBe('sk-snapshot-test');
     expect(received.applied.some((change) => change.path === 'config.llm.apiKey')).toBe(false);
+    const before = D.engine.getCategories();
+    await D.engine.setCategories({ keys: true });
+    const replayed = await D.engine.reconcileIncludedRegisters(before, async () => [], false);
+    expect(replayed.toApplyLocally).toContainEqual({
+      path: 'config.sources.searxng.apiKey', value: 'test-searxng', tombstone: false,
+      category: 'keys', pairedUrl: 'https://searx.example/instance',
+    });
     expect(D.engine.getVersionVector()[A.device.deviceId]).toBe(snapshotEngine.getVersionVector()[A.device.deviceId]);
 
     const B = await makePeer('B', oldKeys, now);

@@ -1,12 +1,13 @@
 import { DEFAULT_SYSTEMONE_ENDPOINT } from './decision';
 import { SOURCES } from './sources';
 import type { FusionConfig, Route, SearchMode, SourceId } from './types';
+import { httpOrigin } from './url';
 
 /**
  * Bump when a stored config has to be rewritten. New fields don't need it: `mergeConfig`
  * fills them from DEFAULT_CONFIG. Add the rewrite to MIGRATIONS under the version it upgrades from.
  */
-export const CONFIG_VERSION = 5;
+export const CONFIG_VERSION = 6;
 
 export const DEFAULT_CONFIG: FusionConfig = {
   version: CONFIG_VERSION,
@@ -127,6 +128,15 @@ const MIGRATIONS: Record<number, Migration> = {
   },
   // `typesafe` became `systemone` (a version-4 config was only ever written by a development build).
   4: renameTypesafe,
+  5: (stored) => {
+    const sources = stored.sources as FusionConfig['sources'] | undefined;
+    const searxng = sources?.searxng;
+    if (!searxng) return stored;
+    return {
+      ...stored,
+      sources: { ...sources, searxng: { ...searxng, apiKeyOrigin: searxng.apiKey ? httpOrigin(searxng.baseUrl) : undefined } },
+    };
+  },
 };
 
 function renameTypesafe(stored: Record<string, unknown>): Record<string, unknown> {

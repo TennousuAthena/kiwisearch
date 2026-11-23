@@ -261,6 +261,8 @@ export interface FusedResult {
 export interface SourceSettings {
   enabled: boolean;
   apiKey?: string;
+  /** Device-local origin of the configured SearXNG bearer key. */
+  apiKeyOrigin?: string;
   /** Base URL for self-hosted sources (SearXNG). */
   baseUrl?: string;
   /** RRF weight, default 1. */

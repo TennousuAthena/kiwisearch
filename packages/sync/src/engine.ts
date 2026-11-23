@@ -37,6 +37,7 @@ import {
   isCategoryEnabled,
   migrateRecordEntry,
   parseMembershipElementPath,
+  SEARXNG_KEY_PATH,
   validateAndClampSyncValue,
   type SyncCategory,
   type SyncCategorySettings,
@@ -58,7 +59,7 @@ export interface SyncRecordEnvelope {
 }
 
 export type SyncRecordBody =
-  | { kind: 'set'; path: string; value: unknown }
+  | { kind: 'set'; path: string; value: unknown; pairedUrl?: string }
   | { kind: 'tombstone'; path: string }
   | {
       kind: 'snapshot';
@@ -95,6 +96,7 @@ export interface SyncSnapshotEntry {
   deviceId: string;
   seq: number;
   configVersion: number;
+  pairedUrl?: string;
 }
 
 export interface SyncSnapshotRecords {
@@ -125,6 +127,7 @@ export interface RegisterState {
   value: unknown;
   configVersion: number;
   category: SyncCategory | null;
+  pairedUrl?: string;
 }
 
 export type VersionVector = Record<string, number>;
@@ -133,6 +136,7 @@ export interface LocalChangeInput {
   path: string;
   value?: unknown;
   tombstone?: boolean;
+  pairedUrl?: string;
 }
 
 export interface AppliedChange {
@@ -140,6 +144,11 @@ export interface AppliedChange {
   value?: unknown;
   tombstone: boolean;
   category: SyncCategory;
+  pairedUrl?: string;
+}
+
+function pairedUrlFor(path: string, url: unknown): { pairedUrl?: string } {
+  return path === SEARXNG_KEY_PATH && typeof url === 'string' && url.length <= 2048 ? { pairedUrl: url } : {};
 }
 
 export interface ReceiveRecordsResult {
@@ -364,7 +373,6 @@ export class SyncEngine {
     previousCategories: SyncCategorySettings,
     readLocalChanges: (paths: string[]) => Promise<LocalChangeInput[]>,
     initialJoinPending: boolean,
-    reconsiderPaths: readonly string[] = [],
   ): Promise<{ reclassified: boolean; toApplyLocally: AppliedChange[]; emitted: SyncRecordEnvelope[] }> {
     return this.withMutationLock(async () => {
       let reclassified = false;
@@ -380,14 +388,14 @@ export class SyncEngine {
         }
         if (
           initialJoinPending || category === null || !isCategoryEnabled(this.categories, category) ||
-          (isCategoryEnabled(previousCategories, previousCategory) && !reconsiderPaths.includes(register.path))
+          isCategoryEnabled(previousCategories, previousCategory)
         ) continue;
         considered.add(register.path);
         const localClock = this.excludedLocalEditClocks.get(register.path);
         if (localClock && compareHlc(localClock, register.hlc) > 0) {
           localWinners.set(register.path, localClock);
         } else if (register.deviceId !== this.device.deviceId) {
-          toApplyLocally.push({ path: register.path, value: register.value, tombstone: register.tombstone, category });
+          toApplyLocally.push({ path: register.path, value: register.value, tombstone: register.tombstone, category, ...pairedUrlFor(register.path, register.pairedUrl) });
         }
       }
       if (!initialJoinPending) {
@@ -468,6 +476,7 @@ export class SyncEngine {
       deviceId: register.deviceId,
       seq: register.seq,
       configVersion: register.configVersion,
+      ...pairedUrlFor(register.path, register.pairedUrl),
     }));
     const members = this.getMembers().map((member) => ({
       ...member,
@@ -686,9 +695,10 @@ export class SyncEngine {
       if (!isTombstone) {
         const checked = validateAndClampSyncValue(change.path, change.value);
         if (!checked.ok) continue;
+        const paired = pairedUrlFor(change.path, change.pairedUrl);
         const env = await this.appendEnvelope(
           'set',
-          { kind: 'set', path: change.path, value: checked.value },
+          { kind: 'set', path: change.path, value: checked.value, ...paired },
           nowMs,
           deferredClock,
         );
@@ -699,6 +709,7 @@ export class SyncEngine {
           seq: env.seq,
           tombstone: false,
           value: checked.value,
+          ...paired,
           configVersion: this.configVersion,
           category,
         };
@@ -982,6 +993,7 @@ export class SyncEngine {
             }
             migrated.value = checked.value;
           }
+          const paired = pairedUrlFor(migrated.path, migrated.tombstone ? undefined : entry.pairedUrl);
           this.registers[migrated.path] = {
             path: migrated.path,
             hlc: entry.hlc,
@@ -991,6 +1003,7 @@ export class SyncEngine {
             value: migrated.value,
             configVersion: entry.configVersion,
             category,
+            ...paired,
           };
           if (category !== null && isCategoryEnabled(this.categories, category)) {
             result.applied.push({
@@ -998,6 +1011,7 @@ export class SyncEngine {
               value: migrated.value,
               tombstone: Boolean(migrated.tombstone),
               category,
+              ...paired,
             });
           }
         }
@@ -1026,6 +1040,7 @@ export class SyncEngine {
           }
           migrated.value = checked.value;
         }
+        const paired = pairedUrlFor(migrated.path, body.kind === 'set' ? body.pairedUrl : undefined);
         this.registers[migrated.path] = {
           path: migrated.path,
           hlc: env.hlc,
@@ -1035,6 +1050,7 @@ export class SyncEngine {
           value: migrated.value,
           configVersion: env.configVersion,
           category,
+          ...paired,
         };
         // Unknown paths (category === null) are kept in registers & recordLog for forwarding, never applied locally.
         // Disabled categories (e.g. keys=false by default) are also never applied locally.
@@ -1044,6 +1060,7 @@ export class SyncEngine {
             value: migrated.value,
             tombstone: Boolean(migrated.tombstone),
             category,
+            ...paired,
           });
         }
       }
@@ -1139,11 +1156,11 @@ export class SyncEngine {
    * Compacts superseded record envelopes and tombstones once every active member
    * has acknowledged up to the winning/tombstone (deviceId, seq).
    */
-  compact(retainTombstonesFor: readonly string[] = []): Promise<{ removedEnvelopes: number; removedTombstones: number }> {
-    return this.withMutationLock(async () => this.compactLocked(retainTombstonesFor));
+  compact(): Promise<{ removedEnvelopes: number; removedTombstones: number }> {
+    return this.withMutationLock(async () => this.compactLocked());
   }
 
-  private compactLocked(retainTombstonesFor: readonly string[]): { removedEnvelopes: number; removedTombstones: number } {
+  private compactLocked(): { removedEnvelopes: number; removedTombstones: number } {
     const activeMemberIds = this.getActiveMembers()
       .map((m) => m.deviceId)
       .filter((id) => id !== this.device.deviceId);
@@ -1164,8 +1181,7 @@ export class SyncEngine {
     let removedTombstones = 0;
 
     for (const [path, reg] of Object.entries(this.registers)) {
-      if (reg.tombstone && isCategoryEnabled(this.categories, reg.category) && !retainTombstonesFor.includes(path) &&
-          isAckedByAll(reg.deviceId, reg.seq)) {
+      if (reg.tombstone && isCategoryEnabled(this.categories, reg.category) && isAckedByAll(reg.deviceId, reg.seq)) {
         delete this.registers[path];
         removedTombstones += 1;
       } else {
@@ -1213,6 +1229,7 @@ export class SyncEngine {
         value: reg.value,
         tombstone: reg.tombstone,
         category: reg.category,
+        ...pairedUrlFor(reg.path, reg.pairedUrl),
       });
     }
 

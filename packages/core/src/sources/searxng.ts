@@ -1,5 +1,6 @@
 import { fetchJson } from '../http';
 import type { SearchSource } from '../types';
+import { httpOrigin } from '../url';
 
 interface SearxResponse {
   results: { url: string; title: string; content?: string; engine?: string; publishedDate?: string | null }[];
@@ -14,10 +15,16 @@ export const searxng: SearchSource = {
   requiresBaseUrl: true,
   async search(query, { env, settings, count, signal }) {
     if (!settings.baseUrl) throw new Error('SearXNG base URL not configured');
-    const base = settings.baseUrl.replace(/\/+$/, '');
-    const data = await fetchJson<SearxResponse>(env.fetch, `${base}/search?q=${encodeURIComponent(query)}&format=json`, {
+    const endpoint = new URL(settings.baseUrl);
+    endpoint.pathname = `${endpoint.pathname.replace(/\/+$/, '')}/search`;
+    endpoint.search = `?q=${encodeURIComponent(query)}&format=json`;
+    endpoint.hash = '';
+    const origin = httpOrigin(endpoint.href);
+    const data = await fetchJson<SearxResponse>(env.fetch, endpoint.href, {
       signal,
-      headers: settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : undefined,
+      headers: settings.apiKey && origin && origin === settings.apiKeyOrigin
+        ? { Authorization: `Bearer ${settings.apiKey}` }
+        : undefined,
     });
     return data.results.slice(0, count).map((r, i) => ({
       url: r.url,
