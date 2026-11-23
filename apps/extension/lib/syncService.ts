@@ -111,7 +111,7 @@ function peerSessionKey(peerId: string, epoch: number): string {
 export interface SyncServiceDeps {
   storage?: SyncStorageAdapter;
   transportFactory?: (onEvent: (event: TransportEvent) => void) => SyncTransport;
-  applyRemoteConfigPatches: (patches: SettingsPatch[]) => Promise<void>;
+  applyRemoteConfigPatches: (patches: SettingsPatch[], syncKeys: boolean) => Promise<void>;
 }
 
 function defaultDeviceName(): string {
@@ -124,7 +124,7 @@ function defaultDeviceName(): string {
 export class SyncService {
   private readonly storage: SyncStorageAdapter;
   private readonly transport: SyncTransport;
-  private readonly applyRemoteConfigPatches: (patches: SettingsPatch[]) => Promise<void>;
+  private readonly applyRemoteConfigPatches: SyncServiceDeps['applyRemoteConfigPatches'];
 
   private engine: SyncEngine | null = null;
   private device: DeviceKeys | null = null;
@@ -903,7 +903,7 @@ export class SyncService {
   private async applyAppliedChanges(applied: readonly import('@kiwi-search/sync').AppliedChange[]): Promise<void> {
     const { configPatches, storageUpdates, storageRemovals } = appliedChangesToLocalUpdates(applied);
     if (configPatches.length) {
-      await this.applyRemoteConfigPatches(configPatches);
+      await this.applyRemoteConfigPatches(configPatches, this.settings?.categories.keys ?? false);
     }
     const keysToSuppress = [...Object.keys(storageUpdates), ...storageRemovals];
     if (keysToSuppress.length) {

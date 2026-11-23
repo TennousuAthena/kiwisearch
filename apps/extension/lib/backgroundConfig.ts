@@ -15,11 +15,28 @@ export function setOnLocalSyncChanges(listener: ((changes: LocalChangeInput[]) =
   onLocalSyncChanges = listener;
 }
 
+function httpOrigin(url: string | undefined): string | undefined {
+  if (!url) return;
+  const parsed = URL.parse(url);
+  if (parsed?.protocol === 'https:' || parsed?.protocol === 'http:') return parsed.origin;
+}
+
 /** Apply remote sync patches through the same serialized writer without emitting local sync echoes. */
-export function applyRemoteConfigPatches(patches: SettingsPatch[]): Promise<void> {
+export function applyRemoteConfigPatches(patches: SettingsPatch[], syncKeys: boolean): Promise<void> {
   if (!patches.length) return Promise.resolve();
   const job = writes.then(async (): Promise<void> => {
-    const config = applySettingsPatch(await loadConfig(), patches);
+    const current = await loadConfig();
+    const config = applySettingsPatch(current, patches);
+    const localSearxng = current.sources.searxng;
+    const remoteSearxng = config.sources?.searxng;
+    if (!syncKeys && localSearxng?.apiKey && remoteSearxng?.baseUrl &&
+        remoteSearxng.baseUrl !== localSearxng.baseUrl) {
+      const origin = httpOrigin(localSearxng.baseUrl);
+      if (!origin || origin !== httpOrigin(remoteSearxng.baseUrl)) {
+        if (localSearxng.baseUrl === undefined) delete remoteSearxng.baseUrl;
+        else remoteSearxng.baseUrl = localSearxng.baseUrl;
+      }
+    }
     await browser.storage.local.set({ config });
   });
   writes = job.catch(() => {});

@@ -23,7 +23,7 @@ Synced data is a set of registers keyed by a path. Each path belongs to one cate
 
 | Data (storage key, path) | Category | Default | Notes |
 |---|---|---|---|
-| `config.sources.<id>.enabled`, `.weight`, `config.sources.searxng.baseUrl` | Search settings and sources | on | The SearXNG address can sync without its optional API key, including when the address is reachable only on the local network. |
+| `config.sources.<id>.enabled`, `.weight`, `config.sources.searxng.baseUrl` | Search settings and sources | on | With key sync off and a local SearXNG API key configured, remote URL updates may change the path but not the origin (scheme, host or port). This keeps the local bearer key bound to the local server. |
 | scalar search settings in `config` (counts, timeouts, `judge` thresholds and `rules`, `intent`, `academic`, `rerank.provider`, model names, `summary` except keys, the Wikipedia folding choice) | Search settings and filters | on | `judge.rules` is an ordered list of sentences and syncs as one value. |
 | `config.judge.blockedDomains`, `boostedDomains` | Site preferences | on | One register per domain holding `block`, `boost` or `none`, which keeps the existing rule that a domain is never both (see [config-and-storage.md](config-and-storage.md)). |
 | `config.judge.blocklists`: `recommended`, `subscriptions`, `custom` | Block lists | on | One register per recommended id and per subscription id; `custom` is one text value. Only the subscriptions sync, not the fetched lists (`blocklistMeta`, `blocklist:<id>`): each device fetches them itself, which means turning on sync makes the other device request those third-party hosts too, and the settings panel says so. |

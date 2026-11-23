@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const storage = vi.hoisted(() => ({ value: {} as Record<string, unknown>, get: vi.fn(), set: vi.fn(), send: vi.fn() }));
 vi.mock('wxt/browser', () => ({ browser: { storage: { local: { get: storage.get, set: storage.set } }, runtime: { sendMessage: storage.send } } }));
-import { handleConfigUpdate } from '../lib/backgroundConfig';
+import { applyRemoteConfigPatches, handleConfigUpdate } from '../lib/backgroundConfig';
 import { applySettingsPatch, diffSettings, diffSettingsFromBaselines, undoDomainPreference, updateDomainPreference } from '../lib/configUpdates';
 import { DEFAULT_BRIDGE, loadConfig, saveConfig, saveSettings } from '../lib/settings';
 import { createAutosaveQueue } from '../entrypoints/options/autosaveQueue';
@@ -16,6 +16,29 @@ beforeEach(() => {
 });
 
 describe('settings writes from multiple pages', () => {
+  it.each([
+    { url: 'https://other.example/', key: 'test-local', syncKeys: false, allowed: false },
+    { url: 'http://old.example/', key: 'test-local', syncKeys: false, allowed: false },
+    { url: 'https://old.example:8443/', key: 'test-local', syncKeys: false, allowed: false },
+    { url: 'https://old.example/other/', key: 'test-local', syncKeys: false, allowed: true },
+    { url: 'https://other.example/', key: '', syncKeys: false, allowed: true },
+    { url: 'https://other.example/', key: 'test-local', syncKeys: true, allowed: true },
+  ])('protects a local SearXNG key when applying $url with syncKeys=$syncKeys', async ({ url, key, syncKeys, allowed }) => {
+    const previousUrl = 'https://old.example/';
+    const source = ['sources', 'searxng'];
+    await handleConfigUpdate({
+      type: 'kiwi:update-settings',
+      config: [{ path: source, value: { enabled: false, baseUrl: previousUrl, apiKey: key } }],
+    });
+    await applyRemoteConfigPatches([
+      { path: [...source, 'baseUrl'], value: url },
+      { path: [...source, 'enabled'], value: true },
+    ], syncKeys);
+    expect((await loadConfig()).sources.searxng).toEqual({
+      enabled: true, apiKey: key, baseUrl: allowed ? url : previousUrl,
+    });
+  });
+
   it('applies only fields edited against the original page baseline', async () => {
     const firstPage = await loadConfig();
     const stalePage = await loadConfig();
