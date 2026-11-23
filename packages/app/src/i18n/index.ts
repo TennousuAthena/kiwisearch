@@ -12,7 +12,14 @@ export type MessageKey = keyof Catalog & string;
  * Other languages go in here as `{ 'en': en, … }`, each a `Partial<Record<MessageKey, string>>`. Whatever one leaves out is
  * read from Chinese. `test/i18n.test.ts` checks that a translation keeps the placeholders of the text it translates.
  */
-export const i18n = createI18n(zhCN, 'zh-CN', { en });
+const translations = { en } satisfies Record<string, Partial<Record<MessageKey, string>>>;
+export const i18n = createI18n(zhCN, 'zh-CN', translations);
+const browserLocales = [
+  i18n.sourceLocale,
+  ...Object.entries(translations)
+    .filter(([, messages]) => Object.keys(zhCN).every((key) => Object.hasOwn(messages, key)))
+    .map(([locale]) => locale),
+];
 
 /** `t('newtab.status.results', { count: 3 })`. A key or a placeholder that does not exist is a type error. */
 export const t = i18n.t;
@@ -23,9 +30,9 @@ export const setLocale = i18n.setLocale;
 
 /**
  * Picks the interface language from the browser's preferred languages and sets it. Call once when a page or the service
- * worker starts, before anything is rendered. With one language available this changes nothing.
+ * worker starts, before anything is rendered. Incomplete translations are not selected automatically.
  */
 export function initLocale(languages: readonly string[] = globalThis.navigator?.languages ?? []): string {
-  i18n.setLocale(resolveLocale(languages, i18n.locales, i18n.sourceLocale));
+  i18n.setLocale(resolveLocale(languages, browserLocales, i18n.sourceLocale));
   return i18n.getLocale();
 }

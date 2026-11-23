@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { i18n } from '../src/i18n';
+import { i18n, initLocale, t } from '../src/i18n';
 import { mergeCatalogs } from '../src/i18n/merge';
 import { createI18n, formatMessage, parseRich, placeholdersOf, resolveLocale } from '../src/i18n/runtime';
 import { zhCN } from '../src/i18n/zh-CN';
@@ -127,6 +127,17 @@ describe('the Chinese catalog', () => {
 });
 
 describe('the other languages', () => {
+  it('shows the SearXNG status and action in Chinese when the browser prefers incomplete English', () => {
+    const before = i18n.getLocale();
+    try {
+      expect(initLocale(['en-US', 'en'])).toBe('zh-CN');
+      expect(t('options.sources.searxngKeyNotSent')).toBe('重新保存前，不会向此服务器发送 API Key。');
+      expect(t('options.sources.searxngResaveKey')).toBe('为此服务器重新保存 API Key');
+    } finally {
+      i18n.setLocale(before);
+    }
+  });
+
   // `i18n.locales` holds the source language and every translation that has been added; with none added this checks nothing.
   const others = i18n.locales.filter((locale) => locale !== i18n.sourceLocale);
 
