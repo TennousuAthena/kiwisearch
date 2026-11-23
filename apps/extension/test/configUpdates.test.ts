@@ -21,6 +21,10 @@ describe('settings writes from multiple pages', () => {
     { url: 'http://old.example/', key: 'test-local', syncKeys: false, allowed: false },
     { url: 'https://old.example:8443/', key: 'test-local', syncKeys: false, allowed: false },
     { url: 'https://old.example/other/', key: 'test-local', syncKeys: false, allowed: true },
+    { url: '', key: 'test-local', syncKeys: false, allowed: false },
+    { url: undefined, key: 'test-local', syncKeys: false, allowed: false },
+    { url: undefined, key: '', syncKeys: false, allowed: true },
+    { url: undefined, key: 'test-local', syncKeys: true, allowed: true },
     { url: 'https://other.example/', key: '', syncKeys: false, allowed: true },
     { url: 'https://other.example/', key: 'test-local', syncKeys: true, allowed: true },
   ])('protects a local SearXNG key when applying $url with syncKeys=$syncKeys', async ({ url, key, syncKeys, allowed }) => {
@@ -31,7 +35,7 @@ describe('settings writes from multiple pages', () => {
       config: [{ path: source, value: { enabled: false, baseUrl: previousUrl, apiKey: key } }],
     });
     await applyRemoteConfigPatches([
-      { path: [...source, 'baseUrl'], value: url },
+      url === undefined ? { path: [...source, 'baseUrl'], remove: true } : { path: [...source, 'baseUrl'], value: url },
       { path: [...source, 'enabled'], value: true },
     ], syncKeys);
     expect((await loadConfig()).sources.searxng).toEqual({

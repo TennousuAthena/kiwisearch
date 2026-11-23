@@ -29,7 +29,7 @@ export function applyRemoteConfigPatches(patches: SettingsPatch[], syncKeys: boo
     const config = applySettingsPatch(current, patches);
     const localSearxng = current.sources.searxng;
     const remoteSearxng = config.sources?.searxng;
-    if (!syncKeys && localSearxng?.apiKey && remoteSearxng?.baseUrl &&
+    if (!syncKeys && localSearxng?.apiKey && remoteSearxng &&
         remoteSearxng.baseUrl !== localSearxng.baseUrl) {
       const origin = httpOrigin(localSearxng.baseUrl);
       if (!origin || origin !== httpOrigin(remoteSearxng.baseUrl)) {
