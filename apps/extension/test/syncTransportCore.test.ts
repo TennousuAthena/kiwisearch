@@ -606,6 +606,37 @@ describe('SyncTransportCore', () => {
     core.stop();
   });
 
+  it('advertises an existing relay fallback so the returning non-initiator connects', async () => {
+    const { core, keys, ws } = await createRelayCore();
+    const returningEvents: import('../lib/syncTransportCore').TransportEvent[] = [];
+    const returning = new SyncTransportCore((event) => returningEvents.push(event));
+    try {
+      await receiveRelaySignal(ws, keys, { t: 'hello', from: 'device-b', certHash: 'aa:bb:cc' });
+      await vi.waitFor(() => expect(ws.send).toHaveBeenCalledTimes(3));
+      const dc = FakeRTCPeerConnection.instances[0]!.dataChannels[0]!;
+      dc.open();
+      dc.close();
+
+      await returning.start({ ...makeConfig('wss://relay.example'), deviceId: 'device-b' });
+      const returningWs = FakeWebSocket.instances[1]!;
+      returningWs.open();
+      await vi.waitFor(() => expect(returningWs.send).toHaveBeenCalledTimes(1));
+      ws.receive(returningWs.send.mock.calls[0]![0] as Uint8Array);
+      await vi.waitFor(() => expect(ws.send).toHaveBeenCalledTimes(4));
+      expect((await readSentSignals(ws, keys)).at(-1)).toMatchObject({
+        t: 'hello', to: 'device-b', relayFallback: true,
+      });
+      returningWs.receive(ws.send.mock.calls[3]![0] as Uint8Array);
+      await vi.waitFor(() => expect(returningEvents).toContainEqual(expect.objectContaining({
+        type: 'peer-connected', peerId: 'device-a', channel: 'relay',
+      })));
+      expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+    } finally {
+      returning.stop();
+      core.stop();
+    }
+  });
+
   it('keeps queued ICE candidates for the matching offer that arrives later', async () => {
     const { core, keys, ws } = await createRelayCore();
     await receiveRelaySignal(ws, keys, { t: 'hello', from: 'device-0', fromName: 'Peer 0', certHash: 'peer-fp' });

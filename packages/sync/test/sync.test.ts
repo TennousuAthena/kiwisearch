@@ -218,6 +218,8 @@ describe('HLC and category classification', () => {
     expect(classifySyncPath('config.llm.baseUrl')).toBe('keys');
     expect(classifySyncPath('config.judge.apiKey')).toBe('keys');
     expect(classifySyncPath('config.sources.exa.apiKey')).toBe('keys');
+    expect(classifySyncPath('config.sources.searxng.apiKey')).toBe('keys');
+    expect(classifySyncPath('config.sources.searxng.baseUrl')).toBe('search');
     expect(classifySyncPath('config.sources.exa.enabled')).toBe('search');
     expect(classifySyncPath(makeMembershipElementPath('config.judge.blockedDomains', 'spam.test'))).toBe('filters');
     expect(classifySyncPath('config.judge.blocklists.recommended')).toBe('filters');

@@ -1,6 +1,7 @@
 import { CONFIG_VERSION } from '@kiwi-search/core';
 import {
   canonicalJson,
+  classifySyncPath,
   DEFAULT_SYNC_CATEGORIES,
   SyncEngine,
   buildHandshakeHello,
@@ -513,6 +514,7 @@ export class SyncService {
       if (peer) {
         peer.channel = event.channel;
         if (peer.authenticated) await this.sendVersionVector(peer);
+        else await this.restartPeerHandshake(peer);
       }
       return;
     }
@@ -1087,7 +1089,7 @@ export class SyncService {
         if (!prevKeysEnabled && this.settings.categories.keys) {
           const remoteKeys = this.engine.exportState().registers;
           const toApply = Object.values(remoteKeys)
-            .filter((r) => r.category === 'keys' && r.deviceId !== this.device?.deviceId)
+            .filter((r) => classifySyncPath(r.path) === 'keys' && r.deviceId !== this.device?.deviceId)
             .map((r) => ({ path: r.path, value: r.value, tombstone: r.tombstone, category: 'keys' as const }));
           if (toApply.length) {
             await this.applyAppliedChanges(toApply);
@@ -1095,11 +1097,7 @@ export class SyncService {
           const config = await loadConfig();
           const storageVals = await browser.storage.local.get(null);
           const localKeyChanges = extractNonDefaultLocalChanges(config, storageVals).filter(
-            (c) =>
-              c.path.includes('apiKey') ||
-              c.path.endsWith('.endpoint') ||
-              c.path.endsWith('.baseUrl') ||
-              c.path.endsWith('.url'),
+            (c) => classifySyncPath(c.path) === 'keys',
           );
           if (localKeyChanges.length) {
             const emitted = await this.engine.applyLocalChanges(localKeyChanges);

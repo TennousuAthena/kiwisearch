@@ -456,6 +456,48 @@ describe('SyncService multi-device integration', () => {
     expect(countVv()).toBe(before + 1);
   });
 
+  it('retries the first handshake after changing from a failed direct channel to relay', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    const stateB = { config: structuredClone(DEFAULT_CONFIG) };
+    let directFailed = true;
+    const events: Array<(event: TransportEvent) => void> = [];
+    const transportFactory = (store: MemorySyncStorage) => (onEvent: (event: TransportEvent) => void) => {
+      events.push(onEvent);
+      const transport = bus.createTransport(onEvent, store);
+      return {
+        ...transport,
+        sendToPeer: (...args: Parameters<typeof transport.sendToPeer>) =>
+          directFailed ? Promise.resolve(false) : transport.sendToPeer(...args),
+      };
+    };
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: transportFactory(storeA),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const svcB = new SyncService({
+      storage: storeB,
+      transportFactory: transportFactory(storeB),
+      applyRemoteConfigPatches: async (patches) => {
+        stateB.config = applySettingsPatch(stateB.config, patches);
+      },
+    });
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!created.ok) throw new Error(created.error);
+    const joined = await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! });
+    expect(joined.ok).toBe(true);
+    await flushMicrotasks();
+    await svcA.recordLocalChanges([{ path: 'config.summary.enabled', value: false }]);
+    expect(stateB.config.summary.enabled).toBe(DEFAULT_CONFIG.summary.enabled);
+
+    directFailed = false;
+    events[0]!({ type: 'peer-channel', peerId: svcB.getStatus().deviceId!, epoch: 1, channel: 'relay' });
+    events[1]!({ type: 'peer-channel', peerId: svcA.getStatus().deviceId!, epoch: 1, channel: 'relay' });
+    await vi.waitFor(() => expect(stateB.config.summary.enabled).toBe(false));
+  });
+
   it('defaults an omitted relay URL and reports it before a group exists', async () => {
     const store = new MemorySyncStorage();
     const service = new SyncService({
@@ -883,6 +925,9 @@ describe('SyncService multi-device integration', () => {
       { path: 'config.summary.enabled', value: false },
       { path: 'config.judge.blockedDomains#farm.example', value: true },
       { path: 'config.llm.apiKey', value: 'sk-secret-from-a' },
+      { path: 'config.sources.searxng.enabled', value: true },
+      { path: 'config.sources.searxng.baseUrl', value: 'https://search.androw.eu/' },
+      { path: 'config.sources.searxng.apiKey', value: 'synthetic-searxng-key' },
     ]);
     await flushMicrotasks();
 
@@ -890,6 +935,8 @@ describe('SyncService multi-device integration', () => {
     expect(stateB.config.summary.enabled).toBe(false);
     expect(stateB.config.judge.blockedDomains).toContain('farm.example');
     expect(stateB.config.llm.apiKey).toBeFalsy();
+    expect(stateB.config.sources.searxng).toMatchObject({ enabled: true, baseUrl: 'https://search.androw.eu/' });
+    expect(stateB.config.sources.searxng?.apiKey).toBeFalsy();
     // No echo back to A.
     expect(stateA.remoteWrites).toBe(0);
 
@@ -897,8 +944,10 @@ describe('SyncService multi-device integration', () => {
     await svcA.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
     await svcB.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
     await svcA.recordLocalChanges([{ path: 'config.llm.apiKey', value: 'sk-explicit-sync-key' }]);
+    await svcA.recordLocalChanges([{ path: 'config.sources.searxng.apiKey', value: 'synthetic-searxng-key' }]);
     await flushMicrotasks();
     expect(stateB.config.llm.apiKey).toBe('sk-explicit-sync-key');
+    expect(stateB.config.sources.searxng?.apiKey).toBe('synthetic-searxng-key');
 
     // 5. Device A goes offline (clears relayUrl), then Device C joins and syncs via B!
     await svcA.handleMessage({ type: 'kiwi:sync:update-settings', relayUrl: '' });
