@@ -381,6 +381,50 @@ describe('syncMapping', () => {
 });
 
 describe('SyncService multi-device integration', () => {
+  it('syncs the saved SearXNG key origin when enabling keys after the address changes', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    const applyOnB = vi.fn(applyRemoteConfigPatches);
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const svcB = new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
+      applyRemoteConfigPatches: applyOnB,
+    });
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!created.ok) throw new Error(created.error);
+    expect((await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! })).ok).toBe(true);
+    await flushMicrotasks();
+    await svcB.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
+
+    const source = ['sources', 'searxng'];
+    const address = 'https://other.example/search-service';
+    await handleConfigUpdate({
+      type: 'kiwi:update-settings',
+      config: [{ path: source, value: { enabled: true, baseUrl: 'https://saved.example:8443/instance', apiKey: 'test-local' } }],
+    });
+    await handleConfigUpdate({
+      type: 'kiwi:update-settings',
+      config: [{ path: [...source, 'baseUrl'], value: address }],
+    });
+    expect((await svcA.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } })).ok).toBe(true);
+
+    await vi.waitFor(() => {
+      expect(applyOnB).toHaveBeenCalledWith(
+        [{ path: [...source, 'apiKey'], value: 'test-local' }],
+        'https://saved.example:8443',
+      );
+      expect(storage.value.config).toMatchObject({
+        sources: { searxng: { baseUrl: address, apiKey: 'test-local', apiKeyOrigin: 'https://saved.example:8443' } },
+      });
+    });
+  });
+
   it.each([false, true])('replays a held SearXNG address on upgrade without rebinding a local key, with local key configured=%s', async (localKey) => {
     const bus = new MockMeshBus();
     const storeA = new MemorySyncStorage();

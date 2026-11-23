@@ -46,16 +46,14 @@ export function settingsPatchesToSyncChanges(patches: readonly SettingsPatch[], 
     }
     flattenConfigValue(basePath, patch.value, out);
   }
-  return out.filter((change) => classifySyncPath(change.path) !== null).map((change) => withPairedUrl(change, config));
+  return out.filter((change) => classifySyncPath(change.path) !== null).map((change) => withBoundOrigin(change, config));
 }
 
-function withPairedUrl(change: LocalChangeInput, config?: FusionConfig): LocalChangeInput {
+function withBoundOrigin(change: LocalChangeInput, config?: FusionConfig): LocalChangeInput {
   const source = config?.sources.searxng;
-  if (change.path === SEARXNG_KEY_PATH && change.value && source?.baseUrl && source.apiKeyOrigin &&
-      httpOrigin(source.baseUrl) === source.apiKeyOrigin) {
-    return { ...change, pairedUrl: source.baseUrl };
-  }
-  return change;
+  if (change.path !== SEARXNG_KEY_PATH || !change.value || change.value !== source?.apiKey) return change;
+  const origin = httpOrigin(source.apiKeyOrigin);
+  return origin ? { ...change, pairedUrl: origin } : change;
 }
 
 /** Convert a single domain preference transition into membership-element sync changes. */
@@ -181,7 +179,7 @@ export function extractNonDefaultLocalChanges(
       out.push({ path: key, value: storageValues[key] });
     }
   }
-  return out.filter((change) => classifySyncPath(change.path) !== null).map((change) => withPairedUrl(change, config));
+  return out.filter((change) => classifySyncPath(change.path) !== null).map((change) => withBoundOrigin(change, config));
 }
 
 export function readLocalSyncChanges(
@@ -202,7 +200,7 @@ export function readLocalSyncChanges(
         : { path, tombstone: true };
     }
     const value = path.startsWith('config.') ? configValue(path) : storageValues[path];
-    return value === undefined ? { path, tombstone: true } : withPairedUrl({ path, value }, config);
+    return value === undefined ? { path, tombstone: true } : withBoundOrigin({ path, value }, config);
   });
 }
 

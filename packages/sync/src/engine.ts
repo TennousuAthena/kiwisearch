@@ -136,6 +136,7 @@ export interface LocalChangeInput {
   path: string;
   value?: unknown;
   tombstone?: boolean;
+  /** For a SearXNG key: its bound origin; older records may carry the full paired URL. */
   pairedUrl?: string;
 }
 
