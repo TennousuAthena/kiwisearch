@@ -503,5 +503,7 @@ example.com/blog             只屏蔽网站里的这个栏目
   'options.sync.acceptAnswer': '完成配对（接受应答码）',
   'options.sync.answerLabel': '应答连接码（发回发起方）',
   'options.sync.copyCode': '复制连接码',
+  'options.sync.invalidRecoveryPhrase': '恢复短语无效。请从另一台设备完整复制 24 个英文单词，并按原顺序粘贴。',
+  'options.sync.joinFailed': '无法加入同步组，请重试。',
   'options.sync.errorPrefix': '操作失败：{error}',
 } as const;

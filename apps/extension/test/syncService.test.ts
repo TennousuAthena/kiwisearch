@@ -1,5 +1,6 @@
 import { DEFAULT_CONFIG } from '@kiwi-search/core';
-import { DEFAULT_SYNC_RELAY_URL, preferenceKeys, storageKey } from '@kiwi-search/protocol';
+import { getLocale, setLocale } from '@kiwi-search/app/i18n';
+import { DEFAULT_SYNC_RELAY_URL, preferenceKeys, storageKey, type SyncRuntimeMessage } from '@kiwi-search/protocol';
 import {
   canonicalJson,
   classifySyncPath,
@@ -25,9 +26,11 @@ const storage = vi.hoisted(() => ({
   set: vi.fn(),
   remove: vi.fn(),
 }));
+const sendMessage = vi.hoisted(() => vi.fn());
 
 vi.mock('wxt/browser', () => ({
   browser: {
+    runtime: { sendMessage },
     storage: {
       local: {
         get: storage.get,
@@ -38,6 +41,7 @@ vi.mock('wxt/browser', () => ({
   },
 }));
 
+import { sendSyncMessage } from '../entrypoints/options/SyncJoinForm';
 import { applySettingsPatch, type SettingsPatch } from '../lib/configUpdates';
 import { applyRemoteConfigPatches, handleConfigUpdate } from '../lib/backgroundConfig';
 import { MemorySyncStorage, type StoredSyncRecord } from '../lib/syncDb';
@@ -1336,6 +1340,35 @@ describe('SyncService multi-device integration', () => {
     const storedD = await storeD.load();
     expect(storedD?.engineState.registers['config.llm.profiles.openai.apiKey']?.value).toBe('sk-rotated-snapshot');
     expect(storedD?.settings.categories.keys).toBe(false);
+  });
+
+  it('localizes invalid recovery phrases through the shared join handler', async () => {
+    const service = new SyncService({
+      storage: new MemorySyncStorage(),
+      transportFactory: (cb) => new MockMeshBus().createTransport(cb),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const message = { type: 'kiwi:sync:join-group', phrase: 'this is too short' } as const;
+    expect(await service.handleMessage(message)).toEqual({
+      ok: false, error: 'Invalid recovery phrase', errorCode: 'invalid-recovery-phrase',
+    });
+    const locale = getLocale();
+    sendMessage.mockImplementation((request: SyncRuntimeMessage) => service.handleMessage(request));
+    try {
+      setLocale('zh-CN');
+      expect(await sendSyncMessage(message)).toEqual({
+        ok: false, error: '恢复短语无效。请从另一台设备完整复制 24 个英文单词，并按原顺序粘贴。',
+      });
+      setLocale('en');
+      expect(await sendSyncMessage(message)).toEqual({
+        ok: false, error: 'Invalid recovery phrase. Copy all 24 English words from your other device and paste them in order.',
+      });
+      sendMessage.mockRejectedValueOnce(new Error('Background unavailable'));
+      expect(await sendSyncMessage(message)).toEqual({ ok: false, error: 'Could not join the sync group. Try again.' });
+    } finally {
+      setLocale(locale);
+      sendMessage.mockReset();
+    }
   });
 
   it('shares migrated model selections with a fresh joiner without requiring an edit', async () => {

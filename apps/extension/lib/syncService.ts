@@ -11,6 +11,7 @@ import {
   generateDeviceKeys,
   generateRecoveryPhrase,
   importGroupSecret,
+  InvalidRecoveryPhraseError,
   memberCertificate,
   openRecordBody,
   SEARXNG_KEY_PATH,
@@ -1180,6 +1181,9 @@ export class SyncService {
 
       return { ok: false, error: 'Unknown sync message' };
     } catch (error) {
+      if (message.type === 'kiwi:sync:join-group' && error instanceof InvalidRecoveryPhraseError) {
+        return { ok: false, error: 'Invalid recovery phrase', errorCode: 'invalid-recovery-phrase' };
+      }
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   }

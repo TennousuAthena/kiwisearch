@@ -1,10 +1,23 @@
 import { useState } from 'react';
 import { t } from '@kiwi-search/app/i18n';
 import type { SyncJoinConflictMode, SyncRuntimeMessage, SyncRuntimeResponse } from '@kiwi-search/protocol';
+import { browser } from 'wxt/browser';
 import { Field, Segmented } from './controls';
 
 export async function sendSyncMessage(message: SyncRuntimeMessage): Promise<SyncRuntimeResponse> {
-  return await browser.runtime.sendMessage(message) ?? { ok: false, error: t('options.ux.loadFailed') };
+  if (message.type !== 'kiwi:sync:join-group') {
+    return await browser.runtime.sendMessage(message) ?? { ok: false, error: t('options.ux.loadFailed') };
+  }
+  try {
+    const reply: SyncRuntimeResponse | undefined = await browser.runtime.sendMessage(message);
+    if (reply?.ok) return reply;
+    if (reply?.errorCode === 'invalid-recovery-phrase') {
+      return { ok: false, error: t('options.sync.invalidRecoveryPhrase') };
+    }
+  } catch {
+    // Join errors are presented in the page's locale.
+  }
+  return { ok: false, error: t('options.sync.joinFailed') };
 }
 
 export function SyncJoinForm({ deviceName, busy, onJoin }: {

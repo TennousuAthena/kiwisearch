@@ -119,11 +119,15 @@ export default function OnboardingApp() {
     setJoinError('');
     try {
       const status = await sendSyncMessage({ type: 'kiwi:sync:status' });
-      const reply = !status.ok || status.status.enabled ? status : await sendSyncMessage(message);
+      if (!status.ok) {
+        setJoinError(t('options.sync.joinFailed'));
+        return;
+      }
+      const reply = status.status.enabled ? status : await sendSyncMessage(message);
       if (reply.ok) setJoined(true);
       else setJoinError(reply.error);
     } catch {
-      setJoinError(t('options.ux.loadFailed'));
+      setJoinError(t('options.sync.joinFailed'));
     } finally {
       setJoinBusy(false);
     }

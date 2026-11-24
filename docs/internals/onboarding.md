@@ -14,7 +14,7 @@ The page a new install opens: what it shows, the network check, the three questi
 
 Every change is saved as it is made, through the same `saveSettings` diff as the settings page; the page had to be added to `isExtensionPageSender` (`lib/summaryRequest.ts`) for the background to accept its updates. `storage.local.onboarding` is `{ done, step? }`: the step is saved on every move so a closed tab resumes there; `done` is set by finishing or by "跳过引导" (which opens the settings page). Opening the page again when `done` is set starts from the welcome. No config field was added and there is no migration.
 
-Checked on 2026-11-24 in disposable Chrome profiles using the local relay: invalid phrase rejection, successful phrase join, and the model field reflecting an automatic settings update. Not checked in Firefox or the owner's profile.
+Checked on 2026-11-24 in disposable Chrome profiles using the local relay: invalid phrase rejection, successful phrase join, and the model field reflecting an automatic settings update. Onboarding and the options page translate join failures through the same message handler. The localized failure text is covered by automated tests; Firefox and the owner's profile were not checked.
 
 ## The network check
 
