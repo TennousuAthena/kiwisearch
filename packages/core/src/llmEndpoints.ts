@@ -1,12 +1,17 @@
-import { llmApiFormat } from './llmProfiles';
+import { llmApiFormat, llmBaseUrl } from './llmProfiles';
+import { httpOrigin } from './url';
 import type { LlmApiFormat } from './types';
 
 export function llmApiRoot(baseUrl: string, format: LlmApiFormat): string {
-  const base = baseUrl.replace(/\/+$/, '').replace(/\/(?:chat\/completions|responses|messages|models(?:\/[^/:]+:(?:streamGenerateContent|generateContent))?)$/, '');
-  if (format === 'chat-completions' || !base) return base;
-  const url = URL.parse(base);
-  if (!url || url.pathname !== '/') return base;
-  return base + (format === 'gemini' ? '/v1beta' : '/v1');
+  const url = URL.parse(llmBaseUrl(baseUrl));
+  if (!url) return '';
+  const path = url.pathname.replace(/\/+$/, '').replace(/\/(?:chat\/completions|responses|messages|models(?:\/[^/:]+:(?:streamGenerateContent|generateContent))?)$/, '');
+  return url.origin + (path || (format === 'gemini' ? '/v1beta' : format === 'chat-completions' ? '' : '/v1'));
+}
+
+export function assertLlmRequestOrigin(baseUrl: string, endpoint: string): void {
+  const origin = httpOrigin(baseUrl);
+  if (!origin || origin !== httpOrigin(endpoint)) throw new Error('Invalid LLM request origin');
 }
 
 export function llmEndpoint(baseUrl: string, format: LlmApiFormat, model: string, stream: boolean): string {

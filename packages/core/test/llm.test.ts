@@ -26,6 +26,19 @@ describe('chatStream', () => {
 });
 
 describe('custom API formats', () => {
+  it.each(['http://models', 'http://models:8080'])('keeps chat and stream credentials on %s', async (baseUrl) => {
+    const settings = profileLlmSettings({ baseUrl, apiKey: 'mock-key', model: 'demo' });
+    const fetch = vi.fn(async (_url: unknown, _init?: RequestInit) => Response.json({}));
+    await chat(fetch, settings, []);
+    fetch.mockResolvedValueOnce(new Response('data: [DONE]\n'));
+    for await (const _ of chatStream(fetch, settings, [])) { /* no content */ }
+    expect(fetch.mock.calls).toHaveLength(2);
+    for (const [url, init] of fetch.mock.calls) {
+      expect(url).toBe(baseUrl + '/chat/completions');
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer mock-key');
+    }
+  });
+
   const messages = [{ role: 'system', content: 'Return JSON.' }, { role: 'user', content: 'Answer.' }] as const;
   const formats = [
     {

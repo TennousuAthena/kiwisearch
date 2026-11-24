@@ -1,4 +1,4 @@
-import { isLlmProvider, isLocalUrl, llmApiFormat, llmApiRoot, llmAuthHeaders, llmBaseUrl, LLM_PRESETS, type FetchLike } from '@kiwi-search/core';
+import { assertLlmRequestOrigin, isLlmProvider, isLocalUrl, llmApiFormat, llmApiRoot, llmAuthHeaders, llmBaseUrl, LLM_PRESETS, type FetchLike } from '@kiwi-search/core';
 
 export type LlmModelsReply =
   | { ok: true; models: string[] }
@@ -18,6 +18,7 @@ export async function handleLlmModels(message: unknown, request: FetchLike = fet
   const root = provider === 'ollama' || provider === 'deepseek' ? base.replace(/\/v1$/, '') : llmApiRoot(base, format);
   const url = root + (provider === 'ollama' ? '/api/tags' : '/models');
   try {
+    assertLlmRequestOrigin(base, url);
     const res = await request(url, {
       headers: provider === 'ollama' || provider === 'openrouter' ? {} : llmAuthHeaders(key, format),
       credentials: 'omit',

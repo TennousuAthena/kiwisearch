@@ -1,5 +1,5 @@
 import { HttpError } from './http';
-import { llmAuthHeaders, llmEndpoint } from './llmEndpoints';
+import { assertLlmRequestOrigin, llmAuthHeaders, llmEndpoint } from './llmEndpoints';
 import { llmRequestBody, llmResponseText } from './llmFormats';
 import { isLocalUrl, llmApiFormat, resolveLlmSettings } from './llmProfiles';
 import type { FetchLike, LlmSettings } from './types';
@@ -29,7 +29,9 @@ export async function chat(
 ): Promise<string> {
   settings = resolveLlmSettings(settings);
   const format = llmApiFormat(settings.apiFormat);
-  const res = await fetch(llmEndpoint(settings.baseUrl, format, settings.model, false), {
+  const url = llmEndpoint(settings.baseUrl, format, settings.model, false);
+  assertLlmRequestOrigin(settings.baseUrl, url);
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...llmAuthHeaders(settings.apiKey, format) },
     body: JSON.stringify(llmRequestBody(format, settings.model, messages, { stream: false, temperature: opts.temperature ?? 0, json: opts.json })),
@@ -84,8 +86,10 @@ export async function* chatStream(
   const quirkKey = `${settings.baseUrl}\n${settings.model}`;
   let rung = disableThinking ? Math.min(streamQuirks.get(quirkKey) ?? 0, last) : 0;
   let res: Response;
+  const url = llmEndpoint(settings.baseUrl, format, settings.model, true);
   for (;;) {
-    res = await fetch(llmEndpoint(settings.baseUrl, format, settings.model, true), {
+    assertLlmRequestOrigin(settings.baseUrl, url);
+    res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
