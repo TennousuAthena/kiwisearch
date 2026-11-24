@@ -38,6 +38,24 @@ describe('resetKeepingSecrets', () => {
     next.judge.rules.push('x');
     expect(DEFAULT_CONFIG.judge.rules).toEqual([]);
   });
+
+  it('resets the overview model selection and remembered models but keeps profile connections', () => {
+    const current = structuredClone(DEFAULT_CONFIG);
+    current.llm.selection = { provider: 'custom', model: 'custom-model' };
+    current.llm.profiles = {
+      deepseek: { apiKey: 'mock-deepseek', model: 'changed-deepseek' },
+      custom: { baseUrl: 'https://custom.example/v1', apiKey: 'mock-custom', apiKeyOrigin: 'https://custom.example', model: 'custom-model' },
+      ollama: { baseUrl: 'http://localhost:11435/v1', model: 'local-model' },
+    };
+    const next = resetKeepingSecrets(current);
+    expect(next.llm.selection).toEqual({ provider: 'deepseek', model: DEFAULT_CONFIG.llm.model });
+    expect(resolveLlmSettings(next.llm)).toEqual({ ...DEFAULT_CONFIG.llm, apiKey: 'mock-deepseek' });
+    expect(next.llm.profiles).toEqual({
+      deepseek: { apiKey: 'mock-deepseek' },
+      custom: { baseUrl: 'https://custom.example/v1', apiKey: 'mock-custom', apiKeyOrigin: 'https://custom.example' },
+      ollama: { baseUrl: 'http://localhost:11435/v1' },
+    });
+  });
 });
 
 describe('tidyConfig', () => {
