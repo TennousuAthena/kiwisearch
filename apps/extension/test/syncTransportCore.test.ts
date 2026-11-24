@@ -238,25 +238,30 @@ describe('SyncTransportCore', () => {
     const keys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy));
     mockStorage.record = { groupKeys: keys };
     const core = new SyncTransportCore(() => {});
+    const connect = vi.spyOn(core as unknown as { connectWebSocket(): Promise<void> }, 'connectWebSocket');
 
-    await core.start(makeConfig('wss://relay.example'));
-    FakeWebSocket.instances[0]?.open();
-    await vi.advanceTimersByTimeAsync(0);
-    const today = await deriveTopicId(keys.topicKey, '2026-11-20');
-    const tomorrow = await deriveTopicId(keys.topicKey, '2026-11-21');
-    expect(FakeWebSocket.instances[0]?.url).toContain(today);
-    await vi.waitFor(() => expect(FakeWebSocket.instances[0]?.send).toHaveBeenCalled());
+    try {
+      await core.start(makeConfig('wss://relay.example'));
+      FakeWebSocket.instances[0]?.open();
+      await vi.advanceTimersByTimeAsync(0);
+      const today = await deriveTopicId(keys.topicKey, '2026-11-20');
+      const tomorrow = await deriveTopicId(keys.topicKey, '2026-11-21');
+      expect(FakeWebSocket.instances[0]?.url).toContain(today);
+      await vi.waitFor(() => expect(FakeWebSocket.instances[0]?.send).toHaveBeenCalled());
 
-    await vi.advanceTimersByTimeAsync(1_000);
-    await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(connect).toHaveBeenCalledTimes(2);
+      await connect.mock.results[1]!.value;
 
-    expect(FakeWebSocket.instances).toHaveLength(2);
-    expect(FakeWebSocket.instances[1]?.url).toContain(tomorrow);
-    const reconnectedSocket = FakeWebSocket.instances[1]!;
-    expect((core as unknown as { ws: FakeWebSocket | null }).ws).toBe(reconnectedSocket);
-    reconnectedSocket.open();
-    await vi.waitFor(() => expect(reconnectedSocket.send).toHaveBeenCalled());
-    core.stop();
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      expect(FakeWebSocket.instances[1]?.url).toContain(tomorrow);
+      const reconnectedSocket = FakeWebSocket.instances[1]!;
+      expect((core as unknown as { ws: FakeWebSocket | null }).ws).toBe(reconnectedSocket);
+      reconnectedSocket.open();
+      await vi.waitFor(() => expect(reconnectedSocket.send).toHaveBeenCalled());
+    } finally {
+      core.stop();
+    }
   });
 
   it('drops a relay frame when the socket closes during sealing', async () => {
@@ -284,14 +289,19 @@ describe('SyncTransportCore', () => {
     const sendsBefore = ws.send.mock.calls.length;
     const send = sendSignal({ t: 'hello', from: 'device-a', epoch: keys.epoch });
 
-    await sealStarted;
-    ws.close();
-    releaseSeal();
+    try {
+      await Promise.race([sealStarted, send.then(() => { throw new Error('Relay send finished before sealing'); })]);
+      ws.close();
+      releaseSeal();
 
-    await expect(send).resolves.toBeUndefined();
-    expect(ws.send).toHaveBeenCalledTimes(sendsBefore);
-    expect(consoleError).not.toHaveBeenCalled();
-    core.stop();
+      await expect(send).resolves.toBeUndefined();
+      expect(ws.send).toHaveBeenCalledTimes(sendsBefore);
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      core.stop();
+      releaseSeal();
+      await send.catch(() => {});
+    }
   });
 
   it('opens a relay-only beacon for a retained epoch and sends with its keys', async () => {
