@@ -381,6 +381,56 @@ describe('syncMapping', () => {
 });
 
 describe('SyncService multi-device integration', () => {
+  it.each([false, true])('ignores a remote theme echo and preserves an immediate local edit when present=%s', async (editLocally) => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
+      applyRemoteConfigPatches,
+    });
+    const svcB = new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
+      applyRemoteConfigPatches,
+    });
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!created.ok) throw new Error(created.error);
+    expect((await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! })).ok).toBe(true);
+    await flushMicrotasks();
+
+    const key = storageKey('theme');
+    const storageEvents = Promise.withResolvers<Promise<void>[]>();
+    storage.set.mockImplementationOnce(async (patch) => {
+      expect(patch).toEqual({ [key]: 'light' });
+      storage.value[key] = 'light';
+      const echo = svcB.handleStorageChanged({ [key]: { oldValue: undefined, newValue: 'light' } });
+      if (editLocally) {
+        storage.value[key] = 'dark';
+        const edit = svcB.handleStorageChanged({ [key]: { oldValue: 'light', newValue: 'dark' } });
+        storageEvents.resolve([echo, edit]);
+      } else {
+        storageEvents.resolve([echo]);
+      }
+    });
+
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const before = (await storeB.load())!.engineState;
+      await svcA.recordLocalChanges([{ path: key, value: 'light' }]);
+      await Promise.all(await storageEvents.promise);
+      const after = (await storeB.load())!.engineState;
+      expect(after.seq).toBe(before.seq + Number(editLocally));
+      expect(after.registers[key]?.value).toBe(editLocally ? 'dark' : 'light');
+    } finally {
+      vi.useRealTimers();
+    }
+    await vi.waitFor(async () => {
+      expect((await storeA.load())?.engineState.registers[key]?.value).toBe(editLocally ? 'dark' : 'light');
+    });
+  });
+
   it('syncs the saved SearXNG key origin when enabling keys after the address changes', async () => {
     const bus = new MockMeshBus();
     const storeA = new MemorySyncStorage();
