@@ -221,6 +221,23 @@ describe('LLM API addresses', () => {
   });
 
   it.each([
+    ['https://api.openai.com/v1/', 'responses', 'https://api.openai.com/v1/responses'],
+    ['https://openrouter.ai/api/', 'responses', 'https://openrouter.ai/api/v1/responses'],
+    ['https://generativelanguage.googleapis.com/v1beta/openai/', 'responses',
+      'https://generativelanguage.googleapis.com/v1beta/openai/responses'],
+    ['https://api.openai.com/v1/chat/completions/', 'chat-completions', 'https://api.openai.com/v1/chat/completions'],
+  ] as const)('keeps Responses unless %s contains an explicit operation', (address, format, endpoint) => {
+    const settings: Parameters<typeof resolveLlmSettings>[0] = {
+      baseUrl: '', model: 'demo', apiKey: '',
+      selection: { provider: 'custom', model: 'demo' },
+      profiles: { custom: { baseUrl: 'https://api.openai.com/v1', apiFormat: 'responses' } },
+    };
+    const edited = resolveLlmSettings({ ...settings, ...editLlmEndpoint(settings, address) });
+    expect(edited.apiFormat).toBe(format);
+    expect(llmEndpoint(edited.baseUrl, format, edited.model, false)).toBe(endpoint);
+  });
+
+  it.each([
     'https://user:secret@gateway.example',
     'https://gateway.example/v1#fragment',
     'https://gateway.example/v1beta/models/old:streamGenerateContent?alt=sse&key=secret',
