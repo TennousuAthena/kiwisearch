@@ -74,16 +74,15 @@ export function domainTransitionToSyncChanges(
   return out;
 }
 
-/** Convert chrome.storage.local preference updates into sync changes. */
-export function uiStorageChangesToSyncChanges(
-  changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
+/** Convert changed local preference saves into sync changes. */
+export function uiPreferenceWritesToSyncChanges(
+  values: Record<string, unknown>,
+  current: Record<string, unknown>,
 ): LocalChangeInput[] {
   const out: LocalChangeInput[] = [];
-  for (const [key, change] of Object.entries(changes)) {
-    if (!SYNCED_UI_KEYS.has(key)) continue;
-    if (JSON.stringify(change.oldValue) === JSON.stringify(change.newValue)) continue;
-    if (change.newValue === undefined) out.push({ path: key, tombstone: true });
-    else out.push({ path: key, value: change.newValue });
+  for (const [path, value] of Object.entries(values)) {
+    if (!SYNCED_UI_KEYS.has(path) || value === undefined || value === current[path]) continue;
+    out.push({ path, value });
   }
   return out;
 }

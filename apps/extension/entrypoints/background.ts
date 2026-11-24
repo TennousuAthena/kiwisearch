@@ -376,6 +376,5 @@ export default defineBackground(() => {
     }
     if (changes.bridge) void ensureBridge(makeEnv);
     if (area === 'local' && subscriptionsChanged(changes.config)) refreshSubscribedLists();
-    if (area === 'local') void syncService.handleStorageChanged(changes);
   });
 });

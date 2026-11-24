@@ -51,7 +51,7 @@ import {
   appliedChangesToLocalUpdates,
   extractNonDefaultLocalChanges,
   readLocalSyncChanges,
-  uiStorageChangesToSyncChanges,
+  uiPreferenceWritesToSyncChanges,
 } from './syncMapping';
 import { ExtensionSyncTransport, type SyncTransport } from './syncTransportBridge';
 import type { TransportEvent } from './syncTransportCore';
@@ -88,8 +88,6 @@ interface PeerWireAck {
 }
 
 type PeerWireMessage = PeerWireHello | PeerWireProof | PeerWireVv | PeerWireRecords | PeerWireAck;
-
-type StorageChange = { oldValue?: unknown; newValue?: unknown };
 
 interface LivePeerSession {
   peerId: string;
@@ -149,8 +147,6 @@ export class SyncService {
   private initialized = false;
   private initPromise: Promise<void> | null = null;
   private pendingInitialJoinSync = false;
-
-  private readonly expectedStorageChanges = new Map<string, Set<StorageChange>>();
 
   constructor(deps: SyncServiceDeps) {
     this.storage = deps.storage ?? createDefaultSyncStorage();
@@ -371,35 +367,12 @@ export class SyncService {
   async saveUiPreferences(values: Record<string, unknown>): Promise<void> {
     return this.enqueueMutation(async () => {
       await this.init();
-      const changes = await this.writeUiStorageChanges(values, (updates) => browser.storage.local.set(updates));
-      await this.recordLocalChangesNow(uiStorageChangesToSyncChanges(changes));
+      const current = await browser.storage.local.get(Object.keys(values));
+      const changes = uiPreferenceWritesToSyncChanges(values, current);
+      if (!changes.length) return;
+      await browser.storage.local.set(Object.fromEntries(changes.map(({ path, value }) => [path, value])));
+      await this.recordLocalChangesNow(changes);
     });
-  }
-
-  /** Record UI preference changes from storage.onChanged while ignoring our own remote writes. */
-  async handleStorageChanged(changes: Record<string, StorageChange>): Promise<void> {
-    return this.enqueueMutation(() => this.handleStorageChangedNow(changes));
-  }
-
-  private async handleStorageChangedNow(changes: Record<string, StorageChange>): Promise<void> {
-    await this.init();
-    if (!this.engine) return;
-    const filtered: Record<string, StorageChange> = {};
-    for (const [key, value] of Object.entries(changes)) {
-      const expected = this.expectedStorageChanges.get(key);
-      const echo = expected && [...expected].find((change) =>
-        JSON.stringify(change.oldValue) === JSON.stringify(value.oldValue) &&
-        JSON.stringify(change.newValue) === JSON.stringify(value.newValue),
-      );
-      if (echo) {
-        this.forgetExpectedStorageChange(key, echo);
-        continue;
-      }
-      filtered[key] = value;
-    }
-    const localChanges = uiStorageChangesToSyncChanges(filtered);
-    if (!localChanges.length) return;
-    await this.recordLocalChangesNow(localChanges);
   }
 
   private async broadcastEnvelopes(envelopes: readonly SyncRecordEnvelope[]): Promise<void> {
@@ -925,42 +898,11 @@ export class SyncService {
       await this.applyRemoteConfigPatches(configPatches, searxngKey?.pairedUrl);
     }
     if (Object.keys(storageUpdates).length) {
-      await this.writeUiStorageChanges(storageUpdates, (updates) => browser.storage.local.set(updates));
+      await browser.storage.local.set(storageUpdates);
     }
     if (storageRemovals.length) {
-      const removals = Object.fromEntries(storageRemovals.map((key) => [key, undefined]));
-      await this.writeUiStorageChanges(removals, (updates) => browser.storage.local.remove(Object.keys(updates)));
+      await browser.storage.local.remove(storageRemovals);
     }
-  }
-
-  private async writeUiStorageChanges(
-    updates: Record<string, unknown>,
-    write: (changes: Record<string, unknown>) => Promise<void>,
-  ): Promise<Record<string, StorageChange>> {
-    const current = await browser.storage.local.get(Object.keys(updates));
-    const expected = new Map<string, StorageChange>();
-    for (const [key, newValue] of Object.entries(updates)) {
-      const oldValue = current[key];
-      if (JSON.stringify(oldValue) === JSON.stringify(newValue)) continue;
-      const change = { oldValue, newValue };
-      expected.set(key, change);
-      const pending = this.expectedStorageChanges.get(key) ?? new Set<StorageChange>();
-      pending.add(change);
-      this.expectedStorageChanges.set(key, pending);
-    }
-    if (!expected.size) return {};
-    try {
-      await write(Object.fromEntries([...expected].map(([key, change]) => [key, change.newValue])));
-    } catch (error) {
-      for (const [key, change] of expected) this.forgetExpectedStorageChange(key, change);
-      throw error;
-    }
-    return Object.fromEntries(expected);
-  }
-
-  private forgetExpectedStorageChange(key: string, change: StorageChange): void {
-    const pending = this.expectedStorageChanges.get(key);
-    if (pending?.delete(change) && !pending.size) this.expectedStorageChanges.delete(key);
   }
 
   private async reconcileIncludedRegisters(previousCategories: SyncCategorySettings): Promise<boolean> {

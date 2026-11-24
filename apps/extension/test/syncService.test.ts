@@ -44,7 +44,7 @@ import {
   appliedChangesToLocalUpdates,
   domainTransitionToSyncChanges,
   settingsPatchesToSyncChanges,
-  uiStorageChangesToSyncChanges,
+  uiPreferenceWritesToSyncChanges,
 } from '../lib/syncMapping';
 import { SyncService } from '../lib/syncService';
 import type { SyncTransport } from '../lib/syncTransportBridge';
@@ -340,10 +340,10 @@ describe('syncMapping', () => {
     expect(domChanges).toEqual([{ path: 'config.judge.boostedDomains#docs.example', value: true }]);
 
     const themeKey = storageKey('theme');
-    const uiChanges = uiStorageChangesToSyncChanges({
-      [themeKey]: { oldValue: 'auto', newValue: 'dark' },
-      unrelatedKey: { oldValue: 1, newValue: 2 },
-    });
+    const uiChanges = uiPreferenceWritesToSyncChanges(
+      { [themeKey]: 'dark', unrelatedKey: 2 },
+      { [themeKey]: 'auto', unrelatedKey: 1 },
+    );
     expect(uiChanges).toEqual([{ path: themeKey, value: 'dark' }]);
 
     const localUpdates = appliedChangesToLocalUpdates([
@@ -429,53 +429,62 @@ describe('SyncService multi-device integration', () => {
   });
 
   it.each([false, true])('ignores a remote theme echo and preserves an immediate local edit when present=%s', async (editLocally) => {
-    const bus = new MockMeshBus();
-    const storeA = new MemorySyncStorage();
-    const storeB = new MemorySyncStorage();
-    const svcA = new SyncService({
-      storage: storeA,
-      transportFactory: (cb) => bus.createTransport(cb, storeA),
-      applyRemoteConfigPatches,
-    });
-    const svcB = new SyncService({
-      storage: storeB,
-      transportFactory: (cb) => bus.createTransport(cb, storeB),
-      applyRemoteConfigPatches,
-    });
-    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
-    if (!created.ok) throw new Error(created.error);
-    expect((await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! })).ok).toBe(true);
-    await flushMicrotasks();
-
+    const { svcA, svcB, storeA, storeB } = await pairThemeServices();
     const key = storageKey('theme');
-    const storageEvents = Promise.withResolvers<Promise<void>[]>();
+    const written = Promise.withResolvers<{ edit?: Promise<void> }>();
     storage.set.mockImplementationOnce(async (patch) => {
       expect(patch).toEqual({ [key]: 'light' });
       storage.value[key] = 'light';
-      const echo = svcB.handleStorageChanged({ [key]: { oldValue: undefined, newValue: 'light' } });
-      if (editLocally) {
-        storage.value[key] = 'dark';
-        const edit = svcB.handleStorageChanged({ [key]: { oldValue: 'light', newValue: 'dark' } });
-        storageEvents.resolve([echo, edit]);
-      } else {
-        storageEvents.resolve([echo]);
-      }
+      written.resolve({ edit: editLocally ? svcB.saveUiPreferences({ [key]: 'dark' }) : undefined });
     });
 
-    vi.useFakeTimers({ toFake: ['setTimeout'] });
-    try {
-      const before = (await storeB.load())!.engineState;
-      await svcA.recordLocalChanges([{ path: key, value: 'light' }]);
-      await Promise.all(await storageEvents.promise);
-      const after = (await storeB.load())!.engineState;
-      expect(after.seq).toBe(before.seq + Number(editLocally));
-      expect(after.registers[key]?.value).toBe(editLocally ? 'dark' : 'light');
-    } finally {
-      vi.useRealTimers();
-    }
+    const before = (await storeB.load())!.engineState;
+    await svcA.recordLocalChanges([{ path: key, value: 'light' }]);
+    const { edit } = await written.promise;
+    await edit;
+    await svcB.handleMessage({ type: 'kiwi:sync:status' });
+    const after = (await storeB.load())!.engineState;
+    expect(after.seq).toBe(before.seq + Number(editLocally));
+    expect(after.registers[key]?.value).toBe(editLocally ? 'dark' : 'light');
     await vi.waitFor(async () => {
       expect((await storeA.load())?.engineState.registers[key]?.value).toBe(editLocally ? 'dark' : 'light');
     });
+  });
+
+  it('records a later local transition that matches a previous remote write', async () => {
+    const { svcA, svcB, storeA, storeB } = await pairThemeServices();
+    const key = storageKey('theme');
+    storage.value[key] = 'system';
+    storage.get.mockClear();
+    const remoteWrite = Promise.withResolvers<void>();
+    const releaseWrite = Promise.withResolvers<void>();
+    storage.set.mockImplementationOnce(async (patch) => {
+      remoteWrite.resolve();
+      await releaseWrite.promise;
+      Object.assign(storage.value, patch);
+    });
+    const before = (await storeB.load())!.engineState.seq;
+    await svcA.recordLocalChanges([{ path: key, value: 'light' }]);
+    await remoteWrite.promise;
+    const readBeforeRemoteWrite = storage.get.mock.calls.some(([keys]) => Array.isArray(keys) && keys.includes(key));
+    const firstEdit = svcB.saveUiPreferences({ [key]: 'dark' });
+    releaseWrite.resolve();
+    await firstEdit;
+    expect(readBeforeRemoteWrite).toBe(false);
+
+    await vi.waitFor(async () => expect((await storeA.load())?.engineState.registers[key]?.value).toBe('dark'));
+    await svcB.saveUiPreferences({ [key]: 'system' });
+    await vi.waitFor(async () => expect((await storeA.load())?.engineState.registers[key]?.value).toBe('system'));
+    await svcB.saveUiPreferences({ [key]: 'light' });
+
+    const b = (await storeB.load())!;
+    expect(b.engineState.seq).toBe(before + 3);
+    expect(b.engineState.registers[key]).toMatchObject({ value: 'light', deviceId: b.device.deviceId });
+    expect(storage.value[key]).toBe('light');
+    await vi.waitFor(async () => expect((await storeA.load())?.engineState.registers[key]).toMatchObject({
+      value: 'light',
+      deviceId: b.device.deviceId,
+    }));
   });
 
   it('syncs the saved SearXNG key origin when enabling keys after the address changes', async () => {
