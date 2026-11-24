@@ -24,9 +24,8 @@ export function inferLlmApiFormat(value: string, previous?: Partial<Pick<LlmProf
     if (path.endsWith('/messages')) return 'anthropic';
     if (GEMINI_OPERATION.test(path)) return 'gemini';
     if (hostname === ANTHROPIC_HOST) return 'anthropic';
-    const geminiOpenAi = hostname === GEMINI_HOST && /(?:^|\/)openai(?:\/|$)/.test(path);
-    if (hostname === GEMINI_HOST && !geminiOpenAi) return 'gemini';
-    if (geminiOpenAi || OPENAI_COMPATIBLE_HOSTS.has(hostname) || (port === '11434' && isLocalUrl(url.href))) {
+    if (hostname === GEMINI_HOST) return /(?:^|\/)openai(?:\/|$)/.test(path) ? 'chat-completions' : 'gemini';
+    if (OPENAI_COMPATIBLE_HOSTS.has(hostname) || (port === '11434' && isLocalUrl(url.href))) {
       return previous?.apiFormat === 'responses' ? 'responses' : 'chat-completions';
     }
   }

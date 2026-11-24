@@ -223,10 +223,10 @@ describe('LLM API addresses', () => {
   it.each([
     ['https://api.openai.com/v1/', 'responses', 'https://api.openai.com/v1/responses'],
     ['https://openrouter.ai/api/', 'responses', 'https://openrouter.ai/api/v1/responses'],
-    ['https://generativelanguage.googleapis.com/v1beta/openai/', 'responses',
-      'https://generativelanguage.googleapis.com/v1beta/openai/responses'],
+    ['https://generativelanguage.googleapis.com/v1beta/openai', 'chat-completions',
+      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'],
     ['https://api.openai.com/v1/chat/completions/', 'chat-completions', 'https://api.openai.com/v1/chat/completions'],
-  ] as const)('keeps Responses unless %s contains an explicit operation', (address, format, endpoint) => {
+  ] as const)('resolves an address edit to %s from a selected Responses format', (address, format, endpoint) => {
     const settings: Parameters<typeof resolveLlmSettings>[0] = {
       baseUrl: '', model: 'demo', apiKey: '',
       selection: { provider: 'custom', model: 'demo' },
