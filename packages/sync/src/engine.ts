@@ -677,6 +677,17 @@ export class SyncEngine {
     return this.withMutationLock(() => this.applyLocalChangesLocked(changes, nowMs));
   }
 
+  seedUnregisteredKeys(localEntries: readonly LocalChangeInput[]): Promise<SyncRecordEnvelope[]> {
+    return this.withMutationLock(async () => {
+      if (!this.categories.keys) return [];
+      const entries = localEntries.filter(({ path }) =>
+        classifySyncPath(path) === 'keys' && !this.registers[path] && !this.excludedLocalEditClocks.has(path),
+      );
+      const seedClock = { ms: 0, counter: 0, deviceId: this.device.deviceId };
+      return this.applyLocalChangesLocked(entries, Date.now(), new Map(entries.map(({ path }) => [path, seedClock])));
+    });
+  }
+
   backfillLlmSelections(readLocalChanges: (paths: string[]) => Promise<LocalChangeInput[]>): Promise<SyncRecordEnvelope[]> {
     return this.withMutationLock(async () => {
       const legacyModels = new Map<string, RegisterState>();
@@ -1179,8 +1190,8 @@ export class SyncEngine {
   }
 
   /**
-   * Compacts superseded record envelopes and tombstones once every active member
-   * has acknowledged up to the winning/tombstone (deviceId, seq).
+   * Compacts superseded record envelopes and non-sensitive tombstones once every
+   * active member has acknowledged up to the winning/tombstone (deviceId, seq).
    */
   compact(): Promise<{ removedEnvelopes: number; removedTombstones: number }> {
     return this.withMutationLock(async () => this.compactLocked());
@@ -1207,7 +1218,7 @@ export class SyncEngine {
     let removedTombstones = 0;
 
     for (const [path, reg] of Object.entries(this.registers)) {
-      if (reg.tombstone && isCategoryEnabled(this.categories, reg.category) && isAckedByAll(reg.deviceId, reg.seq)) {
+      if (reg.tombstone && reg.category !== 'keys' && isCategoryEnabled(this.categories, reg.category) && isAckedByAll(reg.deviceId, reg.seq)) {
         delete this.registers[path];
         removedTombstones += 1;
       } else {
@@ -1233,6 +1244,7 @@ export class SyncEngine {
    * - 'group' (default): apply group registers to local device, emit nothing
    * - 'local': publish local entries with fresh HLCs so local values win
    * - 'merge': keep group scalar values, publish local membership additions not in group, apply group registers
+   * Keys and endpoints are reconciled separately when that category is enabled.
    */
   async resolveJoinConflict(
     mode: JoinConflictMode,
@@ -1249,7 +1261,7 @@ export class SyncEngine {
   ): Promise<{ toApplyLocally: AppliedChange[]; emitted: SyncRecordEnvelope[] }> {
     const groupApplied: AppliedChange[] = [];
     for (const reg of Object.values(this.registers)) {
-      if (reg.category === null || !isCategoryEnabled(this.categories, reg.category)) continue;
+      if (reg.category === null || reg.category === 'keys' || !isCategoryEnabled(this.categories, reg.category)) continue;
       groupApplied.push({
         path: reg.path,
         value: reg.value,
@@ -1264,13 +1276,14 @@ export class SyncEngine {
     }
 
     if (mode === 'local') {
-      const emitted = await this.applyLocalChangesLocked(localEntries, nowMs);
+      const emitted = await this.applyLocalChangesLocked(localEntries.filter(({ path }) => classifySyncPath(path) !== 'keys'), nowMs);
       return { toApplyLocally: [], emitted };
     }
 
     // 'merge': union membership sets + keep group scalars (and publish local scalars only if group has no register for them)
     const toPublish: LocalChangeInput[] = [];
     for (const entry of localEntries) {
+      if (classifySyncPath(entry.path) === 'keys') continue;
       const existing = this.registers[entry.path];
       if (parseMembershipElementPath(entry.path)) {
         if (!entry.tombstone && (!existing || existing.tombstone)) {

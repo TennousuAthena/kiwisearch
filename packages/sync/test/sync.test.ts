@@ -1199,4 +1199,22 @@ describe('SyncEngine multi-device synchronization', () => {
     expect(B.engine.getRegisters()[makeMembershipElementPath('config.judge.blockedDomains', 'local.test')]?.value).toBe(true);
     expect(B.engine.getRegisters()[makeMembershipElementPath('config.judge.blockedDomains', 'group.test')]?.value).toBe(true);
   });
+
+  it('lets a synced key clear beat a later bootstrap from a peer that has not seen the clear', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = Date.now();
+    const A = await makePeer('A', groupKeys, now);
+    const C = await makePeer('C', groupKeys, now + 100);
+    await A.engine.setCategories({ keys: true });
+    await C.engine.setCategories({ keys: true });
+    const path = 'config.sources.brave.apiKey';
+    const clear = await A.engine.applyLocalChanges([{ path, tombstone: true }], now + 200);
+    const seeded = await C.engine.seedUnregisteredKeys([{ path, value: 'mock-stale-key' }]);
+    expect(seeded).toHaveLength(1);
+    expect((await A.engine.receiveRecords(seeded, now + 300)).applied).toHaveLength(0);
+    expect((await C.engine.receiveRecords(clear, now + 300)).applied).toMatchObject([{ path, tombstone: true }]);
+    expect(await C.engine.seedUnregisteredKeys([{ path, value: 'mock-stale-key' }])).toEqual([]);
+    const replacement = await C.engine.applyLocalChanges([{ path, value: 'mock-new-key' }], now + 400);
+    expect((await A.engine.receiveRecords(replacement, now + 500)).applied).toMatchObject([{ path, value: 'mock-new-key' }]);
+  });
 });

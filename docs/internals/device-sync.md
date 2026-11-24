@@ -297,7 +297,7 @@ The removed device keeps everything it already had, and can still derive the old
 Every synced path is a last-writer-wins register stamped with a hybrid logical clock: 48-bit milliseconds, a 16-bit counter, then the device id to break ties. Writes come from where they already happen: each accepted `kiwi:update-settings` patch (leaf paths from `configUpdates.ts`), the domain block/boost actions, and the preference store. Loading defaults, merging, and `MIGRATIONS` never create records, so a default or a migration on one device cannot overwrite another device's explicit choice.
 
 - Membership fields are per-element registers, so adding `a.com` on one device and `b.com` on another keeps both, as the options page already does locally.
-- A deletion is a register set to "deleted" (a tombstone), kept until every current member has seen it.
+- A deletion is a register set to "deleted" (a tombstone). Ordinary tombstones can be removed once every current member has seen them. For Keys and endpoints, compaction keeps the winning tombstone so a late joiner learns that the group cleared the value. A later explicit edit can replace it; the superseded record can then be compacted normally.
 - Remote clocks more than 24 h ahead of the local wall clock are refused, so one device with a wrong clock cannot win every future conflict.
 
 Why not a CRDT library: the data is a few hundred small fields, the merge rules are per field and Kiwi-specific (categories, the block/boost exclusivity, version skew), and the libraries are large for that. Yjs is about 28 KB gzipped; Automerge's WebAssembly is about 1.1 MB gzipped and would need `'wasm-unsafe-eval'` in the extension's content security policy. Registers with a clock and version vectors are a few hundred lines that the unit tests can cover completely.
@@ -309,6 +309,10 @@ Each device appends its own changes as records `(device, seq, hlc, path, value)`
 ### Joining with existing settings
 
 A device that joins already has settings. The panel asks once: **use the group's settings** (the new device's differing values are replaced), **use this device's** (they become new records) or **merge** (membership fields are united; for other fields the group's value wins). The default is the group's settings.
+
+Keys and endpoints are reconciled separately after explicit opt-in. A joiner that opts in before catch-up waits until the first covered batch before importing pre-existing values. An untracked local value can only seed an unclaimed register and gets the minimum clock, so it also loses to an existing group edit or clear if that record arrives afterward. Explicit local edits retain their actual clocks. If every copy of a tombstone was compacted by an older build before updating, the group must clear the value again on the updated build.
+
+Checked on 2026-11-24 with three isolated Chrome profiles and a local relay: Custom model, Brave and SearXNG mock keys stayed cleared after compaction and a late joiner opted in with stale copies. Explicitly saving a replacement on the late joiner still synced to both other profiles. Automated tests also cover opting in before catch-up; the key-clear scenario was not checked in Firefox.
 
 ### Versions
 

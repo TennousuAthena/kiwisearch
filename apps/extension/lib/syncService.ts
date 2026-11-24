@@ -867,6 +867,10 @@ export class SyncService {
         if (resolved.emitted.length) {
           await this.broadcastEnvelopes(resolved.emitted);
         }
+        if (this.settings.categories.keys) {
+          await this.reconcileIncludedRegisters({ ...this.settings.categories, keys: false });
+          await this.seedUnregisteredKeys();
+        }
       } else if (!this.pendingInitialJoinSync && result.applied.length) {
         await this.applyAppliedChanges(result.applied);
       }
@@ -924,6 +928,13 @@ export class SyncService {
     return this.engine!.backfillLlmSelections(async (paths) => readLocalSyncChanges(paths, await loadConfig(), {}));
   }
 
+  private async seedUnregisteredKeys(): Promise<void> {
+    const config = await loadConfig();
+    const localEntries = extractNonDefaultLocalChanges(config, {});
+    const emitted = await this.engine!.seedUnregisteredKeys(localEntries);
+    if (emitted.length) await this.broadcastEnvelopes(emitted);
+  }
+
   async handleMessage(message: SyncRuntimeMessage): Promise<SyncRuntimeResponse> {
     return this.enqueueMutation(() => this.handleMessageNow(message));
   }
@@ -971,7 +982,8 @@ export class SyncService {
         // Seed initial non-default local settings (excluding keys unless enabled).
         const config = await loadConfig();
         const storageVals = await browser.storage.local.get(null);
-        const initialChanges = extractNonDefaultLocalChanges(config, storageVals);
+        const initialChanges = extractNonDefaultLocalChanges(config, storageVals)
+          .filter(({ path }) => classifySyncPath(path) !== 'keys');
         if (initialChanges.length) {
           await this.engine.applyLocalChanges(initialChanges);
         }
@@ -1087,18 +1099,8 @@ export class SyncService {
           if (backfilled.length) await this.broadcastEnvelopes(backfilled);
         }
 
-        // Publish pre-existing local keys that have never been registered.
-        if (!previousCategories.keys && this.settings.categories.keys) {
-          const registers = this.engine.getRegisters();
-          const config = await loadConfig();
-          const storageVals = await browser.storage.local.get(null);
-          const localKeyChanges = extractNonDefaultLocalChanges(config, storageVals).filter(
-            (c) => classifySyncPath(c.path) === 'keys' && !registers[c.path],
-          );
-          if (localKeyChanges.length) {
-            const emitted = await this.engine.applyLocalChanges(localKeyChanges);
-            if (emitted.length) await this.broadcastEnvelopes(emitted);
-          }
+        if (!previousCategories.keys && this.settings.categories.keys && !this.pendingInitialJoinSync) {
+          await this.seedUnregisteredKeys();
         }
 
         await this.persist();

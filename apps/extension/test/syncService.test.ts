@@ -647,6 +647,78 @@ describe('SyncService multi-device integration', () => {
     expect(joinerConfig.sources.searxng?.baseUrl).toBeUndefined();
   });
 
+  it.each([false, true])('does not resurrect cleared keys when a late joiner opts in before catch-up=%s', async (enableEarly) => {
+    const bus = new MockMeshBus();
+    const makeDevice = () => {
+      const db = new MemorySyncStorage();
+      const local = { config: structuredClone(DEFAULT_CONFIG) };
+      const svc = new SyncService({
+        storage: db,
+        transportFactory: (cb) => bus.createTransport(cb, db),
+        applyRemoteConfigPatches: async (patches) => { local.config = applySettingsPatch(local.config, patches); },
+      });
+      return { db, local, svc };
+    };
+    const [a, b, c] = [makeDevice(), makeDevice(), makeDevice()];
+    const group = await a.svc.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!group.ok || !group.phrase) throw new Error('Failed to create group');
+    const phrase = group.phrase;
+    const enableKeys = async (svc: SyncService) => {
+      expect(await svc.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } })).toMatchObject({ ok: true });
+    };
+    const paths = ['config.llm.profiles.custom.apiKey', 'config.sources.brave.apiKey'];
+    const configPaths = paths.map((path) => path.split('.').slice(1));
+    const readKeys = (config: typeof DEFAULT_CONFIG) => [config.llm.profiles?.custom?.apiKey, config.sources.brave?.apiKey];
+    expect(await b.svc.handleMessage({ type: 'kiwi:sync:join-group', phrase })).toMatchObject({ ok: true });
+    await vi.waitFor(async () => expect((await b.db.load())?.settings.pendingInitialJoinSync).toBe(false));
+    await enableKeys(a.svc);
+    await enableKeys(b.svc);
+    const oldKeys = configPaths.map((path) => ({ path, value: 'mock-old-key' }));
+    a.local.config = applySettingsPatch(a.local.config, oldKeys);
+    c.local.config = applySettingsPatch(c.local.config, oldKeys);
+    await a.svc.recordLocalChanges(paths.map((path) => ({ path, value: 'mock-old-key' })));
+    await vi.waitFor(() => expect(readKeys(b.local.config)).toEqual(['mock-old-key', 'mock-old-key']));
+    const original = (await a.db.load())!;
+    const oldSeqs = paths.map((path) => original.engineState.registers[path]!.seq);
+    a.local.config = applySettingsPatch(a.local.config, configPaths.map((path) => ({ path, remove: true })));
+    await a.svc.recordLocalChanges(paths.map((path) => ({ path, tombstone: true })));
+    await vi.waitFor(async () => {
+      const state = (await b.db.load())!.engineState;
+      expect(state.recordLog.some(({ deviceId, seq }) => deviceId === original.device.deviceId && oldSeqs.includes(seq))).toBe(false);
+      expect(paths.map((path) => state.registers[path]?.tombstone)).toEqual([true, true]);
+      expect(readKeys(b.local.config)).toEqual([undefined, undefined]);
+    });
+    bus.setOnline(original.device.deviceId, false);
+
+    storage.value.config = c.local.config;
+    bus.holdCoveredRecords = enableEarly;
+    expect(await c.svc.handleMessage({ type: 'kiwi:sync:join-group', phrase, conflictMode: 'local' })).toMatchObject({ ok: true });
+    if (enableEarly) {
+      await vi.waitFor(() => expect(bus.heldCoveredCount).toBeGreaterThan(0));
+      await enableKeys(c.svc);
+      const joiner = (await c.db.load())!;
+      expect(joiner.settings.pendingInitialJoinSync).toBe(true);
+      expect(joiner.engineState.recordLog.some((record) => record.deviceId === joiner.device.deviceId && record.kind === 'set')).toBe(false);
+      bus.holdCoveredRecords = false;
+      bus.releaseCoveredRecords();
+    }
+    await vi.waitFor(async () => expect((await c.db.load())?.settings.pendingInitialJoinSync).toBe(false));
+    if (!enableEarly) {
+      expect(readKeys(c.local.config)).toEqual(['mock-old-key', 'mock-old-key']);
+      await enableKeys(c.svc);
+    }
+    bus.setOnline(original.device.deviceId, true);
+    await vi.waitFor(async () => {
+      const joiner = (await c.db.load())!;
+      expect(joiner.engineState.recordLog.some((record) => record.deviceId === joiner.device.deviceId && record.kind === 'set')).toBe(false);
+      for (const peer of [a, b, c]) {
+        expect(readKeys(peer.local.config)).toEqual([undefined, undefined]);
+        const state = (await peer.db.load())!.engineState;
+        expect(paths.map((path) => state.registers[path]?.tombstone)).toEqual([true, true]);
+      }
+    });
+  });
+
   it('applies held remote winners when enabling search and preserves a newer local edit across restart', async () => {
     const bus = new MockMeshBus();
     const storeA = new MemorySyncStorage();
