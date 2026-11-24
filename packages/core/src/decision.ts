@@ -1,6 +1,7 @@
 import { HttpError, fetchJson } from './http';
 import { chat, llmUsable, type ChatMessage } from './llm';
-import { isLocalUrl, resolveLlmSettings } from './llmProfiles';
+import { resolveLlmSettings } from './llmProfiles';
+import { isLocalUrl } from './url';
 import { coreMessages } from './messages';
 import type { Env, FusionConfig, LlmSettings } from './types';
 

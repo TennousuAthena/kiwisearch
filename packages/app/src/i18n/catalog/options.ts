@@ -361,6 +361,7 @@ Authorization: Bearer <Key>
   'options.llm.listError.http': '获取模型失败（HTTP {status}）。',
   'options.llm.listError.response': '服务器没有返回可识别的模型列表。',
   'options.llm.listError.network': '无法连接模型服务器或请求超时。你仍可手动输入模型。',
+  'options.llm.listError.settingsChanged': '连接设置已更改。请重新获取模型列表。',
 
   // FiltersSection.tsx
   'options.filters.title': '屏蔽与偏好',

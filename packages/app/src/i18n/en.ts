@@ -7,6 +7,7 @@ export const en = {
   'options.llm.apiFormat': 'API format',
   'options.llm.baseUrlHint': 'Enter the server address or the API base through /v1. The request path is added for you.',
   'options.llm.requestUrl': 'Test connection will request: {url}',
+  'options.llm.listError.settingsChanged': 'Connection settings changed. Fetch the model list again.',
   'options.test.llmBadShape': 'The response does not match the selected API format. Check the API address and format.',
   'options.llm.format.chat-completions': 'OpenAI Chat Completions',
   'options.llm.format.responses': 'OpenAI Responses',

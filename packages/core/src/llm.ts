@@ -1,7 +1,8 @@
 import { HttpError } from './http';
 import { assertLlmRequestOrigin, llmAuthHeaders, llmEndpoint } from './llmEndpoints';
 import { llmRequestBody, llmResponseText } from './llmFormats';
-import { isLocalUrl, llmApiFormat, resolveLlmSettings } from './llmProfiles';
+import { llmApiFormat, resolveLlmSettings } from './llmProfiles';
+import { isLocalUrl } from './url';
 import type { FetchLike, LlmSettings } from './types';
 
 export interface ChatMessage {

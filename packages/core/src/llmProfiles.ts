@@ -1,6 +1,6 @@
 import { inferLlmApiFormat, llmBaseUrl, ollamaApiMount } from './llmEndpoints';
 import type { LlmApiFormat, LlmProfile, LlmProviderId, LlmSettings } from './types';
-import { httpOrigin } from './url';
+import { httpOrigin, isLocalUrl } from './url';
 
 export const LLM_PROVIDERS = ['deepseek', 'openai', 'openrouter', 'ollama', 'custom'] as const;
 export const LLM_API_FORMATS = ['chat-completions', 'responses', 'anthropic', 'gemini'] as const;
@@ -16,12 +16,6 @@ export const LLM_PRESETS: Record<LlmProviderId, LlmProfile> = {
   ollama: { baseUrl: 'http://localhost:11434/v1', apiKey: '', model: 'qwen2.5:14b' },
   custom: { baseUrl: '', apiKey: '', model: '' },
 };
-
-const LOCAL_HOST = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
-
-export function isLocalUrl(url: string): boolean {
-  return LOCAL_HOST.test(URL.parse(url)?.hostname ?? '');
-}
 
 export function isLlmProvider(value: unknown): value is LlmProviderId {
   return LLM_PROVIDERS.some((provider) => provider === value);
@@ -53,7 +47,8 @@ export function editLlmEndpoint(value: LlmSettings, baseUrl: string): Partial<Ll
   const settings = profileLlmSettings(value);
   const { provider, model } = settings.selection!;
   const custom = settings.profiles?.custom;
-  const apiFormat = inferLlmApiFormat(baseUrl) ?? (provider === 'custom' ? llmApiFormat(custom?.apiFormat) : 'chat-completions');
+  const previous = provider === 'custom' ? custom : undefined;
+  const apiFormat = inferLlmApiFormat(baseUrl, previous) ?? llmApiFormat(previous?.apiFormat);
   return {
     profiles: { ...settings.profiles, custom: { ...custom, baseUrl, apiFormat, model } },
     ...(provider === 'custom' ? {} : { selection: { provider: 'custom', model } }),

@@ -1,7 +1,45 @@
+import { editLlmEndpoint, llmBaseUrl, llmEndpoint, resolveLlmSettings, type LlmSettings } from '@kiwi-search/core';
 import { describe, expect, it, vi } from 'vitest';
-import { handleLlmModels } from '../lib/llmModels';
+import { alignLlmModelLookup, handleLlmModels, llmModelRequest } from '../lib/llmModels';
+
+function customSettings(baseUrl: string, apiFormat: 'chat-completions' | 'gemini'): LlmSettings {
+  return {
+    baseUrl: '', model: 'demo', apiKey: '',
+    selection: { provider: 'custom', model: 'demo' },
+    profiles: { custom: { baseUrl, apiFormat } },
+  };
+}
 
 describe('model discovery', () => {
+  it('uses the OpenRouter chat and model paths after editing a Gemini address', async () => {
+    const saved = customSettings('https://generativelanguage.googleapis.com/v1beta', 'gemini');
+    const connection = resolveLlmSettings({ ...saved, ...editLlmEndpoint(saved, 'https://openrouter.ai/api/') });
+    const message = llmModelRequest('custom', connection);
+    expect(llmEndpoint(message.baseUrl, message.apiFormat, connection.model, false)).toBe('https://openrouter.ai/api/v1/chat/completions');
+    const request = vi.fn(async () => Response.json({ data: [{ id: 'demo' }] }));
+    expect(await handleLlmModels(message, request)).toEqual({ ok: true, models: ['demo'] });
+    expect(request).toHaveBeenCalledWith('https://openrouter.ai/api/v1/models', expect.anything());
+  });
+
+  it('keeps the first pending lookup active when address blur trims its trailing slash', async () => {
+    const typed = 'http://127.0.0.1:18911/repro/v1/';
+    const message = llmModelRequest('custom', resolveLlmSettings(customSettings(typed, 'chat-completions')));
+    const pending = { signature: JSON.stringify(message) };
+    const request = vi.fn(async () => Response.json({ data: [{ id: 'demo' }] }));
+    const replyPromise = handleLlmModels(message, request);
+    const afterBlur = llmModelRequest('custom', resolveLlmSettings(customSettings(llmBaseUrl(typed), 'chat-completions')));
+    expect(alignLlmModelLookup(pending, JSON.stringify(afterBlur))).toBe(pending);
+    expect(await replyPromise).toEqual({ ok: true, models: ['demo'] });
+    expect(request).toHaveBeenCalledExactlyOnceWith('http://127.0.0.1:18911/repro/v1/models', expect.anything());
+  });
+
+  it('surfaces a retry after a real connection change invalidates a pending lookup', () => {
+    const pending = { signature: 'before' };
+    const changed = alignLlmModelLookup(pending, 'after');
+    expect(changed).toEqual({ signature: 'after', reply: { ok: false, reason: 'settingsChanged' } });
+    expect(alignLlmModelLookup(changed, 'before')).toEqual({ ...changed, signature: 'before' });
+  });
+
   it.each([
     ['openai', 'https://api.openai.com/v1/models', 'Bearer mock-key'],
     ['deepseek', 'https://api.deepseek.com/models', 'Bearer mock-key'],

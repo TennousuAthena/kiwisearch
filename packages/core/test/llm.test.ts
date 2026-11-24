@@ -184,6 +184,14 @@ describe('LLM API addresses', () => {
     ['https://generativelanguage.googleapis.com/v1beta/openai/models', 'chat-completions'],
     ['https://generativelanguage.googleapis.com/v1beta/openai/responses', 'responses'],
     ['https://gateway.example/v1/responses', 'responses'],
+    ['https://openrouter.ai/api/', 'chat-completions'],
+    ['https://api.openai.com/v1', 'chat-completions'],
+    ['https://api.deepseek.com/v1', 'chat-completions'],
+    ['http://localhost:11434/v1', 'chat-completions'],
+    ['http://127.0.0.1:11434/v1', 'chat-completions'],
+    ['http://[::1]:11434/v1', 'chat-completions'],
+    ['https://api.openai.com/v1/responses', 'responses'],
+    ['https://openrouter.ai/api/v1/messages', 'anthropic'],
   ] as const)('infers the format only when editing %s', (baseUrl, format) => {
     const savedFormat = format === 'gemini' ? 'anthropic' : 'gemini';
     const saved = {
@@ -193,6 +201,23 @@ describe('LLM API addresses', () => {
     } satisfies Parameters<typeof resolveLlmSettings>[0];
     expect(resolveLlmSettings(saved)).toMatchObject({ apiFormat: savedFormat, apiKey: '' });
     expect(editLlmEndpoint(saved, baseUrl).profiles?.custom?.apiFormat).toBe(format);
+  });
+
+  it.each([
+    ['https://generativelanguage.googleapis.com/v1beta', 'gemini', ['https://gateway.example/v1'], 'chat-completions'],
+    ['https://api.anthropic.com/v1', 'anthropic', ['', 'https://gateway.example/v1'], 'chat-completions'],
+    ['https://api.anthropic.com/v1', 'anthropic', ['https://gateway.example/v1/responses'], 'responses'],
+    ['https://generativelanguage.googleapis.com/v1beta', 'gemini', ['https://gateway.example/v1/messages'], 'anthropic'],
+    ['https://gateway.example/v1', 'anthropic', ['https://gateway.example/prefix/v1'], 'anthropic'],
+    ['https://gateway.example/v1', 'gemini', ['https://other-gateway.example/v1'], 'gemini'],
+  ] as const)('handles a %s %s connection edited to %j', (baseUrl, apiFormat, edits, expected) => {
+    let settings: Parameters<typeof resolveLlmSettings>[0] = {
+      baseUrl: '', model: 'demo', apiKey: '',
+      selection: { provider: 'custom', model: 'demo' },
+      profiles: { custom: { baseUrl, apiFormat } },
+    };
+    for (const address of edits) settings = { ...settings, ...editLlmEndpoint(settings, address) };
+    expect(resolveLlmSettings(settings).apiFormat).toBe(expected);
   });
 
   it.each([

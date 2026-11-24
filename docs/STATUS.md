@@ -1,5 +1,7 @@
 # 项目总结与现状
 
+2026-11-24：编辑 AI 地址时，已知的 OpenAI 兼容地址会切换为 Chat Completions，完整端点仍优先决定格式。获取模型期间，移除地址末尾的斜线不会丢弃结果；实际更改连接设置时会提示重新获取。已通过模拟测试，未在真实 Firefox 中复测。
+
 2026-11-24：AI 设置按服务商记住模型和凭据，可按需获取列表，也能继续手动填写。服务商与当前模型作为一个单元同步，Key 默认关闭，本机 Ollama 地址不同步。首次引导支持用恢复短语加入同步组。两个独立 Chrome 配置使用模拟模型目录和本地中继完成了列表、入组及自动同步验证；未调用真实 LLM 服务，未实测 Firefox。详见[配置](internals/config-and-storage.md#ai-provider-profiles-2026-11-24)和[设备同步](internals/device-sync.md)。
 
 2026-11-24：编辑 AI 地址会切换到自定义。自定义支持 OpenAI Chat Completions、OpenAI Responses、Claude Messages 和 Gemini Generate Content。填写到 `/v1` 或粘贴完整端点均可，界面显示实际请求地址，切换格式不会改写已保存的地址。请求、模型列表及流式响应通过模拟测试；未调用实际模型服务，也未在浏览器中验证这次的地址提示。

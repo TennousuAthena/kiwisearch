@@ -1,8 +1,25 @@
-import { assertLlmRequestOrigin, isLlmProvider, isLocalUrl, llmApiFormat, llmApiRoot, llmAuthHeaders, llmBaseUrl, LLM_PRESETS, ollamaApiMount, type FetchLike } from '@kiwi-search/core';
+import { assertLlmRequestOrigin, isLlmProvider, isLocalUrl, llmApiFormat, llmApiRoot, llmAuthHeaders, llmBaseUrl, LLM_PRESETS, ollamaApiMount, type FetchLike, type LlmProfile, type LlmProviderId } from '@kiwi-search/core';
 
 export type LlmModelsReply =
   | { ok: true; models: string[] }
   | { ok: false; reason: 'address' | 'key' | 'ollamaOrigin' | 'http' | 'response' | 'network'; status?: number };
+
+export type LlmModelLookup = {
+  signature: string;
+  reply?: LlmModelsReply | { ok: false; reason: 'settingsChanged'; status?: never };
+};
+
+export function llmModelRequest(provider: LlmProviderId, connection: LlmProfile) {
+  const { baseUrl, apiKey, apiFormat } = connection;
+  return { type: 'kiwi:list-llm-models', provider, baseUrl, apiKey, apiFormat: llmApiFormat(apiFormat) };
+}
+
+export function alignLlmModelLookup(lookup: LlmModelLookup | undefined, signature: string): LlmModelLookup | undefined {
+  if (!lookup || lookup.signature === signature) return lookup;
+  if (!lookup.reply || (!lookup.reply.ok && lookup.reply.reason === 'settingsChanged')) {
+    return { signature, reply: { ok: false, reason: 'settingsChanged' } };
+  }
+}
 
 const MODEL_PAGE_LIMIT = 10;
 type ModelPage = {

@@ -1,10 +1,12 @@
-import { httpOrigin } from './url';
-import type { LlmApiFormat } from './types';
+import { httpOrigin, isLocalUrl } from './url';
+import type { LlmApiFormat, LlmProfile } from './types';
 
 const STREAM_OPERATION = /:streamGenerateContent\/?$/;
 const GEMINI_OPERATION = /\/models\/[^/:]+:(?:streamGenerateContent|generateContent)$/;
 const API_OPERATION = /\/(?:chat\/completions|responses|messages|models|api\/tags)$/;
 const GEMINI_HOST = 'generativelanguage.googleapis.com';
+const ANTHROPIC_HOST = 'api.anthropic.com';
+const OPENAI_COMPATIBLE_HOSTS = new Set(['openrouter.ai', 'api.deepseek.com', 'api.openai.com']);
 
 export function llmBaseUrl(value: string): string {
   const url = URL.parse(value);
@@ -13,17 +15,23 @@ export function llmBaseUrl(value: string): string {
   return url.origin + url.pathname.replace(/\/+$/, '');
 }
 
-export function inferLlmApiFormat(value: string): LlmApiFormat | undefined {
+export function inferLlmApiFormat(value: string, previous?: Partial<Pick<LlmProfile, 'baseUrl' | 'apiFormat'>>): LlmApiFormat | undefined {
   const url = URL.parse(llmBaseUrl(value));
-  if (!url) return;
-  const path = url.pathname;
-  if (path.endsWith('/responses')) return 'responses';
-  if (path.endsWith('/chat/completions')) return 'chat-completions';
-  if (path.endsWith('/messages')) return 'anthropic';
-  if (GEMINI_OPERATION.test(path)) return 'gemini';
-  if (url.hostname === 'api.anthropic.com') return 'anthropic';
-  if (url.hostname === GEMINI_HOST) {
-    return /(?:^|\/)openai(?:\/|$)/.test(path) ? 'chat-completions' : 'gemini';
+  if (url) {
+    const { pathname: path, hostname, port } = url;
+    if (path.endsWith('/responses')) return 'responses';
+    if (path.endsWith('/chat/completions')) return 'chat-completions';
+    if (path.endsWith('/messages')) return 'anthropic';
+    if (GEMINI_OPERATION.test(path)) return 'gemini';
+    if (hostname === ANTHROPIC_HOST) return 'anthropic';
+    if (hostname === GEMINI_HOST) return /(?:^|\/)openai(?:\/|$)/.test(path) ? 'chat-completions' : 'gemini';
+    if (OPENAI_COMPATIBLE_HOSTS.has(hostname) || (port === '11434' && isLocalUrl(url.href))) return 'chat-completions';
+  }
+  if (previous?.apiFormat === 'gemini' || previous?.apiFormat === 'anthropic') {
+    const previousHost = URL.parse(previous.baseUrl ?? '')?.hostname;
+    if ((previousHost === GEMINI_HOST || previousHost === ANTHROPIC_HOST) && URL.parse(value)?.hostname !== previousHost) {
+      return 'chat-completions';
+    }
   }
 }
 

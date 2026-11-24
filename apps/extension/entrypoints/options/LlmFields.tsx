@@ -4,7 +4,7 @@ import { browser } from 'wxt/browser';
 import { t } from '@kiwi-search/app/i18n';
 import { Field, SecretInput } from './controls';
 import { TestRow, type TestReply } from './TestRow';
-import type { LlmModelsReply } from '@/lib/llmModels';
+import { alignLlmModelLookup, llmModelRequest, type LlmModelLookup, type LlmModelsReply } from '@/lib/llmModels';
 
 /** The connection to one chat model: address, model, key, a few presets and a test button. */
 export function LlmFields({ value, onChange, label }: { value: LlmSettings; onChange: (patch: Partial<LlmSettings>) => void; label: string }) {
@@ -25,24 +25,28 @@ export function LlmFields({ value, onChange, label }: { value: LlmSettings; onCh
     apiKeyCleared: apiKey ? undefined : true,
   } : {}) });
   const keyMismatch = provider === 'custom' && !!profile.apiKey && !connection.apiKey;
-  const signature = JSON.stringify([provider, profile.baseUrl, profile.apiKey, profile.apiKeyOrigin, profile.apiFormat]);
+  const modelRequest = llmModelRequest(provider, connection);
+  const signature = JSON.stringify(modelRequest);
   const current = useRef(signature);
   current.current = signature;
-  const sequence = useRef(0);
-  const [result, setResult] = useState<{ signature: string; reply?: LlmModelsReply }>();
+  const [result, setResult] = useState<LlmModelLookup>();
   useEffect(() => {
-    setResult(undefined);
-    return () => { sequence.current++; };
+    setResult((previous) => alignLlmModelLookup(previous, signature));
   }, [signature]);
-  const activeResult = result?.signature === signature ? result : undefined;
+  const activeResult = alignLlmModelLookup(result, signature);
   const fetchModels = async () => {
-    const serial = ++sequence.current;
-    setResult({ signature });
+    const pending = { signature };
+    setResult(pending);
     let reply: LlmModelsReply = { ok: false, reason: 'network' };
     try {
-      reply = await browser.runtime.sendMessage({ type: 'kiwi:list-llm-models', provider, baseUrl: connection.baseUrl, apiKey: connection.apiKey, apiFormat: connection.apiFormat }) ?? reply;
+      reply = await browser.runtime.sendMessage(modelRequest) ?? reply;
     } catch { /* The background may be unavailable while the extension reloads. */ }
-    if (serial === sequence.current && current.current === signature) setResult({ signature, reply });
+    const currentSignature = current.current;
+    setResult((previous) => {
+      if (previous !== pending) return previous;
+      const active = alignLlmModelLookup(previous, currentSignature);
+      return active === pending ? { signature, reply } : active;
+    });
   };
   return (
     <>
