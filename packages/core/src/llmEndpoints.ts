@@ -33,6 +33,7 @@ export function llmApiRoot(baseUrl: string, format: LlmApiFormat): string {
   const path = url.pathname.replace(/\/+$/, '');
   const prefix = path.replace(GEMINI_OPERATION.test(path) ? GEMINI_OPERATION : API_OPERATION, '');
   if (prefix !== path) return url.origin + prefix;
+  if (url.hostname === 'openrouter.ai' && path === '/api') return url.origin + '/api/v1';
   if (!path) return url.origin + (format === 'gemini' ? '/v1beta' : url.hostname === 'openrouter.ai' ? '/api/v1' : '/v1');
   if (url.hostname === GEMINI_HOST && path === '/openai') return url.origin + '/v1beta/openai';
   return url.origin + (format === 'gemini' ? path.replace(/\/v1$/, '/v1beta') : path);
