@@ -1,14 +1,12 @@
 import { HttpError } from './http';
-import { isLocalUrl, resolveLlmSettings } from './llmProfiles';
+import { llmAuthHeaders, llmEndpoint } from './llmEndpoints';
+import { llmRequestBody, llmResponseText } from './llmFormats';
+import { isLocalUrl, llmApiFormat, resolveLlmSettings } from './llmProfiles';
 import type { FetchLike, LlmSettings } from './types';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
-}
-
-function endpoint(settings: LlmSettings): string {
-  return settings.baseUrl.replace(/\/+$/, '') + '/chat/completions';
 }
 
 export function llmConfigured(settings: LlmSettings | undefined): boolean {
@@ -30,21 +28,16 @@ export async function chat(
   opts: { signal?: AbortSignal; temperature?: number; json?: boolean } = {},
 ): Promise<string> {
   settings = resolveLlmSettings(settings);
-  const res = await fetch(endpoint(settings), {
+  const format = llmApiFormat(settings.apiFormat);
+  const res = await fetch(llmEndpoint(settings.baseUrl, format, settings.model, false), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}) },
-    body: JSON.stringify({
-      model: settings.model,
-      messages,
-      temperature: opts.temperature ?? 0,
-      stream: false,
-      ...(opts.json ? { response_format: { type: 'json_object' } } : {}),
-    }),
+    headers: { 'Content-Type': 'application/json', ...llmAuthHeaders(settings.apiKey, format) },
+    body: JSON.stringify(llmRequestBody(format, settings.model, messages, { stream: false, temperature: opts.temperature ?? 0, json: opts.json })),
+    redirect: 'error',
     signal: opts.signal,
   });
   if (!res.ok) throw new HttpError(res.status, `LLM HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const data = (await res.json()) as { choices: { message: { content: string } }[] };
-  return data.choices[0]?.message?.content ?? '';
+  return llmResponseText(format, await res.json(), false);
 }
 
 /**
@@ -76,7 +69,7 @@ export interface StreamOptions {
   onActivity?: () => void;
 }
 
-/** Streams an OpenAI-compatible chat completion, yielding content deltas. */
+/** Streams a model response, yielding text deltas. */
 export async function* chatStream(
   fetch: FetchLike,
   settings: LlmSettings,
@@ -84,20 +77,23 @@ export async function* chatStream(
   opts: StreamOptions = {},
 ): AsyncGenerator<string> {
   settings = resolveLlmSettings(settings);
-  const ladder = opts.thinking === 'off' ? THINKING_OFF : [{}];
+  const format = llmApiFormat(settings.apiFormat);
+  const disableThinking = format === 'chat-completions' && opts.thinking === 'off';
+  const ladder = disableThinking ? THINKING_OFF : [{}];
   const last = ladder.length - 1;
   const quirkKey = `${settings.baseUrl}\n${settings.model}`;
-  let rung = opts.thinking === 'off' ? Math.min(streamQuirks.get(quirkKey) ?? 0, last) : 0;
+  let rung = disableThinking ? Math.min(streamQuirks.get(quirkKey) ?? 0, last) : 0;
   let res: Response;
   for (;;) {
-    res = await fetch(endpoint(settings), {
+    res = await fetch(llmEndpoint(settings.baseUrl, format, settings.model, true), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
-        ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}),
+        ...llmAuthHeaders(settings.apiKey, format),
       },
-      body: JSON.stringify({ model: settings.model, messages, temperature: opts.temperature ?? 0.3, stream: true, ...ladder[rung] }),
+      body: JSON.stringify(llmRequestBody(format, settings.model, messages, { stream: true, temperature: opts.temperature ?? 0.3, extra: ladder[rung] })),
+      redirect: 'error',
       signal: opts.signal,
     });
     if (res.ok && res.body) break;
@@ -106,7 +102,7 @@ export async function* chatStream(
     await res.body?.cancel().catch(() => {});
     rung++;
   }
-  if (opts.thinking === 'off') streamQuirks.set(quirkKey, rung);
+  if (disableThinking) streamQuirks.set(quirkKey, rung);
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
@@ -115,12 +111,9 @@ export async function* chatStream(
     if (!trimmed.startsWith('data:')) return {};
     const payload = trimmed.slice(5).trim();
     if (payload === '[DONE]') return { done: true };
-    try {
-      const json = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
-      return { delta: json.choices?.[0]?.delta?.content, active: true };
-    } catch {
-      return {};
-    }
+    let json: unknown;
+    try { json = JSON.parse(payload); } catch { return {}; }
+    return { delta: llmResponseText(format, json, true), active: true };
   };
   for (;;) {
     const { done, value } = await reader.read();

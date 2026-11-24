@@ -34,4 +34,20 @@ describe('model discovery', () => {
     expect(await handleLlmModels({ provider: 'openai' }, request)).toEqual({ ok: false, reason: 'key' });
     expect(request).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['responses', 'https://openai.example/v1/responses', 'https://openai.example/v1/models', { Authorization: 'Bearer mock-key' }, { data: [{ id: 'demo' }] }],
+    ['anthropic', 'https://api.anthropic.com', 'https://api.anthropic.com/v1/models', { 'x-api-key': 'mock-key', 'anthropic-version': '2023-06-01' }, { data: [{ id: 'demo' }] }],
+    ['gemini', 'https://generativelanguage.googleapis.com', 'https://generativelanguage.googleapis.com/v1beta/models', { 'x-goog-api-key': 'mock-key' }, {
+      models: [
+        { name: 'models/demo', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/embeddings', supportedGenerationMethods: ['embedContent'] },
+      ],
+    }],
+  ])('lists models for custom %s endpoints', async (apiFormat, baseUrl, url, headers, payload) => {
+    const request = vi.fn(async () => Response.json(payload));
+    expect(await handleLlmModels({ provider: 'custom', baseUrl, apiFormat, apiKey: 'mock-key' }, request))
+      .toEqual({ ok: true, models: ['demo'] });
+    expect(request).toHaveBeenCalledWith(url, expect.objectContaining({ headers, redirect: 'error' }));
+  });
 });

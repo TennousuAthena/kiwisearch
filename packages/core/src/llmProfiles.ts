@@ -1,7 +1,21 @@
-import type { LlmProfile, LlmProviderId, LlmSettings } from './types';
+import type { LlmApiFormat, LlmProfile, LlmProviderId, LlmSettings } from './types';
 import { httpOrigin } from './url';
 
 export const LLM_PROVIDERS = ['deepseek', 'openai', 'openrouter', 'ollama', 'custom'] as const;
+export const LLM_API_FORMATS = ['chat-completions', 'responses', 'anthropic', 'gemini'] as const;
+
+export function llmApiFormat(value: unknown): LlmApiFormat {
+  return LLM_API_FORMATS.find((format) => format === value) ?? 'chat-completions';
+}
+
+export function inferLlmApiFormat(value: string): LlmApiFormat | undefined {
+  const url = URL.parse(value);
+  if (!url) return;
+  if (/\/chat\/completions\/?$/.test(url.pathname)) return 'chat-completions';
+  if (/\/responses\/?$/.test(url.pathname)) return 'responses';
+  if (/\/messages\/?$/.test(url.pathname) || url.hostname === 'api.anthropic.com') return 'anthropic';
+  if (/:(?:streamGenerateContent|generateContent)\/?$/.test(url.pathname) || url.hostname === 'generativelanguage.googleapis.com') return 'gemini';
+}
 
 export const LLM_PRESETS: Record<LlmProviderId, LlmProfile> = {
   deepseek: { baseUrl: 'https://api.deepseek.com/v1', apiKey: '', model: 'deepseek-flash' },
@@ -23,7 +37,11 @@ export function isLlmProvider(value: unknown): value is LlmProviderId {
 
 export function llmBaseUrl(value: string): string {
   const url = URL.parse(value);
-  if (!url || !httpOrigin(value) || url.username || url.password || url.search || url.hash) return '';
+  if (!url || !httpOrigin(value) || url.username || url.password || url.hash) return '';
+  if (url.search) {
+    if (!/:(?:streamGenerateContent)\/?$/.test(url.pathname) || url.search !== '?alt=sse') return '';
+    url.search = '';
+  }
   return url.href.replace(/\/+$/, '');
 }
 
@@ -49,6 +67,17 @@ export function profileLlmSettings(legacy: LlmSettings): LlmSettings {
   };
 }
 
+export function editLlmEndpoint(value: LlmSettings, baseUrl: string): Partial<LlmSettings> {
+  const settings = profileLlmSettings(value);
+  const { provider, model } = settings.selection!;
+  const custom = settings.profiles?.custom;
+  const apiFormat = inferLlmApiFormat(baseUrl) ?? (provider === 'custom' ? llmApiFormat(custom?.apiFormat) : 'chat-completions');
+  return {
+    profiles: { ...settings.profiles, custom: { ...custom, baseUrl, apiFormat, model } },
+    ...(provider === 'custom' ? {} : { selection: { provider: 'custom', model } }),
+  };
+}
+
 export function resolveLlmSettings(settings: LlmSettings): LlmProfile {
   if (!settings.selection) return settings;
   const { provider, model } = settings.selection;
@@ -61,5 +90,5 @@ export function resolveLlmSettings(settings: LlmSettings): LlmProfile {
   const origin = httpOrigin(baseUrl);
   const apiKey = provider === 'ollama' || !origin || (provider === 'custom' && origin !== profile.apiKeyOrigin)
     ? '' : profile.apiKey;
-  return { baseUrl, model, apiKey };
+  return { baseUrl, model, apiKey, ...(provider === 'custom' && profile.apiFormat ? { apiFormat: llmApiFormat(profile.apiFormat) } : {}) };
 }

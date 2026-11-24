@@ -4,4 +4,10 @@ export const en = {
   'options.sync.invalidRecoveryPhrase': 'Invalid recovery phrase. Copy all 24 English words from your other device and paste them in order.',
   'options.sync.joinFailed': 'Could not join the sync group. Try again.',
   'options.sync.errorPrefix': 'Action failed: {error}',
+  'options.llm.apiFormat': 'API format',
+  'options.llm.format.chat-completions': 'OpenAI Chat Completions',
+  'options.llm.format.responses': 'OpenAI Responses',
+  'options.llm.format.anthropic': 'Claude Messages',
+  'options.llm.format.gemini': 'Gemini Generate Content',
+  'options.llm.ollamaOverride': 'Ollama address override (this device only)',
 };

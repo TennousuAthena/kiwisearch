@@ -1,6 +1,6 @@
 import {
   classifySyncPath,
-  CUSTOM_LLM_KEY_PATH,
+  CUSTOM_LLM_ENDPOINT_PATH,
   LEGACY_LLM_PATH,
   LLM_SELECTION_PATH,
   makeMembershipElementPath,
@@ -9,20 +9,28 @@ import {
   type AppliedChange,
   type LocalChangeInput,
 } from '@kiwi-search/sync';
-import { DEFAULT_CONFIG, LLM_PRESETS, httpOrigin, profileLlmSettings, type FusionConfig, type LlmSelection } from '@kiwi-search/core';
+import { DEFAULT_CONFIG, LLM_PRESETS, httpOrigin, llmApiFormat, profileLlmSettings, type FusionConfig, type LlmProfile, type LlmSelection } from '@kiwi-search/core';
 import { preferenceKeys, storageKey, type DomainPreferenceState } from '@kiwi-search/protocol';
 import type { SettingsPatch } from './configUpdates';
 
 const MEMBERSHIP_PATHS = new Set(['config.judge.blockedDomains', 'config.judge.boostedDomains']);
 const SYNCED_UI_KEYS = new Set<string>([...preferenceKeys.map(storageKey), 'academicLanguage']);
-const CUSTOM_ORIGIN_PATH = /^config\.(?:judge\.)?llm\.profiles\.custom\.apiKeyOrigin$/;
+const CUSTOM_PROFILE_PATCH = /^(config\.(?:judge\.)?llm\.profiles\.custom)(?:\.(?:baseUrl|apiKey|apiKeyOrigin|apiFormat))?$/;
 
 function isMappedPath(path: string): boolean {
-  return !LEGACY_LLM_PATH.test(path) && classifySyncPath(path) !== null;
+  return !LEGACY_LLM_PATH.test(path) && !CUSTOM_PROFILE_PATCH.test(path) && classifySyncPath(path) !== null;
 }
 
 function customProfile(path: string, config?: FusionConfig) {
   return (path.startsWith('config.judge.') ? config?.judge.llm : config?.llm)?.profiles?.custom;
+}
+
+function customEndpointChange(path: string, config?: FusionConfig): LocalChangeInput {
+  const profile = customProfile(path, config);
+  if (!profile) return { path, tombstone: true };
+  const { baseUrl = '', apiKey = '' } = profile;
+  const apiKeyOrigin = apiKey && httpOrigin(profile.apiKeyOrigin);
+  return { path, value: { baseUrl, apiKey, apiFormat: llmApiFormat(profile.apiFormat), ...(apiKeyOrigin ? { apiKeyOrigin } : {}) } };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -35,11 +43,6 @@ export function settingsPatchesToSyncChanges(patches: readonly SettingsPatch[], 
   for (const patch of patches) {
     if (!patch.path.length) continue;
     const basePath = `config.${patch.path.join('.')}`;
-    if (CUSTOM_ORIGIN_PATH.test(basePath)) {
-      const profile = customProfile(basePath, config);
-      if (profile?.apiKey) out.push({ path: basePath.slice(0, -'Origin'.length), value: profile.apiKey });
-      continue;
-    }
     if ('add' in patch) {
       for (const item of patch.add) {
         out.push({ path: makeMembershipElementPath(basePath, item), value: true });
@@ -63,15 +66,14 @@ export function settingsPatchesToSyncChanges(patches: readonly SettingsPatch[], 
     }
     flattenConfigValue(basePath, patch.value, out);
   }
+  for (const patch of patches) {
+    const match = CUSTOM_PROFILE_PATCH.exec(`config.${patch.path.join('.')}`);
+    if (match) out.push(customEndpointChange(`${match[1]}.endpoint`, config));
+  }
   return [...new Map(out.filter((change) => isMappedPath(change.path)).map((change) => [change.path, withBoundOrigin(change, config)])).values()];
 }
 
 function withBoundOrigin(change: LocalChangeInput, config?: FusionConfig): LocalChangeInput {
-  if (CUSTOM_LLM_KEY_PATH.test(change.path)) {
-    const profile = customProfile(change.path, config);
-    const origin = httpOrigin(profile?.apiKeyOrigin);
-    return change.value && change.value === profile?.apiKey && origin ? { ...change, pairedUrl: origin } : change;
-  }
   const source = config?.sources.searxng;
   if (change.path !== SEARXNG_KEY_PATH || !change.value || change.value !== source?.apiKey) return change;
   const origin = httpOrigin(source.apiKeyOrigin);
@@ -155,10 +157,14 @@ export function appliedChangesToLocalUpdates(applied: readonly AppliedChange[]):
         configPatches.push({ path: [...segs.slice(0, -1), 'profiles', selection.provider, 'model'], value: selection.model });
         continue;
       }
-      if (CUSTOM_LLM_KEY_PATH.test(item.path)) {
-        const origin = !item.tombstone && item.value ? httpOrigin(item.pairedUrl) : undefined;
-        const path = [...segs.slice(0, -1), 'apiKeyOrigin'];
-        configPatches.push(origin ? { path, value: origin } : { path, remove: true });
+      if (CUSTOM_LLM_ENDPOINT_PATH.test(item.path)) {
+        const endpoint = item.tombstone ? undefined : item.value as Partial<LlmProfile>;
+        for (const field of ['baseUrl', 'apiKey', 'apiFormat', 'apiKeyOrigin'] as const) {
+          const path = [...segs.slice(0, -1), field];
+          const value = field === 'apiKeyOrigin' ? httpOrigin(endpoint?.apiKeyOrigin) : endpoint?.[field];
+          configPatches.push(value === undefined ? { path, remove: true } : { path, value });
+        }
+        continue;
       }
       if (item.tombstone) configPatches.push({ path: segs, remove: true });
       else configPatches.push({ path: segs, value: item.value });
@@ -208,6 +214,12 @@ export function extractNonDefaultLocalChanges(
   const out: LocalChangeInput[] = [];
   const defaults = { ...DEFAULT_CONFIG, llm: profileLlmSettings(DEFAULT_CONFIG.llm), judge: { ...DEFAULT_CONFIG.judge, llm: profileLlmSettings(DEFAULT_CONFIG.judge.llm) } };
   diffAgainstDefault('config', defaults, config, out);
+  for (const path of ['config.llm.profiles.custom.endpoint', 'config.judge.llm.profiles.custom.endpoint']) {
+    const profile = customProfile(path, config);
+    if (profile?.baseUrl || profile?.apiKey || llmApiFormat(profile?.apiFormat) !== 'chat-completions') {
+      out.push(customEndpointChange(path, config));
+    }
+  }
   for (const key of SYNCED_UI_KEYS) {
     if (storageValues[key] !== undefined) {
       out.push({ path: key, value: storageValues[key] });
@@ -226,6 +238,7 @@ export function readLocalSyncChanges(
       (value, key) => isPlainObject(value) ? value[key] : undefined, config,
     );
   return paths.filter(isMappedPath).map((path) => {
+    if (CUSTOM_LLM_ENDPOINT_PATH.test(path)) return customEndpointChange(path, config);
     const membership = parseMembershipElementPath(path);
     if (membership) {
       const members = configValue(membership.basePath);

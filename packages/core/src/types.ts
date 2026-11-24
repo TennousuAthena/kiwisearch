@@ -320,6 +320,7 @@ export type ContentFetcher = 'none' | 'direct' | 'jina';
 export type SummaryProvider = 'api' | 'chrome-builtin';
 
 export type LlmProviderId = 'deepseek' | 'openai' | 'openrouter' | 'ollama' | 'custom';
+export type LlmApiFormat = 'chat-completions' | 'responses' | 'anthropic' | 'gemini';
 
 export interface LlmSelection {
   provider: LlmProviderId;
@@ -331,13 +332,15 @@ export interface LlmProfile {
   apiKey: string;
   model: string;
   apiKeyOrigin?: string;
+  apiFormat?: LlmApiFormat;
 }
 
 export interface LlmSettings {
-  /** OpenAI-compatible base URL, e.g. https://api.deepseek.com/v1 */
+  /** API base URL or operation endpoint, e.g. https://api.deepseek.com/v1 */
   baseUrl: string;
   apiKey: string;
   model: string;
+  apiFormat?: LlmApiFormat;
   selection?: LlmSelection;
   profiles?: Partial<Record<LlmProviderId, Partial<LlmProfile>>>;
 }

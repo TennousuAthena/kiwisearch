@@ -6,6 +6,7 @@ vi.mock('wxt/browser', () => ({ browser: { storage: { local: { get: storage.get,
 import { applyRemoteConfigPatches, handleConfigUpdate, setOnLocalSyncChanges } from '../lib/backgroundConfig';
 import { applySettingsPatch, diffSettings, diffSettingsFromBaselines, undoDomainPreference, updateDomainPreference } from '../lib/configUpdates';
 import { DEFAULT_BRIDGE, loadConfig, saveConfig, saveSettings } from '../lib/settings';
+import { appliedChangesToLocalUpdates } from '../lib/syncMapping';
 import { createAutosaveQueue } from '../entrypoints/options/autosaveQueue';
 
 beforeEach(() => {
@@ -196,19 +197,26 @@ describe('settings writes from multiple pages', () => {
       await saveConfig(draft, before);
       expect(onChange).toHaveBeenCalledWith(expect.arrayContaining([
         { path: 'config.llm.selection', value: { provider: 'custom', model: 'one' } },
-        { path: 'config.llm.profiles.custom.baseUrl', value: 'https://first.example/v1' },
-        { path: 'config.llm.profiles.custom.apiKey', value: 'mock-key', pairedUrl: 'https://first.example' },
+        { path: 'config.llm.profiles.custom.endpoint', value: {
+          baseUrl: 'https://first.example/v1', apiFormat: 'chat-completions', apiKey: 'mock-key', apiKeyOrigin: 'https://first.example',
+        } },
         { path: 'config.judge.llm.selection', value: { provider: 'openrouter', model: 'two' } },
       ]));
-      expect(onChange.mock.calls[0][0].map((change: { path: string }) => change.path)).toHaveLength(4);
-      await applyRemoteConfigPatches([{ path: ['llm', 'profiles', 'custom', 'baseUrl'], value: 'https://second.example/v1' }]);
+      expect(onChange.mock.calls[0][0].map((change: { path: string }) => change.path)).toHaveLength(3);
+      const { configPatches } = appliedChangesToLocalUpdates([{
+        path: 'config.llm.profiles.custom.endpoint', category: 'keys', tombstone: false,
+        value: { baseUrl: 'https://second.example/v1', apiFormat: 'anthropic', apiKey: 'mock-key', apiKeyOrigin: 'https://first.example' },
+      }]);
+      await applyRemoteConfigPatches(configPatches);
       const changed = await loadConfig();
-      expect(resolveLlmSettings(changed.llm).apiKey).toBe('');
+      expect(resolveLlmSettings(changed.llm)).toEqual({ baseUrl: 'https://second.example/v1', apiFormat: 'anthropic', apiKey: '', model: 'one' });
       const rebound = structuredClone(changed);
       rebound.llm.profiles!.custom!.apiKeyOrigin = 'https://second.example';
       await saveConfig(rebound, changed);
       expect(resolveLlmSettings((await loadConfig()).llm).apiKey).toBe('mock-key');
-      expect(onChange).toHaveBeenLastCalledWith([{ path: 'config.llm.profiles.custom.apiKey', value: 'mock-key', pairedUrl: 'https://second.example' }]);
+      expect(onChange).toHaveBeenLastCalledWith([{ path: 'config.llm.profiles.custom.endpoint', value: {
+        baseUrl: 'https://second.example/v1', apiFormat: 'anthropic', apiKey: 'mock-key', apiKeyOrigin: 'https://second.example',
+      } }]);
     } finally {
       setOnLocalSyncChanges(null);
     }

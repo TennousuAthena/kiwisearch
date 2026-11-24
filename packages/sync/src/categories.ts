@@ -47,6 +47,7 @@ const UI_PATTERNS: readonly RegExp[] = [
 export const SEARXNG_KEY_PATH = 'config.sources.searxng.apiKey';
 const SEARXNG_KEY_ORIGIN_PATH = 'config.sources.searxng.apiKeyOrigin';
 export const CUSTOM_LLM_KEY_PATH = /^config\.(?:judge\.)?llm\.profiles\.custom\.apiKey$/;
+export const CUSTOM_LLM_ENDPOINT_PATH = /^config\.(?:judge\.)?llm\.profiles\.custom\.endpoint$/;
 export const LLM_SELECTION_PATH = /^config\.(?:judge\.)?llm\.selection$/;
 export const LEGACY_LLM_PATH = /^config\.(?:judge\.)?llm\.(?:baseUrl|apiKey|model)$/;
 const LLM_ROOT = /^config\.(?:judge\.)?llm(?:\.|$)/;
@@ -65,7 +66,7 @@ export function classifySyncPath(path: string): SyncCategory | null {
   if (basePath === 'config.sources.searxng.baseUrl') return 'search';
   if (LLM_ROOT.test(basePath) && !LEGACY_LLM_PATH.test(basePath)) {
     if (LLM_SELECTION_PATH.test(basePath)) return basePath.startsWith('config.judge.') ? 'filters' : 'search';
-    return LLM_SENSITIVE_PATH.test(basePath) ? 'keys' : null;
+    return LLM_SENSITIVE_PATH.test(basePath) || CUSTOM_LLM_ENDPOINT_PATH.test(basePath) ? 'keys' : null;
   }
 
   for (const pattern of KEY_AND_ENDPOINT_PATTERNS) {
@@ -150,6 +151,17 @@ export function validateAndClampSyncValue(
   value: unknown,
 ): { ok: true; value: unknown } | { ok: false; reason: string } {
   if (hasUnsafeSegment(path)) return { ok: false, reason: 'Unsafe path segment' };
+  if (CUSTOM_LLM_ENDPOINT_PATH.test(path)) {
+    const endpoint = value as { baseUrl?: unknown; apiFormat?: unknown; apiKey?: unknown; apiKeyOrigin?: unknown } | null;
+    if (!endpoint || typeof endpoint.baseUrl !== 'string' || endpoint.baseUrl.length > 2048
+      || typeof endpoint.apiKey !== 'string' || endpoint.apiKey.length > 8192
+      || typeof endpoint.apiFormat !== 'string' || !['chat-completions', 'responses', 'anthropic', 'gemini'].includes(endpoint.apiFormat)
+      || (endpoint.apiKeyOrigin !== undefined && (typeof endpoint.apiKeyOrigin !== 'string' || endpoint.apiKeyOrigin.length > 2048))) {
+      return { ok: false, reason: 'Invalid custom model endpoint' };
+    }
+    const { baseUrl, apiFormat, apiKey, apiKeyOrigin } = endpoint;
+    return { ok: true, value: { baseUrl, apiFormat, apiKey, ...(apiKeyOrigin ? { apiKeyOrigin } : {}) } };
+  }
   if (LLM_SELECTION_PATH.test(path)) {
     const selection = value as { provider?: unknown; model?: unknown } | null;
     if (!selection || typeof selection.provider !== 'string'
