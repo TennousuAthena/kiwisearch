@@ -50,4 +50,28 @@ describe('model discovery', () => {
       .toEqual({ ok: true, models: ['demo'] });
     expect(request).toHaveBeenCalledWith(url, expect.objectContaining({ headers, redirect: 'error' }));
   });
+
+  it.each([
+    ['anthropic', '/v1/models', 'after_id', (id: string, cursor?: string) => ({ data: [{ id }], has_more: !!cursor, last_id: cursor })],
+    ['gemini', '/v1beta/models', 'pageToken', (id: string, cursor?: string) => ({ models: [{ name: `models/${id}` }], nextPageToken: cursor })],
+  ] as const)('follows %s catalog pages without changing origin', async (apiFormat, path, parameter, page) => {
+    const baseUrl = 'https://custom.example';
+    const request = vi.fn(async () => Response.json(page('a')));
+    const cursor = 'x&next=https://elsewhere.example';
+    request.mockResolvedValueOnce(Response.json(page('z', cursor)));
+    expect(await handleLlmModels({ provider: 'custom', baseUrl, apiFormat, apiKey: 'mock-key' }, request))
+      .toEqual({ ok: true, models: ['a', 'z'] });
+    const next = new URL(baseUrl + path);
+    next.searchParams.set(parameter, cursor);
+    expect(request).toHaveBeenNthCalledWith(2, next.href, expect.objectContaining({ redirect: 'error' }));
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds catalog requests with continually changing cursors', async () => {
+    let page = 0;
+    const request = vi.fn(async () => Response.json({ models: [{ name: 'models/demo' }], nextPageToken: String(++page) }));
+    expect(await handleLlmModels({ provider: 'custom', baseUrl: 'https://custom.example', apiFormat: 'gemini' }, request))
+      .toEqual({ ok: true, models: ['demo'] });
+    expect(request).toHaveBeenCalledTimes(10);
+  });
 });
