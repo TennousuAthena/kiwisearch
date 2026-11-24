@@ -107,7 +107,7 @@ OpenAlex、Crossref、arXiv、PubMed、Europe PMC、DBLP、Openverse、Exa、Dee
 
 修改 API 地址会切换到「自定义」，保留当前模型，不会复制预设的 Key。自定义支持 OpenAI Chat Completions、OpenAI Responses、Claude Messages 和 Gemini Generate Content，AI 概览与独立决策聊天模型均可使用。可填写 API 根地址或完整请求端点。
 
-开启设备同步后，服务商和模型一起更新。自定义地址、API 格式和 Key 默认不同步；开启 Key 同步后会一起更新。本机 Ollama 地址覆盖始终由各设备自己保存。更改自定义地址的来源后，旧 Key 不会发到新服务器，确需使用时可重新保存。
+开启设备同步后，服务商和模型一起更新。自定义地址、API 格式和 Key 默认不同步；开启 Key 同步后，自定义地址和格式一起更新，Key 的保存或清除独立同步。本机 Ollama 地址覆盖始终由各设备自己保存。更改自定义地址的来源后，旧 Key 不会发到新服务器，确需使用时可重新保存。
 
 **概览语言**（设置 → AI 功能 → AI 概览 → “概览语言”）：
 - **跟随浏览器**（默认）：用浏览器语言设置里排第一的语言写，不管你搜什么。注意这是浏览器的首选语言，不是你搜索词的语言：浏览器是英语、搜中文，概览也是英语。

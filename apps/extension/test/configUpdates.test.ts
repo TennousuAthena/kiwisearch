@@ -1,4 +1,5 @@
 import { DEFAULT_CONFIG, resolveLlmSettings, SOURCES } from '@kiwi-search/core';
+import { deriveGroupKeys, generateDeviceKeys, generateRecoveryPhrase, importGroupSecret, SyncEngine } from '@kiwi-search/sync';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const storage = vi.hoisted(() => ({ value: {} as Record<string, unknown>, get: vi.fn(), set: vi.fn(), send: vi.fn() }));
@@ -6,7 +7,7 @@ vi.mock('wxt/browser', () => ({ browser: { storage: { local: { get: storage.get,
 import { applyRemoteConfigPatches, handleConfigUpdate, setOnLocalSyncChanges } from '../lib/backgroundConfig';
 import { applySettingsPatch, diffSettings, diffSettingsFromBaselines, undoDomainPreference, updateDomainPreference } from '../lib/configUpdates';
 import { DEFAULT_BRIDGE, loadConfig, saveConfig, saveSettings } from '../lib/settings';
-import { appliedChangesToLocalUpdates, readLocalSyncChanges } from '../lib/syncMapping';
+import { appliedChangesToLocalUpdates, extractNonDefaultLocalChanges, settingsPatchesToSyncChanges } from '../lib/syncMapping';
 import { createAutosaveQueue } from '../entrypoints/options/autosaveQueue';
 
 beforeEach(() => {
@@ -198,14 +199,15 @@ describe('settings writes from multiple pages', () => {
       expect(onChange).toHaveBeenCalledWith(expect.arrayContaining([
         { path: 'config.llm.selection', value: { provider: 'custom', model: 'one' } },
         { path: 'config.llm.profiles.custom.endpoint', value: {
-          baseUrl: 'https://first.example/v1', apiFormat: 'chat-completions', apiKey: 'mock-key', apiKeyOrigin: 'https://first.example',
+          baseUrl: 'https://first.example/v1', apiFormat: 'chat-completions',
         } },
+        { path: 'config.llm.profiles.custom.apiKey', value: 'mock-key', pairedUrl: 'https://first.example' },
         { path: 'config.judge.llm.selection', value: { provider: 'openrouter', model: 'two' } },
       ]));
-      expect(onChange.mock.calls[0][0].map((change: { path: string }) => change.path)).toHaveLength(3);
+      expect(onChange.mock.calls[0][0].map((change: { path: string }) => change.path)).toHaveLength(4);
       const { configPatches } = appliedChangesToLocalUpdates([{
         path: 'config.llm.profiles.custom.endpoint', category: 'keys', tombstone: false,
-        value: { baseUrl: 'https://second.example/v1', apiFormat: 'anthropic', apiKey: 'mock-key', apiKeyOrigin: 'https://first.example' },
+        value: { baseUrl: 'https://second.example/v1', apiFormat: 'anthropic' },
       }]);
       await applyRemoteConfigPatches(configPatches);
       const changed = await loadConfig();
@@ -214,22 +216,23 @@ describe('settings writes from multiple pages', () => {
       rebound.llm.profiles!.custom!.apiKeyOrigin = 'https://second.example';
       await saveConfig(rebound, changed);
       expect(resolveLlmSettings((await loadConfig()).llm).apiKey).toBe('mock-key');
-      expect(onChange).toHaveBeenLastCalledWith([{ path: 'config.llm.profiles.custom.endpoint', value: {
-        baseUrl: 'https://second.example/v1', apiFormat: 'anthropic', apiKey: 'mock-key', apiKeyOrigin: 'https://second.example',
-      } }]);
+      expect(onChange).toHaveBeenLastCalledWith([
+        { path: 'config.llm.profiles.custom.apiKey', value: 'mock-key', pairedUrl: 'https://second.example' },
+      ]);
     } finally {
       setOnLocalSyncChanges(null);
     }
   });
 
-  it('keeps a local custom key on keyless endpoint edits and only clears it on an explicit clear', async () => {
+  it('keeps local keys on endpoint edits and delivers a missed clear in a newer snapshot', async () => {
     const before = await loadConfig();
     const draft = structuredClone(before);
     draft.llm.selection = { provider: 'custom', model: 'demo' };
     draft.llm.profiles!.custom = { baseUrl: 'https://custom.example/v1', apiKey: 'local-key', apiKeyOrigin: 'https://custom.example' };
     await saveConfig(draft, before);
     const path = 'config.llm.profiles.custom.endpoint';
-    const endpoint = { baseUrl: 'https://custom.example/v2', apiFormat: 'anthropic' };
+    const keyPath = 'config.llm.profiles.custom.apiKey';
+    const endpoint = { baseUrl: 'https://custom.example/v2', apiFormat: 'anthropic' } as const;
     const apply = (value: object) => applyRemoteConfigPatches(appliedChangesToLocalUpdates([{
       path, category: 'keys', tombstone: false, value,
     }]).configPatches);
@@ -240,10 +243,35 @@ describe('settings writes from multiple pages', () => {
 
     const cleared = structuredClone(kept);
     cleared.llm.profiles!.custom = { ...cleared.llm.profiles!.custom, apiKey: '', apiKeyOrigin: undefined, apiKeyCleared: true };
-    const [record] = readLocalSyncChanges([path], cleared, {});
-    expect(record.value).toEqual({ ...endpoint, apiKeyCleared: true });
-    await apply(record.value as object);
-    expect(resolveLlmSettings((await loadConfig()).llm).apiKey).toBe('');
+    const clearerChanges = settingsPatchesToSyncChanges(diffSettings(kept, cleared), cleared);
+    expect(clearerChanges).toEqual([{ path: keyPath, tombstone: true }]);
+    const keyless = structuredClone(kept);
+    keyless.llm.profiles!.custom = { ...endpoint, apiKey: '' };
+    const next = structuredClone(keyless);
+    next.llm.profiles!.custom!.baseUrl = 'https://custom.example/v3';
+    const editorChanges = settingsPatchesToSyncChanges(diffSettings(keyless, next), next);
+    expect(editorChanges).toEqual([{ path, value: { ...endpoint, baseUrl: 'https://custom.example/v3' } }]);
+    expect(extractNonDefaultLocalChanges(next, {}).some((change) => change.path === keyPath)).toBe(false);
+
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = Date.now();
+    const makePeer = async (deviceName: string) => {
+      const peer = new SyncEngine({ device: await generateDeviceKeys(), deviceName, groupKeys, configVersion: 7, nowMs: now, categories: { search: true, filters: true, ui: true, keys: true } });
+      await peer.createMemberJoinRecord(now);
+      return peer;
+    };
+    const [clearer, editor, receiver] = await Promise.all(['clearer', 'editor', 'offline receiver'].map(makePeer));
+    await clearer.applyLocalChanges(clearerChanges, now + 1);
+    const relay = await editor.receiveRecords(clearer.getAllEnvelopes(), now + 2);
+    expect(relay.applied).toContainEqual(expect.objectContaining({ path: keyPath, tombstone: true }));
+    await editor.applyLocalChanges(editorChanges, now + 3);
+    const snapshot = await editor.createSnapshotRecords(now + 4);
+    const received = await receiver.receiveRecords(snapshot.records, now + 5);
+    const updates = appliedChangesToLocalUpdates(received.applied);
+    await applyRemoteConfigPatches(updates.configPatches);
+    expect(resolveLlmSettings((await loadConfig()).llm)).toEqual({
+      baseUrl: 'https://custom.example/v3', apiFormat: 'anthropic', apiKey: '', model: 'demo',
+    });
   });
 
   it('preserves concurrent sibling fields when an optional object did not exist in the baseline', () => {

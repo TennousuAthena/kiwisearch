@@ -1,6 +1,7 @@
 import {
   classifySyncPath,
   CUSTOM_LLM_ENDPOINT_PATH,
+  CUSTOM_LLM_KEY_PATH,
   LEGACY_LLM_PATH,
   LLM_SELECTION_PATH,
   makeMembershipElementPath,
@@ -15,10 +16,10 @@ import type { SettingsPatch } from './configUpdates';
 
 const MEMBERSHIP_PATHS = new Set(['config.judge.blockedDomains', 'config.judge.boostedDomains']);
 const SYNCED_UI_KEYS = new Set<string>([...preferenceKeys.map(storageKey), 'academicLanguage']);
-const CUSTOM_PROFILE_PATCH = /^(config\.(?:judge\.)?llm\.profiles\.custom)(?:\.(?:baseUrl|apiKey|apiKeyOrigin|apiKeyCleared|apiFormat))?$/;
+const CUSTOM_PROFILE_PATCH = /^(config\.(?:judge\.)?llm\.profiles\.custom)(?:\.(baseUrl|apiKey|apiKeyOrigin|apiKeyCleared|apiFormat))?$/;
 
 function isMappedPath(path: string): boolean {
-  return !LEGACY_LLM_PATH.test(path) && !CUSTOM_PROFILE_PATCH.test(path) && classifySyncPath(path) !== null;
+  return !LEGACY_LLM_PATH.test(path) && (!CUSTOM_PROFILE_PATCH.test(path) || CUSTOM_LLM_KEY_PATH.test(path)) && classifySyncPath(path) !== null;
 }
 
 function customProfile(path: string, config?: FusionConfig) {
@@ -28,12 +29,14 @@ function customProfile(path: string, config?: FusionConfig) {
 function customEndpointChange(path: string, config?: FusionConfig): LocalChangeInput {
   const profile = customProfile(path, config);
   if (!profile) return { path, tombstone: true };
-  const { baseUrl = '', apiKey, apiKeyCleared } = profile;
-  const apiKeyOrigin = apiKey && httpOrigin(profile.apiKeyOrigin);
-  return { path, value: {
-    baseUrl, apiFormat: llmApiFormat(profile.apiFormat),
-    ...(apiKey ? { apiKey, ...(apiKeyOrigin ? { apiKeyOrigin } : {}) } : apiKeyCleared ? { apiKeyCleared } : {}),
-  } };
+  return { path, value: { baseUrl: profile.baseUrl ?? '', apiFormat: llmApiFormat(profile.apiFormat) } };
+}
+
+function customKeyChange(path: string, config?: FusionConfig): LocalChangeInput {
+  const profile = customProfile(path, config);
+  if (!profile?.apiKey) return { path, tombstone: true };
+  const origin = httpOrigin(profile.apiKeyOrigin);
+  return { path, value: profile.apiKey, ...(origin ? { pairedUrl: origin } : {}) };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -69,11 +72,26 @@ export function settingsPatchesToSyncChanges(patches: readonly SettingsPatch[], 
     }
     flattenConfigValue(basePath, patch.value, out);
   }
-  for (const patch of patches) {
-    const match = CUSTOM_PROFILE_PATCH.exec(`config.${patch.path.join('.')}`);
-    if (match) out.push(customEndpointChange(`${match[1]}.endpoint`, config));
+  const changes = new Map<string, LocalChangeInput>();
+  for (const change of out) {
+    const match = CUSTOM_PROFILE_PATCH.exec(change.path);
+    if (match) {
+      const [, profilePath, field] = match;
+      if (!field || field === 'baseUrl' || field === 'apiFormat') {
+        const path = `${profilePath}.endpoint`;
+        changes.set(path, customEndpointChange(path, config));
+      } else {
+        const profile = customProfile(change.path, config);
+        if (profile?.apiKey || profile?.apiKeyCleared) {
+          const path = `${profilePath}.apiKey`;
+          changes.set(path, customKeyChange(path, config));
+        }
+      }
+    } else if (isMappedPath(change.path)) {
+      changes.set(change.path, withBoundOrigin(change, config));
+    }
   }
-  return [...new Map(out.filter((change) => isMappedPath(change.path)).map((change) => [change.path, withBoundOrigin(change, config)])).values()];
+  return [...changes.values()];
 }
 
 function withBoundOrigin(change: LocalChangeInput, config?: FusionConfig): LocalChangeInput {
@@ -162,12 +180,25 @@ export function appliedChangesToLocalUpdates(applied: readonly AppliedChange[]):
       }
       if (CUSTOM_LLM_ENDPOINT_PATH.test(item.path)) {
         const endpoint = item.tombstone ? undefined : item.value as Partial<LlmProfile>;
-        const fields: (keyof LlmProfile)[] = ['baseUrl', 'apiFormat'];
-        if (endpoint?.apiKey || endpoint?.apiKeyCleared) fields.push('apiKey', 'apiKeyOrigin', 'apiKeyCleared');
-        for (const field of fields) {
+        for (const field of ['baseUrl', 'apiFormat'] as const) {
           const path = [...segs.slice(0, -1), field];
-          const value = field === 'apiKeyOrigin' ? httpOrigin(endpoint?.apiKeyOrigin) : endpoint?.[field];
+          const value = endpoint?.[field];
           configPatches.push(value === undefined ? { path, remove: true } : { path, value });
+        }
+        continue;
+      }
+      if (CUSTOM_LLM_KEY_PATH.test(item.path)) {
+        const profilePath = segs.slice(0, -1);
+        if (item.tombstone) {
+          configPatches.push({ path: segs, remove: true });
+          configPatches.push({ path: [...profilePath, 'apiKeyOrigin'], remove: true });
+          configPatches.push({ path: [...profilePath, 'apiKeyCleared'], value: true });
+        } else if (item.value) {
+          configPatches.push({ path: segs, value: item.value });
+          const originPath = [...profilePath, 'apiKeyOrigin'];
+          const origin = httpOrigin(item.pairedUrl);
+          configPatches.push(origin ? { path: originPath, value: origin } : { path: originPath, remove: true });
+          configPatches.push({ path: [...profilePath, 'apiKeyCleared'], remove: true });
         }
         continue;
       }
@@ -219,18 +250,21 @@ export function extractNonDefaultLocalChanges(
   const out: LocalChangeInput[] = [];
   const defaults = { ...DEFAULT_CONFIG, llm: profileLlmSettings(DEFAULT_CONFIG.llm), judge: { ...DEFAULT_CONFIG.judge, llm: profileLlmSettings(DEFAULT_CONFIG.judge.llm) } };
   diffAgainstDefault('config', defaults, config, out);
-  for (const path of ['config.llm.profiles.custom.endpoint', 'config.judge.llm.profiles.custom.endpoint']) {
+  const changes = out.filter((change) => !CUSTOM_LLM_KEY_PATH.test(change.path) && isMappedPath(change.path))
+    .map((change) => withBoundOrigin(change, config));
+  for (const path of ['config.llm.profiles.custom', 'config.judge.llm.profiles.custom']) {
     const profile = customProfile(path, config);
-    if (profile?.baseUrl || profile?.apiKey || profile?.apiKeyCleared || llmApiFormat(profile?.apiFormat) !== 'chat-completions') {
-      out.push(customEndpointChange(path, config));
+    if (profile?.baseUrl || llmApiFormat(profile?.apiFormat) !== 'chat-completions') {
+      changes.push(customEndpointChange(`${path}.endpoint`, config));
     }
+    if (profile?.apiKey || profile?.apiKeyCleared) changes.push(customKeyChange(`${path}.apiKey`, config));
   }
   for (const key of SYNCED_UI_KEYS) {
     if (storageValues[key] !== undefined) {
-      out.push({ path: key, value: storageValues[key] });
+      changes.push({ path: key, value: storageValues[key] });
     }
   }
-  return out.filter((change) => isMappedPath(change.path)).map((change) => withBoundOrigin(change, config));
+  return changes;
 }
 
 export function readLocalSyncChanges(
@@ -244,6 +278,7 @@ export function readLocalSyncChanges(
     );
   return paths.filter(isMappedPath).map((path) => {
     if (CUSTOM_LLM_ENDPOINT_PATH.test(path)) return customEndpointChange(path, config);
+    if (CUSTOM_LLM_KEY_PATH.test(path)) return customKeyChange(path, config);
     const membership = parseMembershipElementPath(path);
     if (membership) {
       const members = configValue(membership.basePath);

@@ -152,18 +152,13 @@ export function validateAndClampSyncValue(
 ): { ok: true; value: unknown } | { ok: false; reason: string } {
   if (hasUnsafeSegment(path)) return { ok: false, reason: 'Unsafe path segment' };
   if (CUSTOM_LLM_ENDPOINT_PATH.test(path)) {
-    const endpoint = value as { baseUrl?: unknown; apiFormat?: unknown; apiKey?: unknown; apiKeyOrigin?: unknown; apiKeyCleared?: unknown } | null;
+    const endpoint = value as { baseUrl?: unknown; apiFormat?: unknown } | null;
     if (!endpoint || typeof endpoint.baseUrl !== 'string' || endpoint.baseUrl.length > 2048
-      || (endpoint.apiKey !== undefined && (typeof endpoint.apiKey !== 'string' || endpoint.apiKey.length > 8192))
-      || (endpoint.apiKeyCleared !== undefined && (endpoint.apiKeyCleared !== true || !!endpoint.apiKey))
-      || typeof endpoint.apiFormat !== 'string' || !['chat-completions', 'responses', 'anthropic', 'gemini'].includes(endpoint.apiFormat)
-      || (endpoint.apiKeyOrigin !== undefined && (typeof endpoint.apiKeyOrigin !== 'string' || endpoint.apiKeyOrigin.length > 2048))) {
+      || typeof endpoint.apiFormat !== 'string' || !['chat-completions', 'responses', 'anthropic', 'gemini'].includes(endpoint.apiFormat)) {
       return { ok: false, reason: 'Invalid custom model endpoint' };
     }
-    const { baseUrl, apiFormat, apiKey, apiKeyOrigin, apiKeyCleared } = endpoint;
-    return { ok: true, value: {
-      baseUrl, apiFormat, ...(apiKey ? { apiKey, ...(apiKeyOrigin ? { apiKeyOrigin } : {}) } : apiKeyCleared ? { apiKeyCleared } : {}),
-    } };
+    const { baseUrl, apiFormat } = endpoint;
+    return { ok: true, value: { baseUrl, apiFormat } };
   }
   if (LLM_SELECTION_PATH.test(path)) {
     const selection = value as { provider?: unknown; model?: unknown } | null;
