@@ -368,6 +368,14 @@ export class SyncService {
     await this.broadcastEnvelopes(emitted);
   }
 
+  async saveUiPreferences(values: Record<string, unknown>): Promise<void> {
+    return this.enqueueMutation(async () => {
+      await this.init();
+      const changes = await this.writeUiStorageChanges(values, (updates) => browser.storage.local.set(updates));
+      await this.recordLocalChangesNow(uiStorageChangesToSyncChanges(changes));
+    });
+  }
+
   /** Record UI preference changes from storage.onChanged while ignoring our own remote writes. */
   async handleStorageChanged(changes: Record<string, StorageChange>): Promise<void> {
     return this.enqueueMutation(() => this.handleStorageChangedNow(changes));
@@ -917,18 +925,18 @@ export class SyncService {
       await this.applyRemoteConfigPatches(configPatches, searxngKey?.pairedUrl);
     }
     if (Object.keys(storageUpdates).length) {
-      await this.writeRemoteStorageChanges(storageUpdates, (updates) => browser.storage.local.set(updates));
+      await this.writeUiStorageChanges(storageUpdates, (updates) => browser.storage.local.set(updates));
     }
     if (storageRemovals.length) {
       const removals = Object.fromEntries(storageRemovals.map((key) => [key, undefined]));
-      await this.writeRemoteStorageChanges(removals, (updates) => browser.storage.local.remove(Object.keys(updates)));
+      await this.writeUiStorageChanges(removals, (updates) => browser.storage.local.remove(Object.keys(updates)));
     }
   }
 
-  private async writeRemoteStorageChanges(
+  private async writeUiStorageChanges(
     updates: Record<string, unknown>,
     write: (changes: Record<string, unknown>) => Promise<void>,
-  ): Promise<void> {
+  ): Promise<Record<string, StorageChange>> {
     const current = await browser.storage.local.get(Object.keys(updates));
     const expected = new Map<string, StorageChange>();
     for (const [key, newValue] of Object.entries(updates)) {
@@ -940,13 +948,14 @@ export class SyncService {
       pending.add(change);
       this.expectedStorageChanges.set(key, pending);
     }
-    if (!expected.size) return;
+    if (!expected.size) return {};
     try {
       await write(Object.fromEntries([...expected].map(([key, change]) => [key, change.newValue])));
     } catch (error) {
       for (const [key, change] of expected) this.forgetExpectedStorageChange(key, change);
       throw error;
     }
+    return Object.fromEntries(expected);
   }
 
   private forgetExpectedStorageChange(key: string, change: StorageChange): void {

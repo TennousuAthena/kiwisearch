@@ -8,7 +8,7 @@ import { coreMessagesFor } from '@kiwi-search/app/i18n/coreMessages';
 import type { PortMessage, SearchRequest } from '@kiwi-search/protocol';
 import { applyRemoteConfigPatches, handleConfigUpdate, isConfigUpdateMessage, setOnLocalSyncChanges } from '@/lib/backgroundConfig';
 import { isExtensionPageSender, isSyncOffscreenSender } from '@/lib/summaryRequest';
-import { isSyncRuntimeMessage, observedKeys, parseSearchStreamMessage, parseSummaryRequest, parseSummaryStreamMessage, preferenceValues } from '@kiwi-search/protocol';
+import { isSyncRuntimeMessage, observedKeys, parsePreferenceSave, parseSearchStreamMessage, parseSummaryRequest, parseSummaryStreamMessage, preferenceValues } from '@kiwi-search/protocol';
 import { SyncService } from '@/lib/syncService';
 import { localSearchUrl, siteSearchUrl } from '@/lib/localUrl';
 import { SITE_ORIGIN } from '@/lib/webOrigins';
@@ -84,9 +84,9 @@ export default defineBackground(() => {
     focusWorker,
     updateSettings: handleConfigUpdate,
     loadPreferences: async () => preferenceValues(await browser.storage.local.get(observedKeys)),
-    savePreferences: (values) => browser.storage.local.set(values),
+    savePreferences: (values) => syncService.saveUiPreferences(values),
     loadAcademicLanguage: async () => ((await browser.storage.local.get(ACADEMIC_LANGUAGE_KEY))[ACADEMIC_LANGUAGE_KEY] === 'en' ? 'en' : 'any'),
-    saveAcademicLanguage: (language) => browser.storage.local.set({ [ACADEMIC_LANGUAGE_KEY]: language }),
+    saveAcademicLanguage: (language) => syncService.saveUiPreferences({ [ACADEMIC_LANGUAGE_KEY]: language }),
     openLocal: async (tabId, query, mode) => { await browser.tabs.update(tabId, { url: localSearchUrl(appUrl, query, mode) }); },
     openOptions: async (section) => { await browser.tabs.create({ url: browser.runtime.getURL('/options.html') + (section ? `#${section}` : '') }); },
   });
@@ -175,6 +175,19 @@ export default defineBackground(() => {
     // A page of the website has the extension's identity through its content script, but none of the extension's own messages.
     if (webBridge.isSender(sender)) return false;
     const type = (msg as { type: string }).type;
+    if (type === 'kiwi:save-ui-preferences') {
+      if (!isExtensionPageSender(sender, browser.runtime.id, browser.runtime.getURL('/'))) return false;
+      const { values, language } = msg as { values?: unknown; language?: unknown };
+      const patch = language === 'any' || language === 'en' ? { [ACADEMIC_LANGUAGE_KEY]: language } : parsePreferenceSave(values);
+      if (!patch) {
+        sendResponse({ ok: false, error: 'Invalid preference save' });
+        return false;
+      }
+      void syncService.saveUiPreferences(patch)
+        .then(() => sendResponse({ ok: true }))
+        .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+      return true;
+    }
     if (isConfigUpdateMessage(msg)) {
       if (!isExtensionPageSender(sender, browser.runtime.id, browser.runtime.getURL('/'))) return false;
       void handleConfigUpdate(msg).then(sendResponse).catch((error) => sendResponse({ ok: false, error: String(error) }));

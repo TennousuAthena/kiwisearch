@@ -381,6 +381,53 @@ describe('syncMapping', () => {
 });
 
 describe('SyncService multi-device integration', () => {
+  async function pairThemeServices() {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
+      applyRemoteConfigPatches,
+    });
+    const svcB = new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
+      applyRemoteConfigPatches,
+    });
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!created.ok) throw new Error(created.error);
+    expect((await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! })).ok).toBe(true);
+    await flushMicrotasks();
+    return { svcA, svcB, storeA, storeB };
+  }
+
+  it('keeps the local theme as the LWW winner when saved during a remote overwrite', async () => {
+    const { svcA, svcB, storeA, storeB } = await pairThemeServices();
+    const key = storageKey('theme');
+    const remoteWrite = Promise.withResolvers<void>();
+    const releaseWrite = Promise.withResolvers<void>();
+    storage.set.mockImplementationOnce(async (patch) => {
+      remoteWrite.resolve();
+      await releaseWrite.promise;
+      Object.assign(storage.value, patch);
+    });
+    await svcA.recordLocalChanges([{ path: key, value: 'light' }]);
+    await remoteWrite.promise;
+
+    const saving = svcB.saveUiPreferences({ [key]: 'dark' });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const valueWhileBlocked = storage.value[key];
+    releaseWrite.resolve();
+    expect(valueWhileBlocked).toBeUndefined();
+    await saving;
+
+    const b = (await storeB.load())!;
+    expect(storage.value[key]).toBe('dark');
+    expect(b.engineState.registers[key]).toMatchObject({ value: 'dark', deviceId: b.device.deviceId });
+    await vi.waitFor(async () => expect((await storeA.load())?.engineState.registers[key]?.value).toBe('dark'));
+  });
+
   it.each([false, true])('ignores a remote theme echo and preserves an immediate local edit when present=%s', async (editLocally) => {
     const bus = new MockMeshBus();
     const storeA = new MemorySyncStorage();

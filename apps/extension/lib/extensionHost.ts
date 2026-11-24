@@ -1,16 +1,23 @@
 import type { KiwiHost, PreferenceBackend } from '@kiwi-search/app';
 import { parseAcademicLanguage } from '@kiwi-search/app/academicLanguage';
 import { observedKeys, preferenceValues } from '@kiwi-search/app/uiPreferences';
+import type { PreferenceValues } from '@kiwi-search/protocol';
 import { browser } from 'wxt/browser';
 import { undoDomainPreference, updateDomainPreference } from './configUpdates';
 
 const ACADEMIC_LANGUAGE_KEY = 'academicLanguage';
 
+async function saveUiPreference(message: { values: PreferenceValues } | { language: 'any' | 'en' }): Promise<void> {
+  const reply = await browser.runtime.sendMessage({ type: 'kiwi:save-ui-preferences', ...message }) as
+    { ok: true } | { ok: false; error: string } | undefined;
+  if (!reply?.ok) throw new Error(reply?.error ?? 'Preference save failed');
+}
+
 /** The interface preferences, kept in `storage.local` under their own keys, apart from `config`. */
 export function createExtensionPreferenceBackend(): PreferenceBackend {
   return {
     load: async () => preferenceValues(await browser.storage.local.get(observedKeys)),
-    save: (values) => browser.storage.local.set(values),
+    save: (values) => saveUiPreference({ values }),
     subscribe: (listener) => {
       browser.storage.onChanged.addListener((changes, area) => {
         if (area !== 'local' || !observedKeys.some((key) => key in changes)) return;
@@ -35,7 +42,7 @@ export function createExtensionHost(): KiwiHost {
     // What the academic tab last chose. Kept apart from `config`, so the settings page, which saves the whole config, can't overwrite it.
     academicLanguage: {
       load: async () => parseAcademicLanguage((await browser.storage.local.get(ACADEMIC_LANGUAGE_KEY))[ACADEMIC_LANGUAGE_KEY]),
-      save: (language) => browser.storage.local.set({ [ACADEMIC_LANGUAGE_KEY]: language }),
+      save: (language) => saveUiPreference({ language }),
     },
     homeUrl: browser.runtime.getURL('/app.html'),
     optionsUrl: browser.runtime.getURL('/options.html'),

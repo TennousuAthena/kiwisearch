@@ -13,14 +13,17 @@ vi.mock('wxt/browser', () => ({
     storage: {
       local: {
         get: async (keys: string | string[]) => Object.fromEntries((Array.isArray(keys) ? keys : [keys]).filter((k) => k in world.store).map((k) => [k, world.store[k]])),
-        set: async (values: Record<string, unknown>) => { Object.assign(world.store, values); },
       },
       onChanged: { addListener: (l: Listener) => { world.listeners.push(l); } },
     },
     runtime: {
       getURL: (path: string) => `chrome-extension://abc${path}`,
-      sendMessage: async (message: { type: string; host?: string; domain?: string; action?: string; undo?: unknown }) => {
+      sendMessage: async (message: { type: string; host?: string; domain?: string; action?: string; undo?: unknown; values?: Record<string, unknown>; language?: string }) => {
         if (message.type === 'kiwi:favicon') return { src: null };
+        if (message.type === 'kiwi:save-ui-preferences') {
+          Object.assign(world.store, message.values ?? { academicLanguage: message.language });
+          return { ok: true };
+        }
         if (message.type === 'kiwi:update-settings') {
           if (message.undo) return { ok: true, restored: true };
           return { ok: true, undo: { domain: message.domain, before: { blocked: false, boosted: false }, after: { blocked: message.action === 'block', boosted: false }, revision: 'r1' } };
