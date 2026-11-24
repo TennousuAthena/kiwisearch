@@ -3,6 +3,11 @@ const TRACKING_PARAMS = [
   /^(fbclid|gclid|dclid|msclkid|msockid|yclid|mc_cid|mc_eid|igshid|spm|from|ref|ref_src|source|si)$/i,
 ];
 
+export function httpOrigin(value: unknown): string | undefined {
+  const url = typeof value === 'string' ? URL.parse(value) : null;
+  if (url?.protocol === 'https:' || url?.protocol === 'http:') return url.origin;
+}
+
 /** Canonical form of a URL used to detect duplicates across engines. */
 export function normalizeUrl(raw: string, contentIds = true): string {
   let u: URL;

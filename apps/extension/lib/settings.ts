@@ -30,7 +30,17 @@ export async function saveBridge(bridge: BridgeSettings, baseline: BridgeSetting
 
 export async function saveSettings(next: { config: FusionConfig; bridge: BridgeSettings }, baseline: { config: FusionConfig; bridge: BridgeSettings }, superseded: readonly { config: FusionConfig; bridge: BridgeSettings }[] = []): Promise<void> {
   const previous = [baseline, ...superseded];
-  await sendSettingsUpdate({ type: 'kiwi:update-settings', config: diffSettingsFromBaselines(previous.map((value) => value.config), next.config), bridge: diffSettingsFromBaselines(previous.map((value) => value.bridge), next.bridge) });
+  const config = diffSettingsFromBaselines(previous.map((value) => value.config), next.config);
+  const keyPath = ['sources', 'searxng', 'apiKey'];
+  const originPath = ['sources', 'searxng', 'apiKeyOrigin'];
+  const keyPatch = config.some(({ path }) => path.join('.') === keyPath.join('.'));
+  const originPatch = config.some(({ path }) => path.join('.') === originPath.join('.'));
+  if (keyPatch || originPatch) {
+    const source = next.config.sources.searxng;
+    if (!keyPatch) config.push({ path: keyPath, value: source?.apiKey });
+    if (!originPatch) config.push({ path: originPath, value: source?.apiKeyOrigin ?? null });
+  }
+  await sendSettingsUpdate({ type: 'kiwi:update-settings', config, bridge: diffSettingsFromBaselines(previous.map((value) => value.bridge), next.bridge) });
 }
 
 /**

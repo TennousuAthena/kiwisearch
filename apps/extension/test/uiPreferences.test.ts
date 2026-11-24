@@ -1,7 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const storage = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn(), listen: vi.fn() }));
-vi.mock('wxt/browser', () => ({ browser: { storage: { local: { get: storage.get, set: storage.set }, onChanged: { addListener: storage.listen } } } }));
+vi.mock('wxt/browser', () => ({
+  browser: {
+    storage: { local: { get: storage.get }, onChanged: { addListener: storage.listen } },
+    runtime: {
+      async sendMessage({ type, values }: { type: string; values: Record<string, unknown> }) {
+        if (type !== 'kiwi:save-ui-preferences') throw new Error('Unexpected message');
+        try {
+          await storage.set(values);
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: (error as Error).message };
+        }
+      },
+    },
+  },
+}));
 beforeEach(() => {
   vi.resetModules(); vi.clearAllMocks();
   storage.get.mockResolvedValue({}); storage.set.mockResolvedValue(undefined);

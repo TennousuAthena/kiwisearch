@@ -38,12 +38,13 @@ vi.mock('wxt/browser', () => ({
 }));
 
 import { applySettingsPatch, type SettingsPatch } from '../lib/configUpdates';
+import { applyRemoteConfigPatches, handleConfigUpdate } from '../lib/backgroundConfig';
 import { MemorySyncStorage, type StoredSyncRecord } from '../lib/syncDb';
 import {
   appliedChangesToLocalUpdates,
   domainTransitionToSyncChanges,
   settingsPatchesToSyncChanges,
-  uiStorageChangesToSyncChanges,
+  uiPreferenceWritesToSyncChanges,
 } from '../lib/syncMapping';
 import { SyncService } from '../lib/syncService';
 import type { SyncTransport } from '../lib/syncTransportBridge';
@@ -339,10 +340,10 @@ describe('syncMapping', () => {
     expect(domChanges).toEqual([{ path: 'config.judge.boostedDomains#docs.example', value: true }]);
 
     const themeKey = storageKey('theme');
-    const uiChanges = uiStorageChangesToSyncChanges({
-      [themeKey]: { oldValue: 'auto', newValue: 'dark' },
-      unrelatedKey: { oldValue: 1, newValue: 2 },
-    });
+    const uiChanges = uiPreferenceWritesToSyncChanges(
+      { [themeKey]: 'dark', unrelatedKey: 2 },
+      { [themeKey]: 'auto', unrelatedKey: 1 },
+    );
     expect(uiChanges).toEqual([{ path: themeKey, value: 'dark' }]);
 
     const localUpdates = appliedChangesToLocalUpdates([
@@ -380,6 +381,310 @@ describe('syncMapping', () => {
 });
 
 describe('SyncService multi-device integration', () => {
+  async function pairThemeServices() {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
+      applyRemoteConfigPatches,
+    });
+    const svcB = new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
+      applyRemoteConfigPatches,
+    });
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!created.ok) throw new Error(created.error);
+    expect((await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! })).ok).toBe(true);
+    await flushMicrotasks();
+    return { svcA, svcB, storeA, storeB };
+  }
+
+  it('keeps the local theme as the LWW winner when saved during a remote overwrite', async () => {
+    const { svcA, svcB, storeA, storeB } = await pairThemeServices();
+    const key = storageKey('theme');
+    const remoteWrite = Promise.withResolvers<void>();
+    const releaseWrite = Promise.withResolvers<void>();
+    storage.set.mockImplementationOnce(async (patch) => {
+      remoteWrite.resolve();
+      await releaseWrite.promise;
+      Object.assign(storage.value, patch);
+    });
+    await svcA.recordLocalChanges([{ path: key, value: 'light' }]);
+    await remoteWrite.promise;
+
+    const saving = svcB.saveUiPreferences({ [key]: 'dark' });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const valueWhileBlocked = storage.value[key];
+    releaseWrite.resolve();
+    expect(valueWhileBlocked).toBeUndefined();
+    await saving;
+
+    const b = (await storeB.load())!;
+    expect(storage.value[key]).toBe('dark');
+    expect(b.engineState.registers[key]).toMatchObject({ value: 'dark', deviceId: b.device.deviceId });
+    await vi.waitFor(async () => expect((await storeA.load())?.engineState.registers[key]?.value).toBe('dark'));
+  });
+
+  it.each([false, true])('ignores a remote theme echo and preserves an immediate local edit when present=%s', async (editLocally) => {
+    const { svcA, svcB, storeA, storeB } = await pairThemeServices();
+    const key = storageKey('theme');
+    const written = Promise.withResolvers<{ edit?: Promise<void> }>();
+    storage.set.mockImplementationOnce(async (patch) => {
+      expect(patch).toEqual({ [key]: 'light' });
+      storage.value[key] = 'light';
+      written.resolve({ edit: editLocally ? svcB.saveUiPreferences({ [key]: 'dark' }) : undefined });
+    });
+
+    const before = (await storeB.load())!.engineState;
+    await svcA.recordLocalChanges([{ path: key, value: 'light' }]);
+    const { edit } = await written.promise;
+    await edit;
+    await svcB.handleMessage({ type: 'kiwi:sync:status' });
+    const after = (await storeB.load())!.engineState;
+    expect(after.seq).toBe(before.seq + Number(editLocally));
+    expect(after.registers[key]?.value).toBe(editLocally ? 'dark' : 'light');
+    await vi.waitFor(async () => {
+      expect((await storeA.load())?.engineState.registers[key]?.value).toBe(editLocally ? 'dark' : 'light');
+    });
+  });
+
+  it('records a later local transition that matches a previous remote write', async () => {
+    const { svcA, svcB, storeA, storeB } = await pairThemeServices();
+    const key = storageKey('theme');
+    storage.value[key] = 'system';
+    storage.get.mockClear();
+    const remoteWrite = Promise.withResolvers<void>();
+    const releaseWrite = Promise.withResolvers<void>();
+    storage.set.mockImplementationOnce(async (patch) => {
+      remoteWrite.resolve();
+      await releaseWrite.promise;
+      Object.assign(storage.value, patch);
+    });
+    const before = (await storeB.load())!.engineState.seq;
+    await svcA.recordLocalChanges([{ path: key, value: 'light' }]);
+    await remoteWrite.promise;
+    const readBeforeRemoteWrite = storage.get.mock.calls.some(([keys]) => Array.isArray(keys) && keys.includes(key));
+    const firstEdit = svcB.saveUiPreferences({ [key]: 'dark' });
+    releaseWrite.resolve();
+    await firstEdit;
+    expect(readBeforeRemoteWrite).toBe(false);
+
+    await vi.waitFor(async () => expect((await storeA.load())?.engineState.registers[key]?.value).toBe('dark'));
+    await svcB.saveUiPreferences({ [key]: 'system' });
+    await vi.waitFor(async () => expect((await storeA.load())?.engineState.registers[key]?.value).toBe('system'));
+    await svcB.saveUiPreferences({ [key]: 'light' });
+
+    const b = (await storeB.load())!;
+    expect(b.engineState.seq).toBe(before + 3);
+    expect(b.engineState.registers[key]).toMatchObject({ value: 'light', deviceId: b.device.deviceId });
+    expect(storage.value[key]).toBe('light');
+    await vi.waitFor(async () => expect((await storeA.load())?.engineState.registers[key]).toMatchObject({
+      value: 'light',
+      deviceId: b.device.deviceId,
+    }));
+  });
+
+  it('syncs the saved SearXNG key origin when enabling keys after the address changes', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    const applyOnB = vi.fn(applyRemoteConfigPatches);
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const svcB = new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
+      applyRemoteConfigPatches: applyOnB,
+    });
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!created.ok) throw new Error(created.error);
+    expect((await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! })).ok).toBe(true);
+    await flushMicrotasks();
+    await svcB.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
+
+    const source = ['sources', 'searxng'];
+    const address = 'https://other.example/search-service';
+    await handleConfigUpdate({
+      type: 'kiwi:update-settings',
+      config: [{ path: source, value: { enabled: true, baseUrl: 'https://saved.example:8443/instance', apiKey: 'test-local' } }],
+    });
+    await handleConfigUpdate({
+      type: 'kiwi:update-settings',
+      config: [{ path: [...source, 'baseUrl'], value: address }],
+    });
+    expect((await svcA.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } })).ok).toBe(true);
+
+    await vi.waitFor(() => {
+      expect(applyOnB).toHaveBeenCalledWith(
+        [{ path: [...source, 'apiKey'], value: 'test-local' }],
+        'https://saved.example:8443',
+      );
+      expect(storage.value.config).toMatchObject({
+        sources: { searxng: { baseUrl: address, apiKey: 'test-local', apiKeyOrigin: 'https://saved.example:8443' } },
+      });
+    });
+  });
+
+  it.each([false, true])('replays a held SearXNG address on upgrade without rebinding a local key, with local key configured=%s', async (localKey) => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const svcB = new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
+      applyRemoteConfigPatches,
+    });
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!created.ok) throw new Error(created.error);
+    await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! });
+    await flushMicrotasks();
+    await svcB.handleMessage({ type: 'kiwi:sync:update-settings', categories: { search: false } });
+    const path = 'config.sources.searxng.baseUrl';
+    const address = 'https://search.androw.eu/';
+    await svcA.recordLocalChanges([{ path, value: address }]);
+    await vi.waitFor(async () => expect((await storeB.load())?.engineState.registers[path]?.value).toBe(address));
+    const beforeUpgrade = (await storeB.load())!;
+    beforeUpgrade.engineState.registers[path]!.category = 'keys';
+    beforeUpgrade.settings.categories.search = true;
+    beforeUpgrade.engineState.categories.search = true;
+    await storeB.save(beforeUpgrade);
+    const localAddress = 'https://local.example/';
+    if (localKey) {
+      await handleConfigUpdate({
+        type: 'kiwi:update-settings',
+        config: [{ path: ['sources', 'searxng'], value: { enabled: true, baseUrl: localAddress, apiKey: 'test-local' } }],
+      });
+    }
+    const before = storage.set.mock.calls.length;
+
+    const restore = () => new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => new MockMeshBus().createTransport(cb, storeB),
+      applyRemoteConfigPatches,
+    });
+    await restore().init();
+    expect(storage.set).toHaveBeenCalledTimes(before + 1);
+    expect(storage.value.config).toMatchObject({
+      sources: { searxng: { baseUrl: address, ...(localKey ? { apiKeyOrigin: 'https://local.example' } : {}) } },
+    });
+    expect((await storeB.load())?.engineState.registers[path]?.category).toBe('search');
+    const restarted = restore();
+    await restarted.init();
+    expect(storage.set).toHaveBeenCalledTimes(before + 1);
+    if (localKey) {
+      await restarted.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
+      expect(storage.value.config).toMatchObject({ sources: { searxng: { baseUrl: address, apiKey: 'test-local' } } });
+    }
+  });
+
+  it('compacts a SearXNG address removal normally and allows joining through another peer', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    const storeC = new MemorySyncStorage();
+    let joinerConfig = structuredClone(DEFAULT_CONFIG);
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const svcB = new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
+      applyRemoteConfigPatches,
+    });
+    const svcC = new SyncService({
+      storage: storeC,
+      transportFactory: (cb) => bus.createTransport(cb, storeC),
+      applyRemoteConfigPatches: async (patches) => { joinerConfig = applySettingsPatch(joinerConfig, patches); },
+    });
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!created.ok) throw new Error(created.error);
+    await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! });
+    await flushMicrotasks();
+    const source = ['sources', 'searxng'];
+    const path = 'config.sources.searxng.baseUrl';
+    const localAddress = 'https://local.example/';
+    const groupAddress = 'https://group.example/';
+    await handleConfigUpdate({
+      type: 'kiwi:update-settings',
+      config: [{ path: source, value: { enabled: true, baseUrl: localAddress, apiKey: 'test-local' } }],
+    });
+    await svcA.recordLocalChanges([{ path, value: groupAddress }, { path: 'config.sources.searxng.enabled', value: true }]);
+    const readSearxng = () => (storage.value.config as typeof DEFAULT_CONFIG).sources.searxng;
+    await vi.waitFor(() => expect(readSearxng()?.baseUrl).toBe(groupAddress));
+    await svcA.recordLocalChanges([{ path, tombstone: true }]);
+    const a = (await storeA.load())!;
+    const sender = a.device.deviceId;
+    const seq = a.engineState.seq;
+    await svcA.handleMessage({ type: 'kiwi:sync:sync-now' });
+    await vi.waitFor(async () => {
+      const state = (await storeB.load())!.engineState;
+      expect(state.peerAcks[sender]?.[sender]).toBeGreaterThanOrEqual(seq);
+      expect(state.registers[path]).toBeUndefined();
+      expect(readSearxng()?.baseUrl).toBeUndefined();
+    });
+    expect(readSearxng()).toMatchObject({ apiKey: 'test-local', apiKeyOrigin: 'https://local.example' });
+    await svcA.handleMessage({ type: 'kiwi:sync:update-settings', relayUrl: '' });
+    expect((await svcC.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! })).ok).toBe(true);
+    await vi.waitFor(() => expect(joinerConfig.sources.searxng?.enabled).toBe(true));
+    expect(joinerConfig.sources.searxng?.baseUrl).toBeUndefined();
+  });
+
+  it('applies held remote winners when enabling search and preserves a newer local edit across restart', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => bus.createTransport(cb, storeA),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const makeServiceB = () => new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
+      applyRemoteConfigPatches,
+    });
+    const svcB = makeServiceB();
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!created.ok) throw new Error(created.error);
+    await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! });
+    await flushMicrotasks();
+    await svcB.handleMessage({ type: 'kiwi:sync:update-settings', categories: { search: false } });
+    await svcA.recordLocalChanges([
+      { path: 'config.llm.model', value: 'remote-model' },
+      { path: 'config.imageCount', value: 17 },
+    ]);
+    await vi.waitFor(async () =>
+      expect((await storeB.load())?.engineState.registers['config.imageCount']?.value).toBe(17));
+    expect(storage.value.config).toMatchObject({ imageCount: DEFAULT_CONFIG.imageCount });
+    await handleConfigUpdate({ type: 'kiwi:update-settings', config: [{ path: ['imageCount'], value: 19 }] });
+    await svcB.recordLocalChanges([{ path: 'config.imageCount', value: 19 }]);
+    const held = (await storeB.load())!;
+    expect(held.engineState.registers['config.imageCount']?.value).toBe(17);
+    const localClock = held.engineState.excludedLocalEditClocks?.['config.imageCount'];
+    expect(localClock).toBeDefined();
+
+    bus.setOnline(svcA.getStatus().deviceId!, false);
+    const restarted = makeServiceB();
+    await restarted.handleMessage({ type: 'kiwi:sync:update-settings', categories: { search: true } });
+    expect(storage.value.config).toMatchObject({ imageCount: 19, llm: { model: 'remote-model' } });
+    expect((await storeB.load())?.engineState.registers['config.imageCount']).toMatchObject({
+      value: 19, hlc: localClock,
+    });
+  });
+
   it('catches up records missed during relay downtime after reconnect', async () => {
     const bus = new MockMeshBus();
     const storeA = new MemorySyncStorage();
@@ -454,6 +759,48 @@ describe('SyncService multi-device integration', () => {
     await flushMicrotasks();
 
     expect(countVv()).toBe(before + 1);
+  });
+
+  it('retries the first handshake after changing from a failed direct channel to relay', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    const stateB = { config: structuredClone(DEFAULT_CONFIG) };
+    let directFailed = true;
+    const events: Array<(event: TransportEvent) => void> = [];
+    const transportFactory = (store: MemorySyncStorage) => (onEvent: (event: TransportEvent) => void) => {
+      events.push(onEvent);
+      const transport = bus.createTransport(onEvent, store);
+      return {
+        ...transport,
+        sendToPeer: (...args: Parameters<typeof transport.sendToPeer>) =>
+          directFailed ? Promise.resolve(false) : transport.sendToPeer(...args),
+      };
+    };
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: transportFactory(storeA),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const svcB = new SyncService({
+      storage: storeB,
+      transportFactory: transportFactory(storeB),
+      applyRemoteConfigPatches: async (patches) => {
+        stateB.config = applySettingsPatch(stateB.config, patches);
+      },
+    });
+    const created = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!created.ok) throw new Error(created.error);
+    const joined = await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: created.phrase! });
+    expect(joined.ok).toBe(true);
+    await flushMicrotasks();
+    await svcA.recordLocalChanges([{ path: 'config.summary.enabled', value: false }]);
+    expect(stateB.config.summary.enabled).toBe(DEFAULT_CONFIG.summary.enabled);
+
+    directFailed = false;
+    events[0]!({ type: 'peer-channel', peerId: svcB.getStatus().deviceId!, epoch: 1, channel: 'relay' });
+    events[1]!({ type: 'peer-channel', peerId: svcA.getStatus().deviceId!, epoch: 1, channel: 'relay' });
+    await vi.waitFor(() => expect(stateB.config.summary.enabled).toBe(false));
   });
 
   it('defaults an omitted relay URL and reports it before a group exists', async () => {
@@ -883,6 +1230,9 @@ describe('SyncService multi-device integration', () => {
       { path: 'config.summary.enabled', value: false },
       { path: 'config.judge.blockedDomains#farm.example', value: true },
       { path: 'config.llm.apiKey', value: 'sk-secret-from-a' },
+      { path: 'config.sources.searxng.enabled', value: true },
+      { path: 'config.sources.searxng.baseUrl', value: 'https://search.androw.eu/' },
+      { path: 'config.sources.searxng.apiKey', value: 'synthetic-searxng-key' },
     ]);
     await flushMicrotasks();
 
@@ -890,6 +1240,8 @@ describe('SyncService multi-device integration', () => {
     expect(stateB.config.summary.enabled).toBe(false);
     expect(stateB.config.judge.blockedDomains).toContain('farm.example');
     expect(stateB.config.llm.apiKey).toBeFalsy();
+    expect(stateB.config.sources.searxng).toMatchObject({ enabled: true, baseUrl: 'https://search.androw.eu/' });
+    expect(stateB.config.sources.searxng?.apiKey).toBeFalsy();
     // No echo back to A.
     expect(stateA.remoteWrites).toBe(0);
 
@@ -897,8 +1249,10 @@ describe('SyncService multi-device integration', () => {
     await svcA.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
     await svcB.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
     await svcA.recordLocalChanges([{ path: 'config.llm.apiKey', value: 'sk-explicit-sync-key' }]);
+    await svcA.recordLocalChanges([{ path: 'config.sources.searxng.apiKey', value: 'synthetic-searxng-key' }]);
     await flushMicrotasks();
     expect(stateB.config.llm.apiKey).toBe('sk-explicit-sync-key');
+    expect(stateB.config.sources.searxng?.apiKey).toBe('synthetic-searxng-key');
 
     // 5. Device A goes offline (clears relayUrl), then Device C joins and syncs via B!
     await svcA.handleMessage({ type: 'kiwi:sync:update-settings', relayUrl: '' });

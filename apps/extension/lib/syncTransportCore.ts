@@ -57,6 +57,7 @@ export type TransportEvent =
 
 interface SignalEnvelope {
   t: 'hello' | 'offer' | 'answer' | 'ice' | 'bye' | 'relay-data';
+  relayFallback?: true;
   from: string;
   fromName?: string;
   to?: string;
@@ -1157,7 +1158,7 @@ export class SyncTransportCore {
     }
     const slot = this.getOrCreateSlot(msg.from, msg.fromName, msg.certHash);
 
-    // Reply with directed hello if we haven't connected yet so the newcomer learns our presence.
+    // A returning peer may have lost its slot even though we kept the relay fallback.
     if (!msg.to) {
       await this.sendSignal({
         t: 'hello',
@@ -1166,11 +1167,14 @@ export class SyncTransportCore {
         to: msg.from,
         epoch: this.config.epoch,
         certHash: this.ownCertHash,
+        relayFallback: slot.channel === 'relay' ? true : undefined,
       });
     }
 
     // If WebRTC is already open to this peer, keep the existing connection intact!
     if (slot.channel === 'relay' || (slot.channel === 'webrtc' && slot.dc?.readyState === 'open')) return;
+
+    if (msg.to && msg.relayFallback && this.activateRelayFallback(slot)) return;
 
     // Deterministic initiator: lexicographically smaller deviceId sends the offer.
     if (this.config.deviceId < msg.from) {

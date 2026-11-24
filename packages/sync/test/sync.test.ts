@@ -218,10 +218,13 @@ describe('HLC and category classification', () => {
     expect(classifySyncPath('config.llm.baseUrl')).toBe('keys');
     expect(classifySyncPath('config.judge.apiKey')).toBe('keys');
     expect(classifySyncPath('config.sources.exa.apiKey')).toBe('keys');
+    expect(classifySyncPath('config.sources.searxng.apiKey')).toBe('keys');
+    expect(classifySyncPath('config.sources.searxng.baseUrl')).toBe('search');
     expect(classifySyncPath('config.sources.exa.enabled')).toBe('search');
     expect(classifySyncPath(makeMembershipElementPath('config.judge.blockedDomains', 'spam.test'))).toBe('filters');
     expect(classifySyncPath('config.judge.blocklists.recommended')).toBe('filters');
     expect(classifySyncPath('config.judge.rules')).toBe('filters');
+    expect(classifySyncPath('config.sources.searxng.apiKeyOrigin')).toBeNull();
     expect(classifySyncPath('ui:theme')).toBe('ui');
     expect(classifySyncPath('preferences.theme')).toBeNull();
     expect(classifySyncPath('bridge.mcpToken')).toBeNull();
@@ -715,6 +718,27 @@ describe('SyncEngine multi-device synchronization', () => {
     expect(resBOn.applied[0]).toMatchObject({ path: 'config.llm.apiKey', value: 'sk-test-3', category: 'keys' });
   });
 
+  it('keeps a held deletion available through compaction until its category is enabled', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = 1_700_000_000_000;
+    const A = await makePeer('A', groupKeys, now);
+    const B = await makePeer('B', groupKeys, now);
+    await B.engine.setCategories({ filters: false });
+    const before = B.engine.getCategories();
+    const path = makeMembershipElementPath('config.judge.blockedDomains', 'old.test');
+    await A.engine.applyLocalChanges([{ path, tombstone: true }], now + 100);
+    const result = await B.engine.receiveRecords(A.engine.getAllEnvelopes(), now + 200);
+    expect(result.applied).toEqual([]);
+    await B.engine.recordPeerAck(A.device.deviceId, A.engine.getVersionVector());
+    await B.engine.compact();
+    await B.engine.setCategories({ filters: true });
+
+    const replay = await B.engine.reconcileIncludedRegisters(before, async () => [], false);
+    expect(replay.toApplyLocally).toEqual([{ path, category: 'filters', tombstone: true, value: undefined }]);
+    await B.engine.compact();
+    expect(B.engine.getRegisters()[path]).toBeUndefined();
+  });
+
   it('keeps the version vector at a contiguous prefix for out-of-order records', async () => {
     const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
     const now = 1_700_000_000_000;
@@ -740,6 +764,7 @@ describe('SyncEngine multi-device synchronization', () => {
     await A.engine.applyLocalChanges([
       { path: 'config.defaultMode', value: 'academic' },
       { path: 'config.llm.apiKey', value: 'sk-snapshot-test' },
+      { path: 'config.sources.searxng.apiKey', value: 'test-searxng', pairedUrl: 'https://searx.example/instance' },
     ], now + 100);
     const { entropy: rotatedEntropy } = await generateRecoveryPhrase();
     const { newGroupKeys } = await A.engine.rotatePhrase(rotatedEntropy, now + 200);
@@ -775,6 +800,13 @@ describe('SyncEngine multi-device synchronization', () => {
     expect(D.engine.getRegisters()['config.defaultMode']?.value).toBe('academic');
     expect(D.engine.getRegisters()['config.llm.apiKey']?.value).toBe('sk-snapshot-test');
     expect(received.applied.some((change) => change.path === 'config.llm.apiKey')).toBe(false);
+    const before = D.engine.getCategories();
+    await D.engine.setCategories({ keys: true });
+    const replayed = await D.engine.reconcileIncludedRegisters(before, async () => [], false);
+    expect(replayed.toApplyLocally).toContainEqual({
+      path: 'config.sources.searxng.apiKey', value: 'test-searxng', tombstone: false,
+      category: 'keys', pairedUrl: 'https://searx.example/instance',
+    });
     expect(D.engine.getVersionVector()[A.device.deviceId]).toBe(snapshotEngine.getVersionVector()[A.device.deviceId]);
 
     const B = await makePeer('B', oldKeys, now);

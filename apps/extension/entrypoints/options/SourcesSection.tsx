@@ -1,5 +1,5 @@
-import { BROWSER_ENGINES, type FusionConfig, type SourceId } from '@kiwi-search/core';
-import { useState } from 'react';
+import { BROWSER_ENGINES, httpOrigin, type FusionConfig, type SourceId } from '@kiwi-search/core';
+import { useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { t } from '@kiwi-search/app/i18n';
 import { ChevronDownIcon, ExternalLinkIcon, TriangleAlertIcon } from '@kiwi-search/app/icons';
@@ -16,7 +16,7 @@ type SourceField = 'enabled' | 'apiKey' | 'baseUrl';
 interface Props {
   config: FusionConfig;
   health: SourceHealthMap;
-  onUpdate: (id: SourceId, field: SourceField, value: boolean | string) => void;
+  onUpdate: (id: SourceId, field: SourceField, value: boolean | string, keyUrl?: string | null) => void;
   /** Switches several sources at once (a preset). */
   onSetEnabled: (enabled: Partial<Record<SourceId, boolean>>) => void;
   /** Turning this on needs the user's yes first. */
@@ -36,6 +36,7 @@ export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfi
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'enabled' | 'attention'>('all');
   const [editingSource, setEditingSource] = useState<SourceId | null>(null);
+  const searxngKeyEditUrl = useRef<string | null>(null);
   const [presetUndo, setPresetUndo] = useState<Partial<Record<SourceGroup, SourcePresetUndo>>>({});
   const [presetFeedback, setPresetFeedback] = useState('');
   const term = query.trim().toLocaleLowerCase();
@@ -95,6 +96,8 @@ export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfi
     // A source that can't run without its key opens its fields by itself once it is switched on.
     const needsInput = settings.enabled && (badge?.action === 'key');
     const expanded = hasFields && (needsInput || open.has(id) || editingSource === id);
+    const searxngOrigin = id === 'searxng' ? httpOrigin(settings.baseUrl) : undefined;
+    const searxngKey = id === 'searxng' ? settings.apiKey : undefined;
     return (
       <li key={id} className={settings.enabled ? 'source on' : 'source'}>
         <div className="source-main">
@@ -136,8 +139,24 @@ export function SourcesSection({ config, health, onUpdate, onSetEnabled, onConfi
                   )
                 }
               >
-                <SecretInput label={t('options.sources.apiKeyOf', { source: label })} value={settings.apiKey ?? ''} placeholder={t('options.sources.keyPlaceholder')} onChange={(next) => onUpdate(id, 'apiKey', next)} />
+                <SecretInput
+                  label={t('options.sources.apiKeyOf', { source: label })}
+                  value={settings.apiKey ?? ''}
+                  placeholder={t('options.sources.keyPlaceholder')}
+                  onChange={(next) => onUpdate(id, 'apiKey', next, id === 'searxng' ? searxngKeyEditUrl.current : undefined)}
+                  onFocus={id === 'searxng' ? () => { searxngKeyEditUrl.current = settings.baseUrl ?? null; } : undefined}
+                />
               </Field>
+            )}
+            {searxngKey && (!searxngOrigin || searxngOrigin !== settings.apiKeyOrigin) && (
+              <div>
+                <p className="note" role="status">{t('options.sources.searxngKeyNotSent')}</p>
+                {searxngOrigin && (
+                  <button type="button" className="btn small" onClick={() => onUpdate(id, 'apiKey', searxngKey, settings.baseUrl)}>
+                    {t('options.sources.searxngResaveKey')}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}

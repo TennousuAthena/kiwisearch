@@ -32,7 +32,7 @@ Sources can be searched by their name, ID or description and filtered to all/ena
 
 Segmented choices have one Tab stop and support arrow/Home/End navigation. Visible switch titles are associated labels. The section navigation reports the current section with `aria-current` and opens the advanced section when reached by its anchor.
 
-Appearance and search-display preferences live in independent `ui:theme`, `ui:summaryMode`, `ui:openNewTab` and `ui:recentQueries` keys, managed by `packages/app/src/lib/uiPreferences.ts` and shared between quick settings and `UiPreferencesPanel`. They are outside core config and outside the options autosave draft. The recent-query preference is a boolean; query text itself is not written by these settings helpers.
+Appearance and search-display preferences live in independent `ui:theme`, `ui:summaryMode`, `ui:openNewTab` and `ui:recentQueries` keys, managed by `packages/app/src/lib/uiPreferences.ts` and shared between quick settings and `UiPreferencesPanel`. They are outside core config and outside the options autosave draft. The recent-query preference is a boolean; query text itself is not written by these settings helpers. Extension pages and the web bridge send preference saves (including `academicLanguage`) to the background, which serializes them with incoming device sync.
 
 `ui:summaryMode` is the extension UI's only overview-generation setting: `auto`, `on-demand` or `off`. When that key has no valid value, initialization reads the old `config.summary.enabled` value: explicit `false` maps to `off`; every other case maps to `auto`. This is a read-only compatibility fallback, with no migration write or change to config, API keys or MCP settings. Explicit UI choices, including `auto`, take precedence over the old bit. The new-tab page sends an explicit `summarize` boolean on each search. The options AI section always exposes model/language fields and links to the same three-way preference instead of keeping a second switch. The legacy core field remains available to MCP callers using the existing automatic-summary behavior.
 
@@ -53,6 +53,8 @@ Taobao (`taobao`), JD (`jd`) and Amazon (`amazon`) have explicit enabled default
 Checked on 2026-11-13 for shopping activation: the original profile/extension ID/path were retained and saved config, keys, bridge and sync storage matched the protected pre-update snapshot. Only source-status records and favicon cache entries changed during live checks; cache pruning is the existing favicon service behavior. See [shopping.md](shopping.md).
 
 `summary.hedgeMs` (3000) and `summary.early.thinking` (`'off'`) (2026-11-16) are scalars inside the existing `summary` object, so `mergeConfig` fills them into configs saved before they existed; `CONFIG_VERSION` stays 5 and there is no migration. What `chatStream` learns about an endpoint's thinking switch is kept in the worker's memory only.
+
+Migration 5→6 (2026-11-23) binds an existing SearXNG key to the saved instance's HTTP(S) origin. Future address-only edits do not change the binding; see [device sync](device-sync.md#what-syncs).
 
 ## Settings directory (2026-11-21)
 

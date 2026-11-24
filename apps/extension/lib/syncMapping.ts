@@ -2,10 +2,11 @@ import {
   classifySyncPath,
   makeMembershipElementPath,
   parseMembershipElementPath,
+  SEARXNG_KEY_PATH,
   type AppliedChange,
   type LocalChangeInput,
 } from '@kiwi-search/sync';
-import { DEFAULT_CONFIG, type FusionConfig } from '@kiwi-search/core';
+import { DEFAULT_CONFIG, httpOrigin, type FusionConfig } from '@kiwi-search/core';
 import { preferenceKeys, storageKey, type DomainPreferenceState } from '@kiwi-search/protocol';
 import type { SettingsPatch } from './configUpdates';
 
@@ -17,7 +18,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /** Convert settings patches produced by the options page or web bridge into sync engine changes. */
-export function settingsPatchesToSyncChanges(patches: readonly SettingsPatch[]): LocalChangeInput[] {
+export function settingsPatchesToSyncChanges(patches: readonly SettingsPatch[], config?: FusionConfig): LocalChangeInput[] {
   const out: LocalChangeInput[] = [];
   for (const patch of patches) {
     if (!patch.path.length) continue;
@@ -45,7 +46,14 @@ export function settingsPatchesToSyncChanges(patches: readonly SettingsPatch[]):
     }
     flattenConfigValue(basePath, patch.value, out);
   }
-  return out;
+  return out.filter((change) => classifySyncPath(change.path) !== null).map((change) => withBoundOrigin(change, config));
+}
+
+function withBoundOrigin(change: LocalChangeInput, config?: FusionConfig): LocalChangeInput {
+  const source = config?.sources.searxng;
+  if (change.path !== SEARXNG_KEY_PATH || !change.value || change.value !== source?.apiKey) return change;
+  const origin = httpOrigin(source.apiKeyOrigin);
+  return origin ? { ...change, pairedUrl: origin } : change;
 }
 
 /** Convert a single domain preference transition into membership-element sync changes. */
@@ -66,16 +74,15 @@ export function domainTransitionToSyncChanges(
   return out;
 }
 
-/** Convert chrome.storage.local preference updates into sync changes. */
-export function uiStorageChangesToSyncChanges(
-  changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
+/** Convert changed local preference saves into sync changes. */
+export function uiPreferenceWritesToSyncChanges(
+  values: Record<string, unknown>,
+  current: Record<string, unknown>,
 ): LocalChangeInput[] {
   const out: LocalChangeInput[] = [];
-  for (const [key, change] of Object.entries(changes)) {
-    if (!SYNCED_UI_KEYS.has(key)) continue;
-    if (JSON.stringify(change.oldValue) === JSON.stringify(change.newValue)) continue;
-    if (change.newValue === undefined) out.push({ path: key, tombstone: true });
-    else out.push({ path: key, value: change.newValue });
+  for (const [path, value] of Object.entries(values)) {
+    if (!SYNCED_UI_KEYS.has(path) || value === undefined || value === current[path]) continue;
+    out.push({ path, value });
   }
   return out;
 }
@@ -171,7 +178,29 @@ export function extractNonDefaultLocalChanges(
       out.push({ path: key, value: storageValues[key] });
     }
   }
-  return out.filter((change) => classifySyncPath(change.path) !== null);
+  return out.filter((change) => classifySyncPath(change.path) !== null).map((change) => withBoundOrigin(change, config));
+}
+
+export function readLocalSyncChanges(
+  paths: readonly string[],
+  config: FusionConfig,
+  storageValues: Record<string, unknown>,
+): LocalChangeInput[] {
+  const configValue = (path: string): unknown =>
+    path.slice('config.'.length).split('.').reduce<unknown>(
+      (value, key) => isPlainObject(value) ? value[key] : undefined, config,
+    );
+  return paths.map((path) => {
+    const membership = parseMembershipElementPath(path);
+    if (membership) {
+      const members = configValue(membership.basePath);
+      return Array.isArray(members) && members.includes(membership.element)
+        ? { path, value: true }
+        : { path, tombstone: true };
+    }
+    const value = path.startsWith('config.') ? configValue(path) : storageValues[path];
+    return value === undefined ? { path, tombstone: true } : withBoundOrigin({ path, value }, config);
+  });
 }
 
 function diffAgainstDefault(

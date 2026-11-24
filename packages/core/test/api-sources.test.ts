@@ -5,7 +5,7 @@ import { deepseek } from '../src/sources/deepseek';
 import { exa } from '../src/sources/exa';
 import { openalex } from '../src/sources/openalex';
 import { searxng } from '../src/sources/searxng';
-import type { FetchLike, SearchSource } from '../src/types';
+import type { FetchLike, SearchSource, SourceSettings } from '../src/types';
 import { sourceContext } from './helpers';
 
 function mockEnv(payload: unknown) {
@@ -20,7 +20,7 @@ function mockEnv(payload: unknown) {
 async function search(
   source: SearchSource,
   env: ReturnType<typeof mockEnv>['env'],
-  settings: { enabled: boolean; apiKey?: string; baseUrl?: string },
+  settings: SourceSettings,
 ) {
   return source.search('fusion query', sourceContext(env, settings));
 }
@@ -107,5 +107,17 @@ describe('official API sources', () => {
     const hits = await search(searxng, env, { enabled: true, baseUrl: 'https://searx.example/' });
     expect(calls[0].url).toBe('https://searx.example/search?q=fusion%20query&format=json');
     expect(hits[0]).toMatchObject({ title: 'SearX result', snippet: 'Snippet' });
+  });
+
+  it.each([
+    ['https://searx.example/instance', true],
+    ['https://searx.example:443/', true],
+    ['http://searx.example/', false],
+    ['https://searx.example:8443/', false],
+    ['https://other.example/', false],
+  ])('only sends the SearXNG bearer to its bound origin at %s', async (baseUrl, authenticated) => {
+    const { env, calls } = mockEnv({ results: [] });
+    await search(searxng, env, { enabled: true, baseUrl, apiKey: 'test-local', apiKeyOrigin: 'https://searx.example' });
+    expect(new Headers(calls[0].init?.headers).get('Authorization')).toBe(authenticated ? 'Bearer test-local' : null);
   });
 });

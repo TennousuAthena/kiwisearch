@@ -6,6 +6,7 @@ export function resetKeepingSecrets(current: FusionConfig): FusionConfig {
   for (const [id, settings] of Object.entries(current.sources) as [SourceId, FusionConfig['sources'][SourceId]][]) {
     if (!settings?.apiKey && !settings?.baseUrl) continue;
     next.sources[id] = { ...(next.sources[id] ?? { enabled: false }), ...(settings.apiKey ? { apiKey: settings.apiKey } : {}), ...(settings.baseUrl ? { baseUrl: settings.baseUrl } : {}) };
+    if (id === 'searxng' && settings.apiKeyOrigin) next.sources[id]!.apiKeyOrigin = settings.apiKeyOrigin;
   }
   next.judge.apiKey = current.judge.apiKey;
   // A separate decision model the user filled in is as tedious to get back as any key.

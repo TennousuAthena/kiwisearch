@@ -44,15 +44,20 @@ const UI_PATTERNS: readonly RegExp[] = [
   /^academicLanguage$/,
 ];
 
+export const SEARXNG_KEY_PATH = 'config.sources.searxng.apiKey';
+const SEARXNG_KEY_ORIGIN_PATH = 'config.sources.searxng.apiKeyOrigin';
+
 /**
  * Classifies a dotted sync path into its sync category, or null if not a known syncable path.
- * Note: KEY_AND_ENDPOINT_PATTERNS is checked FIRST so apiKey/baseUrl/endpoint never leak into 'search' or 'filters'.
+ * Sensitive patterns take precedence over general categories, except for explicitly shared fields.
  */
 export function classifySyncPath(path: string): SyncCategory | null {
   if (!path || hasUnsafeSegment(path)) return null;
   if (/^(?:config\.)?(?:bridge|mcp)(?:\.|$)/i.test(path)) return null;
   // Membership element paths like "config.judge.blockedDomains#example.com"
   const basePath = extractMembershipBasePath(path) ?? path;
+  if (basePath === SEARXNG_KEY_ORIGIN_PATH || basePath.startsWith(`${SEARXNG_KEY_ORIGIN_PATH}.`)) return null;
+  if (basePath === 'config.sources.searxng.baseUrl') return 'search';
 
   for (const pattern of KEY_AND_ENDPOINT_PATTERNS) {
     if (pattern.test(basePath)) return 'keys';

@@ -84,11 +84,11 @@ export function NumberField({ label, hint, value, min, max, step, onChange }: { 
 }
 
 /** A key or token: hidden by default, with a button to look at what was typed. */
-export function SecretInput({ value, onChange, placeholder, label }: { value: string; onChange: (next: string) => void; placeholder?: string; label: string }) {
+export function SecretInput({ value, onChange, placeholder, label, onFocus }: { value: string; onChange: (next: string) => void; placeholder?: string; label: string; onFocus?: () => void }) {
   const [shown, setShown] = useState(false);
   return (
     <span className="secret">
-      <input type={shown ? 'text' : 'password'} aria-label={label} value={value} placeholder={placeholder} autoComplete="off" spellCheck={false} onChange={(event) => onChange(event.target.value)} />
+      <input type={shown ? 'text' : 'password'} aria-label={label} value={value} placeholder={placeholder} autoComplete="off" spellCheck={false} onChange={(event) => onChange(event.target.value)} onFocus={onFocus} />
       <button type="button" className="secret-toggle" aria-pressed={shown} onClick={() => setShown(!shown)}>
         {shown ? t('options.controls.hide') : t('options.controls.show')}
       </button>

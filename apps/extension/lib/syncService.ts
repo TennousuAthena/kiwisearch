@@ -1,6 +1,7 @@
 import { CONFIG_VERSION } from '@kiwi-search/core';
 import {
   canonicalJson,
+  classifySyncPath,
   DEFAULT_SYNC_CATEGORIES,
   SyncEngine,
   buildHandshakeHello,
@@ -12,6 +13,7 @@ import {
   importGroupSecret,
   memberCertificate,
   openRecordBody,
+  SEARXNG_KEY_PATH,
   phraseToEntropy,
   toBase64Url,
   verifyHandshakeProof,
@@ -21,6 +23,7 @@ import {
   type HandshakeHello,
   type HandshakeProof,
   type LocalChangeInput,
+  type SyncCategorySettings,
   type SyncRecordBody,
   type SyncRecordEnvelope,
   type VersionVector,
@@ -47,7 +50,8 @@ import {
 import {
   appliedChangesToLocalUpdates,
   extractNonDefaultLocalChanges,
-  uiStorageChangesToSyncChanges,
+  readLocalSyncChanges,
+  uiPreferenceWritesToSyncChanges,
 } from './syncMapping';
 import { ExtensionSyncTransport, type SyncTransport } from './syncTransportBridge';
 import type { TransportEvent } from './syncTransportCore';
@@ -110,7 +114,7 @@ function peerSessionKey(peerId: string, epoch: number): string {
 export interface SyncServiceDeps {
   storage?: SyncStorageAdapter;
   transportFactory?: (onEvent: (event: TransportEvent) => void) => SyncTransport;
-  applyRemoteConfigPatches: (patches: SettingsPatch[]) => Promise<void>;
+  applyRemoteConfigPatches: (patches: SettingsPatch[], pairedSearxngUrl?: string) => Promise<void>;
 }
 
 function defaultDeviceName(): string {
@@ -123,7 +127,7 @@ function defaultDeviceName(): string {
 export class SyncService {
   private readonly storage: SyncStorageAdapter;
   private readonly transport: SyncTransport;
-  private readonly applyRemoteConfigPatches: (patches: SettingsPatch[]) => Promise<void>;
+  private readonly applyRemoteConfigPatches: SyncServiceDeps['applyRemoteConfigPatches'];
 
   private engine: SyncEngine | null = null;
   private device: DeviceKeys | null = null;
@@ -143,9 +147,6 @@ export class SyncService {
   private initialized = false;
   private initPromise: Promise<void> | null = null;
   private pendingInitialJoinSync = false;
-
-  /** Keys currently being written by remote sync so storage.onChanged does not echo them. */
-  private suppressedStorageKeys = new Set<string>();
 
   constructor(deps: SyncServiceDeps) {
     this.storage = deps.storage ?? createDefaultSyncStorage();
@@ -198,6 +199,7 @@ export class SyncService {
             persisted: stored.engineState,
           });
           for (const keys of previousKeys) await this.engine.registerEpochKeys(keys);
+          if (await this.reconcileIncludedRegisters(stored.settings.categories)) await this.persist();
           await this.startTransport();
         }
       } catch (error) {
@@ -358,29 +360,19 @@ export class SyncService {
     await this.init();
     if (!this.engine || !changes.length) return;
     const emitted = await this.engine.applyLocalChanges(changes);
-    if (!emitted.length) return;
     await this.persist();
     await this.broadcastEnvelopes(emitted);
   }
 
-  /** Record UI preference changes from chrome.storage.onChanged while ignoring our own remote writes. */
-  async handleStorageChanged(changes: Record<string, { oldValue?: unknown; newValue?: unknown }>): Promise<void> {
-    return this.enqueueMutation(() => this.handleStorageChangedNow(changes));
-  }
-
-  private async handleStorageChangedNow(
-    changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
-  ): Promise<void> {
-    await this.init();
-    if (!this.engine) return;
-    const filtered: Record<string, { oldValue?: unknown; newValue?: unknown }> = {};
-    for (const [key, value] of Object.entries(changes)) {
-      if (this.suppressedStorageKeys.has(key)) continue;
-      filtered[key] = value;
-    }
-    const localChanges = uiStorageChangesToSyncChanges(filtered);
-    if (!localChanges.length) return;
-    await this.recordLocalChangesNow(localChanges);
+  async saveUiPreferences(values: Record<string, unknown>): Promise<void> {
+    return this.enqueueMutation(async () => {
+      await this.init();
+      const current = await browser.storage.local.get(Object.keys(values));
+      const changes = uiPreferenceWritesToSyncChanges(values, current);
+      if (!changes.length) return;
+      await browser.storage.local.set(Object.fromEntries(changes.map(({ path, value }) => [path, value])));
+      await this.recordLocalChangesNow(changes);
+    });
   }
 
   private async broadcastEnvelopes(envelopes: readonly SyncRecordEnvelope[]): Promise<void> {
@@ -513,6 +505,7 @@ export class SyncService {
       if (peer) {
         peer.channel = event.channel;
         if (peer.authenticated) await this.sendVersionVector(peer);
+        else await this.restartPeerHandshake(peer);
       }
       return;
     }
@@ -901,24 +894,26 @@ export class SyncService {
   private async applyAppliedChanges(applied: readonly import('@kiwi-search/sync').AppliedChange[]): Promise<void> {
     const { configPatches, storageUpdates, storageRemovals } = appliedChangesToLocalUpdates(applied);
     if (configPatches.length) {
-      await this.applyRemoteConfigPatches(configPatches);
+      const searxngKey = applied.findLast((change) => change.path === SEARXNG_KEY_PATH);
+      await this.applyRemoteConfigPatches(configPatches, searxngKey?.pairedUrl);
     }
-    const keysToSuppress = [...Object.keys(storageUpdates), ...storageRemovals];
-    if (keysToSuppress.length) {
-      for (const k of keysToSuppress) this.suppressedStorageKeys.add(k);
-      try {
-        if (Object.keys(storageUpdates).length) {
-          await browser.storage.local.set(storageUpdates);
-        }
-        if (storageRemovals.length) {
-          await browser.storage.local.remove(storageRemovals);
-        }
-      } finally {
-        setTimeout(() => {
-          for (const k of keysToSuppress) this.suppressedStorageKeys.delete(k);
-        }, 500);
-      }
+    if (Object.keys(storageUpdates).length) {
+      await browser.storage.local.set(storageUpdates);
     }
+    if (storageRemovals.length) {
+      await browser.storage.local.remove(storageRemovals);
+    }
+  }
+
+  private async reconcileIncludedRegisters(previousCategories: SyncCategorySettings): Promise<boolean> {
+    const result = await this.engine!.reconcileIncludedRegisters(
+      previousCategories,
+      async (paths) => readLocalSyncChanges(paths, await loadConfig(), await browser.storage.local.get(null)),
+      this.pendingInitialJoinSync,
+    );
+    await this.applyAppliedChanges(result.toApplyLocally);
+    await this.broadcastEnvelopes(result.emitted);
+    return result.reclassified;
   }
 
   async handleMessage(message: SyncRuntimeMessage): Promise<SyncRuntimeResponse> {
@@ -1059,7 +1054,7 @@ export class SyncService {
           this.connectionDefaults = connection;
           return { ok: true, status: this.getStatus() };
         }
-        const prevKeysEnabled = this.settings.categories.keys;
+        const previousCategories = this.settings.categories;
 
         if (message.deviceName !== undefined && message.deviceName.trim()) {
           this.settings.deviceName = message.deviceName.trim();
@@ -1079,27 +1074,16 @@ export class SyncService {
             ...message.categories,
           };
           await this.engine.setCategories(this.settings.categories);
+          await this.reconcileIncludedRegisters(previousCategories);
         }
 
-        // If the user just explicitly enabled `keys` on this device:
-        // 1) Apply any already-received remote key registers that were stored but skipped earlier.
-        // 2) Publish this device's existing non-default API keys/endpoints if any.
-        if (!prevKeysEnabled && this.settings.categories.keys) {
-          const remoteKeys = this.engine.exportState().registers;
-          const toApply = Object.values(remoteKeys)
-            .filter((r) => r.category === 'keys' && r.deviceId !== this.device?.deviceId)
-            .map((r) => ({ path: r.path, value: r.value, tombstone: r.tombstone, category: 'keys' as const }));
-          if (toApply.length) {
-            await this.applyAppliedChanges(toApply);
-          }
+        // Publish pre-existing local keys that have never been registered.
+        if (!previousCategories.keys && this.settings.categories.keys) {
+          const registers = this.engine.getRegisters();
           const config = await loadConfig();
           const storageVals = await browser.storage.local.get(null);
           const localKeyChanges = extractNonDefaultLocalChanges(config, storageVals).filter(
-            (c) =>
-              c.path.includes('apiKey') ||
-              c.path.endsWith('.endpoint') ||
-              c.path.endsWith('.baseUrl') ||
-              c.path.endsWith('.url'),
+            (c) => classifySyncPath(c.path) === 'keys' && !registers[c.path],
           );
           if (localKeyChanges.length) {
             const emitted = await this.engine.applyLocalChanges(localKeyChanges);
