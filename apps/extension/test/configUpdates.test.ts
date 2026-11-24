@@ -6,7 +6,7 @@ vi.mock('wxt/browser', () => ({ browser: { storage: { local: { get: storage.get,
 import { applyRemoteConfigPatches, handleConfigUpdate, setOnLocalSyncChanges } from '../lib/backgroundConfig';
 import { applySettingsPatch, diffSettings, diffSettingsFromBaselines, undoDomainPreference, updateDomainPreference } from '../lib/configUpdates';
 import { DEFAULT_BRIDGE, loadConfig, saveConfig, saveSettings } from '../lib/settings';
-import { appliedChangesToLocalUpdates } from '../lib/syncMapping';
+import { appliedChangesToLocalUpdates, readLocalSyncChanges } from '../lib/syncMapping';
 import { createAutosaveQueue } from '../entrypoints/options/autosaveQueue';
 
 beforeEach(() => {
@@ -220,6 +220,30 @@ describe('settings writes from multiple pages', () => {
     } finally {
       setOnLocalSyncChanges(null);
     }
+  });
+
+  it('keeps a local custom key on keyless endpoint edits and only clears it on an explicit clear', async () => {
+    const before = await loadConfig();
+    const draft = structuredClone(before);
+    draft.llm.selection = { provider: 'custom', model: 'demo' };
+    draft.llm.profiles!.custom = { baseUrl: 'https://custom.example/v1', apiKey: 'local-key', apiKeyOrigin: 'https://custom.example' };
+    await saveConfig(draft, before);
+    const path = 'config.llm.profiles.custom.endpoint';
+    const endpoint = { baseUrl: 'https://custom.example/v2', apiFormat: 'anthropic' };
+    const apply = (value: object) => applyRemoteConfigPatches(appliedChangesToLocalUpdates([{
+      path, category: 'keys', tombstone: false, value,
+    }]).configPatches);
+    await apply({ ...endpoint, apiKey: '' });
+    await apply(endpoint);
+    const kept = await loadConfig();
+    expect(resolveLlmSettings(kept.llm)).toEqual({ ...endpoint, apiKey: 'local-key', model: 'demo' });
+
+    const cleared = structuredClone(kept);
+    cleared.llm.profiles!.custom = { ...cleared.llm.profiles!.custom, apiKey: '', apiKeyOrigin: undefined, apiKeyCleared: true };
+    const [record] = readLocalSyncChanges([path], cleared, {});
+    expect(record.value).toEqual({ ...endpoint, apiKeyCleared: true });
+    await apply(record.value as object);
+    expect(resolveLlmSettings((await loadConfig()).llm).apiKey).toBe('');
   });
 
   it('preserves concurrent sibling fields when an optional object did not exist in the baseline', () => {

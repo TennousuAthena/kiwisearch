@@ -328,6 +328,7 @@ export interface LlmSelection {
 }
 
 export interface LlmProfile {
+  apiKeyCleared?: true;
   baseUrl: string;
   apiKey: string;
   model: string;

@@ -17,7 +17,10 @@ export function LlmFields({ value, onChange, label }: { value: LlmSettings; onCh
     ...(nextModel !== undefined ? { selection: { provider, model: nextModel } } : {}),
   });
   const selectModel = (nextModel: string) => editProfile({ model: nextModel }, nextModel);
-  const bindKey = (apiKey: string) => editProfile({ apiKey, ...(provider === 'custom' ? { apiKeyOrigin: apiKey ? httpOrigin(profile.baseUrl) : undefined } : {}) });
+  const bindKey = (apiKey: string) => editProfile({ apiKey, ...(provider === 'custom' ? {
+    apiKeyOrigin: apiKey ? httpOrigin(profile.baseUrl) : undefined,
+    apiKeyCleared: apiKey ? undefined : true,
+  } : {}) });
   const keyMismatch = provider === 'custom' && !!profile.apiKey && !connection.apiKey;
   const signature = JSON.stringify([provider, profile.baseUrl, profile.apiKey, profile.apiKeyOrigin, profile.apiFormat]);
   const current = useRef(signature);

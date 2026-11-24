@@ -15,7 +15,7 @@ import type { SettingsPatch } from './configUpdates';
 
 const MEMBERSHIP_PATHS = new Set(['config.judge.blockedDomains', 'config.judge.boostedDomains']);
 const SYNCED_UI_KEYS = new Set<string>([...preferenceKeys.map(storageKey), 'academicLanguage']);
-const CUSTOM_PROFILE_PATCH = /^(config\.(?:judge\.)?llm\.profiles\.custom)(?:\.(?:baseUrl|apiKey|apiKeyOrigin|apiFormat))?$/;
+const CUSTOM_PROFILE_PATCH = /^(config\.(?:judge\.)?llm\.profiles\.custom)(?:\.(?:baseUrl|apiKey|apiKeyOrigin|apiKeyCleared|apiFormat))?$/;
 
 function isMappedPath(path: string): boolean {
   return !LEGACY_LLM_PATH.test(path) && !CUSTOM_PROFILE_PATCH.test(path) && classifySyncPath(path) !== null;
@@ -28,9 +28,12 @@ function customProfile(path: string, config?: FusionConfig) {
 function customEndpointChange(path: string, config?: FusionConfig): LocalChangeInput {
   const profile = customProfile(path, config);
   if (!profile) return { path, tombstone: true };
-  const { baseUrl = '', apiKey = '' } = profile;
+  const { baseUrl = '', apiKey, apiKeyCleared } = profile;
   const apiKeyOrigin = apiKey && httpOrigin(profile.apiKeyOrigin);
-  return { path, value: { baseUrl, apiKey, apiFormat: llmApiFormat(profile.apiFormat), ...(apiKeyOrigin ? { apiKeyOrigin } : {}) } };
+  return { path, value: {
+    baseUrl, apiFormat: llmApiFormat(profile.apiFormat),
+    ...(apiKey ? { apiKey, ...(apiKeyOrigin ? { apiKeyOrigin } : {}) } : apiKeyCleared ? { apiKeyCleared } : {}),
+  } };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -159,7 +162,9 @@ export function appliedChangesToLocalUpdates(applied: readonly AppliedChange[]):
       }
       if (CUSTOM_LLM_ENDPOINT_PATH.test(item.path)) {
         const endpoint = item.tombstone ? undefined : item.value as Partial<LlmProfile>;
-        for (const field of ['baseUrl', 'apiKey', 'apiFormat', 'apiKeyOrigin'] as const) {
+        const fields: (keyof LlmProfile)[] = ['baseUrl', 'apiFormat'];
+        if (endpoint?.apiKey || endpoint?.apiKeyCleared) fields.push('apiKey', 'apiKeyOrigin', 'apiKeyCleared');
+        for (const field of fields) {
           const path = [...segs.slice(0, -1), field];
           const value = field === 'apiKeyOrigin' ? httpOrigin(endpoint?.apiKeyOrigin) : endpoint?.[field];
           configPatches.push(value === undefined ? { path, remove: true } : { path, value });
@@ -216,7 +221,7 @@ export function extractNonDefaultLocalChanges(
   diffAgainstDefault('config', defaults, config, out);
   for (const path of ['config.llm.profiles.custom.endpoint', 'config.judge.llm.profiles.custom.endpoint']) {
     const profile = customProfile(path, config);
-    if (profile?.baseUrl || profile?.apiKey || llmApiFormat(profile?.apiFormat) !== 'chat-completions') {
+    if (profile?.baseUrl || profile?.apiKey || profile?.apiKeyCleared || llmApiFormat(profile?.apiFormat) !== 'chat-completions') {
       out.push(customEndpointChange(path, config));
     }
   }
