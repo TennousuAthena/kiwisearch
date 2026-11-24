@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, type FusionConfig, type SourceId } from '@kiwi-search/core';
+import { DEFAULT_CONFIG, LLM_PROVIDERS, profileLlmSettings, type FusionConfig, type SourceId } from '@kiwi-search/core';
 
 /** The default settings, with the keys and addresses the user typed kept: those are the part that is tedious to get back. */
 export function resetKeepingSecrets(current: FusionConfig): FusionConfig {
@@ -10,10 +10,18 @@ export function resetKeepingSecrets(current: FusionConfig): FusionConfig {
   }
   next.judge.apiKey = current.judge.apiKey;
   // A separate decision model the user filled in is as tedious to get back as any key.
-  if (current.judge.llm.apiKey) next.judge.llm = { ...current.judge.llm };
+  next.judge.llm = profileLlmSettings(current.judge.llm);
   // The address of a decision-model service the user pointed Kiwi at is part of what is tedious to get back.
   next.judge.endpoint = current.judge.endpoint;
-  next.llm.apiKey = current.llm.apiKey;
+  const profiles: NonNullable<FusionConfig['llm']['profiles']> = {};
+  const currentProfiles = profileLlmSettings(current.llm).profiles;
+  for (const provider of LLM_PROVIDERS) {
+    const profile = currentProfiles?.[provider];
+    if (!profile) continue;
+    const { model: _model, ...connection } = profile;
+    profiles[provider] = connection;
+  }
+  next.llm = { ...profileLlmSettings(next.llm), profiles };
   if (current.rerank.apiKey) next.rerank.apiKey = current.rerank.apiKey;
   return next;
 }

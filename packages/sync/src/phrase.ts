@@ -4,6 +4,8 @@ import { toArrayBufferView } from './encoding';
 export const ENTROPY_BYTES = 32;
 export const PHRASE_WORD_COUNT = 24;
 
+export class InvalidRecoveryPhraseError extends Error {}
+
 export function normalizePhrase(input: string): string[] {
   return input
     .trim()
@@ -42,12 +44,12 @@ export async function entropyToPhrase(entropy: Uint8Array): Promise<string> {
 export async function phraseToEntropy(phrase: string): Promise<Uint8Array<ArrayBuffer>> {
   const words = normalizePhrase(phrase);
   if (words.length !== PHRASE_WORD_COUNT) {
-    throw new Error(`Recovery phrase must have ${PHRASE_WORD_COUNT} words, got ${words.length}`);
+    throw new InvalidRecoveryPhraseError(`Recovery phrase must have ${PHRASE_WORD_COUNT} words, got ${words.length}`);
   }
   const indices: number[] = [];
   for (const word of words) {
     const idx = BIP39_WORD_INDEX.get(word);
-    if (idx === undefined) throw new Error(`Unknown recovery phrase word: "${word}"`);
+    if (idx === undefined) throw new InvalidRecoveryPhraseError(`Unknown recovery phrase word: "${word}"`);
     indices.push(idx);
   }
 
@@ -66,7 +68,7 @@ export async function phraseToEntropy(phrase: string): Promise<Uint8Array<ArrayB
   entropy.set(bits.subarray(0, ENTROPY_BYTES));
   const expectedChecksum = new Uint8Array(await crypto.subtle.digest('SHA-256', entropy))[0]!;
   if (bits[ENTROPY_BYTES] !== expectedChecksum) {
-    throw new Error('Recovery phrase checksum mismatch');
+    throw new InvalidRecoveryPhraseError('Recovery phrase checksum mismatch');
   }
   return entropy;
 }

@@ -1,5 +1,6 @@
 import { DEFAULT_CONFIG } from '@kiwi-search/core';
-import { DEFAULT_SYNC_RELAY_URL, preferenceKeys, storageKey } from '@kiwi-search/protocol';
+import { getLocale, setLocale } from '@kiwi-search/app/i18n';
+import { DEFAULT_SYNC_RELAY_URL, preferenceKeys, storageKey, type SyncRuntimeMessage } from '@kiwi-search/protocol';
 import {
   canonicalJson,
   classifySyncPath,
@@ -10,6 +11,7 @@ import {
   openRecordBody,
   sealRecordBody,
   signEd25519,
+  SyncEngine,
   toBase64Url,
   utf8Encode,
   verifyMemberCertificate,
@@ -24,9 +26,11 @@ const storage = vi.hoisted(() => ({
   set: vi.fn(),
   remove: vi.fn(),
 }));
+const sendMessage = vi.hoisted(() => vi.fn());
 
 vi.mock('wxt/browser', () => ({
   browser: {
+    runtime: { sendMessage },
     storage: {
       local: {
         get: storage.get,
@@ -37,6 +41,7 @@ vi.mock('wxt/browser', () => ({
   },
 }));
 
+import { sendSyncMessage } from '../entrypoints/options/SyncJoinForm';
 import { applySettingsPatch, type SettingsPatch } from '../lib/configUpdates';
 import { applyRemoteConfigPatches, handleConfigUpdate } from '../lib/backgroundConfig';
 import { MemorySyncStorage, type StoredSyncRecord } from '../lib/syncDb';
@@ -642,6 +647,78 @@ describe('SyncService multi-device integration', () => {
     expect(joinerConfig.sources.searxng?.baseUrl).toBeUndefined();
   });
 
+  it.each([false, true])('does not resurrect cleared keys when a late joiner opts in before catch-up=%s', async (enableEarly) => {
+    const bus = new MockMeshBus();
+    const makeDevice = () => {
+      const db = new MemorySyncStorage();
+      const local = { config: structuredClone(DEFAULT_CONFIG) };
+      const svc = new SyncService({
+        storage: db,
+        transportFactory: (cb) => bus.createTransport(cb, db),
+        applyRemoteConfigPatches: async (patches) => { local.config = applySettingsPatch(local.config, patches); },
+      });
+      return { db, local, svc };
+    };
+    const [a, b, c] = [makeDevice(), makeDevice(), makeDevice()];
+    const group = await a.svc.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!group.ok || !group.phrase) throw new Error('Failed to create group');
+    const phrase = group.phrase;
+    const enableKeys = async (svc: SyncService) => {
+      expect(await svc.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } })).toMatchObject({ ok: true });
+    };
+    const paths = ['config.llm.profiles.custom.apiKey', 'config.sources.brave.apiKey'];
+    const configPaths = paths.map((path) => path.split('.').slice(1));
+    const readKeys = (config: typeof DEFAULT_CONFIG) => [config.llm.profiles?.custom?.apiKey, config.sources.brave?.apiKey];
+    expect(await b.svc.handleMessage({ type: 'kiwi:sync:join-group', phrase })).toMatchObject({ ok: true });
+    await vi.waitFor(async () => expect((await b.db.load())?.settings.pendingInitialJoinSync).toBe(false));
+    await enableKeys(a.svc);
+    await enableKeys(b.svc);
+    const oldKeys = configPaths.map((path) => ({ path, value: 'mock-old-key' }));
+    a.local.config = applySettingsPatch(a.local.config, oldKeys);
+    c.local.config = applySettingsPatch(c.local.config, oldKeys);
+    await a.svc.recordLocalChanges(paths.map((path) => ({ path, value: 'mock-old-key' })));
+    await vi.waitFor(() => expect(readKeys(b.local.config)).toEqual(['mock-old-key', 'mock-old-key']));
+    const original = (await a.db.load())!;
+    const oldSeqs = paths.map((path) => original.engineState.registers[path]!.seq);
+    a.local.config = applySettingsPatch(a.local.config, configPaths.map((path) => ({ path, remove: true })));
+    await a.svc.recordLocalChanges(paths.map((path) => ({ path, tombstone: true })));
+    await vi.waitFor(async () => {
+      const state = (await b.db.load())!.engineState;
+      expect(state.recordLog.some(({ deviceId, seq }) => deviceId === original.device.deviceId && oldSeqs.includes(seq))).toBe(false);
+      expect(paths.map((path) => state.registers[path]?.tombstone)).toEqual([true, true]);
+      expect(readKeys(b.local.config)).toEqual([undefined, undefined]);
+    });
+    bus.setOnline(original.device.deviceId, false);
+
+    storage.value.config = c.local.config;
+    bus.holdCoveredRecords = enableEarly;
+    expect(await c.svc.handleMessage({ type: 'kiwi:sync:join-group', phrase, conflictMode: 'local' })).toMatchObject({ ok: true });
+    if (enableEarly) {
+      await vi.waitFor(() => expect(bus.heldCoveredCount).toBeGreaterThan(0));
+      await enableKeys(c.svc);
+      const joiner = (await c.db.load())!;
+      expect(joiner.settings.pendingInitialJoinSync).toBe(true);
+      expect(joiner.engineState.recordLog.some((record) => record.deviceId === joiner.device.deviceId && record.kind === 'set')).toBe(false);
+      bus.holdCoveredRecords = false;
+      bus.releaseCoveredRecords();
+    }
+    await vi.waitFor(async () => expect((await c.db.load())?.settings.pendingInitialJoinSync).toBe(false));
+    if (!enableEarly) {
+      expect(readKeys(c.local.config)).toEqual(['mock-old-key', 'mock-old-key']);
+      await enableKeys(c.svc);
+    }
+    bus.setOnline(original.device.deviceId, true);
+    await vi.waitFor(async () => {
+      const joiner = (await c.db.load())!;
+      expect(joiner.engineState.recordLog.some((record) => record.deviceId === joiner.device.deviceId && record.kind === 'set')).toBe(false);
+      for (const peer of [a, b, c]) {
+        expect(readKeys(peer.local.config)).toEqual([undefined, undefined]);
+        const state = (await peer.db.load())!.engineState;
+        expect(paths.map((path) => state.registers[path]?.tombstone)).toEqual([true, true]);
+      }
+    });
+  });
+
   it('applies held remote winners when enabling search and preserves a newer local edit across restart', async () => {
     const bus = new MockMeshBus();
     const storeA = new MemorySyncStorage();
@@ -663,7 +740,7 @@ describe('SyncService multi-device integration', () => {
     await flushMicrotasks();
     await svcB.handleMessage({ type: 'kiwi:sync:update-settings', categories: { search: false } });
     await svcA.recordLocalChanges([
-      { path: 'config.llm.model', value: 'remote-model' },
+      { path: 'config.llm.selection', value: { provider: 'openrouter', model: 'remote-model' } },
       { path: 'config.imageCount', value: 17 },
     ]);
     await vi.waitFor(async () =>
@@ -679,7 +756,7 @@ describe('SyncService multi-device integration', () => {
     bus.setOnline(svcA.getStatus().deviceId!, false);
     const restarted = makeServiceB();
     await restarted.handleMessage({ type: 'kiwi:sync:update-settings', categories: { search: true } });
-    expect(storage.value.config).toMatchObject({ imageCount: 19, llm: { model: 'remote-model' } });
+    expect(storage.value.config).toMatchObject({ imageCount: 19, llm: { selection: { provider: 'openrouter', model: 'remote-model' } } });
     expect((await storeB.load())?.engineState.registers['config.imageCount']).toMatchObject({
       value: 19, hlc: localClock,
     });
@@ -1229,7 +1306,7 @@ describe('SyncService multi-device integration', () => {
     await svcA.recordLocalChanges([
       { path: 'config.summary.enabled', value: false },
       { path: 'config.judge.blockedDomains#farm.example', value: true },
-      { path: 'config.llm.apiKey', value: 'sk-secret-from-a' },
+      { path: 'config.llm.profiles.openai.apiKey', value: 'sk-secret-from-a' },
       { path: 'config.sources.searxng.enabled', value: true },
       { path: 'config.sources.searxng.baseUrl', value: 'https://search.androw.eu/' },
       { path: 'config.sources.searxng.apiKey', value: 'synthetic-searxng-key' },
@@ -1239,7 +1316,7 @@ describe('SyncService multi-device integration', () => {
     // Device B receives normal setting & domain block, but NOT the API key (keys default OFF).
     expect(stateB.config.summary.enabled).toBe(false);
     expect(stateB.config.judge.blockedDomains).toContain('farm.example');
-    expect(stateB.config.llm.apiKey).toBeFalsy();
+    expect(stateB.config.llm.profiles?.openai?.apiKey).toBeFalsy();
     expect(stateB.config.sources.searxng).toMatchObject({ enabled: true, baseUrl: 'https://search.androw.eu/' });
     expect(stateB.config.sources.searxng?.apiKey).toBeFalsy();
     // No echo back to A.
@@ -1248,10 +1325,10 @@ describe('SyncService multi-device integration', () => {
     // 4. Enable `keys` explicitly on both A and B, then update API key on A.
     await svcA.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
     await svcB.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
-    await svcA.recordLocalChanges([{ path: 'config.llm.apiKey', value: 'sk-explicit-sync-key' }]);
+    await svcA.recordLocalChanges([{ path: 'config.llm.profiles.openai.apiKey', value: 'sk-explicit-sync-key' }]);
     await svcA.recordLocalChanges([{ path: 'config.sources.searxng.apiKey', value: 'synthetic-searxng-key' }]);
     await flushMicrotasks();
-    expect(stateB.config.llm.apiKey).toBe('sk-explicit-sync-key');
+    expect(stateB.config.llm.profiles?.openai?.apiKey).toBe('sk-explicit-sync-key');
     expect(stateB.config.sources.searxng?.apiKey).toBe('synthetic-searxng-key');
 
     // 5. Device A goes offline (clears relayUrl), then Device C joins and syncs via B!
@@ -1269,7 +1346,7 @@ describe('SyncService multi-device integration', () => {
     // Device C receives A's settings indirectly via B, and still does NOT receive A's API key (keys OFF on C).
     expect(stateC.config.summary.enabled).toBe(false);
     expect(stateC.config.judge.blockedDomains).toContain('farm.example');
-    expect(stateC.config.llm.apiKey).toBeFalsy();
+    expect(stateC.config.llm.profiles?.openai?.apiKey).toBeFalsy();
 
     // 6. Device B removes Device C and rotates the epoch; C's later changes are rejected.
     const statusC = svcC.getStatus();
@@ -1313,7 +1390,7 @@ describe('SyncService multi-device integration', () => {
       { path: 'config.summary.enabled', value: false },
     ]);
     await svcA.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
-    await svcA.recordLocalChanges([{ path: 'config.llm.apiKey', value: 'sk-rotated-snapshot' }]);
+    await svcA.recordLocalChanges([{ path: 'config.llm.profiles.openai.apiKey', value: 'sk-rotated-snapshot' }]);
     const rotation = await svcA.handleMessage({ type: 'kiwi:sync:rotate-phrase' });
     expect(rotation.ok).toBe(true);
     const rotatedPhrase = rotation.ok ? rotation.phrase : undefined;
@@ -1331,10 +1408,136 @@ describe('SyncService multi-device integration', () => {
 
     expect(svcD.getStatus().epoch).toBe(2);
     expect(stateD.config.summary.enabled).toBe(false);
-    expect(stateD.config.llm.apiKey).toBeFalsy();
+    expect(stateD.config.llm.profiles?.openai?.apiKey).toBeFalsy();
     const storedD = await storeD.load();
-    expect(storedD?.engineState.registers['config.llm.apiKey']?.value).toBe('sk-rotated-snapshot');
+    expect(storedD?.engineState.registers['config.llm.profiles.openai.apiKey']?.value).toBe('sk-rotated-snapshot');
     expect(storedD?.settings.categories.keys).toBe(false);
+  });
+
+  it('localizes invalid recovery phrases through the shared join handler', async () => {
+    const service = new SyncService({
+      storage: new MemorySyncStorage(),
+      transportFactory: (cb) => new MockMeshBus().createTransport(cb),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const message = { type: 'kiwi:sync:join-group', phrase: 'this is too short' } as const;
+    expect(await service.handleMessage(message)).toEqual({
+      ok: false, error: 'Invalid recovery phrase', errorCode: 'invalid-recovery-phrase',
+    });
+    const locale = getLocale();
+    sendMessage.mockImplementation((request: SyncRuntimeMessage) => service.handleMessage(request));
+    try {
+      setLocale('zh-CN');
+      expect(await sendSyncMessage(message)).toEqual({
+        ok: false, error: '恢复短语无效。请从另一台设备完整复制 24 个英文单词，并按原顺序粘贴。',
+      });
+      setLocale('en');
+      expect(await sendSyncMessage(message)).toEqual({
+        ok: false, error: 'Invalid recovery phrase. Copy all 24 English words from your other device and paste them in order.',
+      });
+      sendMessage.mockRejectedValueOnce(new Error('Background unavailable'));
+      expect(await sendSyncMessage(message)).toEqual({ ok: false, error: 'Could not join the sync group. Try again.' });
+    } finally {
+      setLocale(locale);
+      sendMessage.mockReset();
+    }
+  });
+
+  it('shares migrated model selections with a fresh joiner without requiring an edit', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    const initial = new SyncService({
+      storage: storeA, transportFactory: (cb) => bus.createTransport(cb, storeA), applyRemoteConfigPatches: async () => {},
+    });
+    const group = await initial.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!group.ok || !group.phrase) throw new Error('Failed to create group');
+    const stored = (await storeA.load())!;
+    const legacy = new SyncEngine({
+      device: stored.device, deviceName: stored.settings.deviceName, groupKeys: stored.groupKeys,
+      configVersion: 6, persisted: stored.engineState,
+    });
+    const overview = { provider: 'openai', model: 'old-overview' };
+    const judge = { provider: 'openrouter', model: 'old-judge' };
+    await legacy.applyLocalChanges([
+      { path: 'config.llm.model', value: overview.model },
+      { path: 'config.judge.llm.model', value: judge.model },
+    ]);
+    await storeA.save({ ...stored, engineState: legacy.exportState() });
+    storage.value.config = {
+      version: 6,
+      llm: { baseUrl: 'https://api.openai.com/v1', apiKey: 'mock-private', model: overview.model },
+      judge: { llm: { baseUrl: 'https://openrouter.ai/api/v1', model: judge.model } },
+    };
+    const upgraded = new SyncService({
+      storage: storeA, transportFactory: (cb) => bus.createTransport(cb, storeA), applyRemoteConfigPatches: async () => {},
+    });
+    await upgraded.init();
+    expect((await storeA.load())?.engineState.registers['config.llm.selection']).toMatchObject({
+      value: overview,
+      hlc: legacy.getRegisters()['config.llm.model'].hlc,
+    });
+
+    storage.value.config = structuredClone(DEFAULT_CONFIG);
+    const joiner = new SyncService({
+      storage: storeB, transportFactory: (cb) => bus.createTransport(cb, storeB), applyRemoteConfigPatches,
+    });
+    expect(await joiner.handleMessage({ type: 'kiwi:sync:join-group', phrase: group.phrase })).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(storage.value.config).toMatchObject({
+      llm: { selection: overview },
+      judge: { llm: { selection: judge } },
+    }));
+    expect((await storeB.load())?.engineState.registers['config.llm.profiles.openai.apiKey']).toBeUndefined();
+  });
+
+  it('does not apply flat fields from a version-6 peer to either model slot', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    let transportA!: SyncTransport;
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => (transportA = bus.createTransport(cb, storeA)),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const svcB = new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
+      applyRemoteConfigPatches,
+    });
+    const group = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!group.ok || !group.phrase) throw new Error('Failed to create group');
+    expect(await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: group.phrase })).toMatchObject({ ok: true });
+    await flushMicrotasks();
+    await svcA.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
+    await svcB.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
+    await svcA.recordLocalChanges([
+      { path: 'config.llm.selection', value: { provider: 'openai', model: 'active-model' } },
+      { path: 'config.judge.llm.selection', value: { provider: 'ollama', model: 'local-model' } },
+      { path: 'config.llm.profiles.openai.apiKey', value: 'mock-active-key' },
+    ]);
+    await vi.waitFor(() => expect(storage.value.config).toMatchObject({
+      llm: { selection: { provider: 'openai', model: 'active-model' }, profiles: { openai: { apiKey: 'mock-active-key' } } },
+      judge: { llm: { selection: { provider: 'ollama', model: 'local-model' } } },
+    }));
+    const baseline = structuredClone(storage.value.config);
+    const storedA = (await storeA.load())!;
+    const legacy = new SyncEngine({
+      device: storedA.device, deviceName: storedA.settings.deviceName, groupKeys: storedA.groupKeys,
+      configVersion: 6, persisted: storedA.engineState,
+    });
+    const envelopes = await legacy.applyLocalChanges([
+      { path: 'config.llm.model', value: 'old-client-model' },
+      { path: 'config.llm.baseUrl', value: 'https://old-client.example/v1' },
+      { path: 'config.llm.apiKey', value: 'mock-legacy-key' },
+      { path: 'config.judge.llm.model', value: 'old-client-judge' },
+    ]);
+    expect(envelopes.map((envelope) => envelope.configVersion)).toEqual([6, 6, 6, 6]);
+    await transportA.sendToPeer(svcB.getStatus().deviceId!, JSON.stringify({
+      type: 'records', envelopes, vector: legacy.getVersionVector(),
+    }));
+    await vi.waitFor(async () => expect((await storeB.load())?.engineState.registers['config.llm.apiKey']?.value).toBe('mock-legacy-key'));
+    expect(storage.value.config).toEqual(baseline);
   });
 
   it('promotes a manual-code joiner from the offer epoch before syncing snapshots', async () => {

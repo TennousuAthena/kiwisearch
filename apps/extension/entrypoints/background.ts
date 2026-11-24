@@ -24,6 +24,7 @@ import { loadConfig } from '@/lib/settings';
 import { configForPage } from '@/lib/searchConfig';
 import { handleFaviconMessage } from '@/lib/faviconService';
 import { handleDecisionTest, handleLlmTest } from '@/lib/llmTest';
+import { handleLlmModels } from '@/lib/llmModels';
 import { createRedirectTarget, type RedirectEvents } from '@/lib/redirectTarget';
 import { recordSourceStatus } from '@/lib/sourceStatus';
 import { collectIdleWorkers, focusWorker, forgetWorkerTab, handleWorkerMessage, handleWorkerTabUpdated, runBrowserEngine } from '@/lib/tabRenderer';
@@ -196,6 +197,11 @@ export default defineBackground(() => {
     if (isSyncRuntimeMessage(msg)) {
       if (!isExtensionPageSender(sender, browser.runtime.id, browser.runtime.getURL('/'))) return false;
       void syncService.handleMessage(msg).then(sendResponse).catch((error) => sendResponse({ ok: false, error: String(error) }));
+      return true;
+    }
+    if (type === 'kiwi:list-llm-models') {
+      if (!isExtensionPageSender(sender, browser.runtime.id, browser.runtime.getURL('/'))) return false;
+      void handleLlmModels(msg).then(sendResponse);
       return true;
     }
     const reply =

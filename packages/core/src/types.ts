@@ -319,11 +319,31 @@ export type JudgeProvider = 'none' | 'systemone' | 'llm';
 export type ContentFetcher = 'none' | 'direct' | 'jina';
 export type SummaryProvider = 'api' | 'chrome-builtin';
 
-export interface LlmSettings {
-  /** OpenAI-compatible base URL, e.g. https://api.deepseek.com/v1 */
+export type LlmProviderId = 'deepseek' | 'openai' | 'openrouter' | 'ollama' | 'custom';
+export type LlmApiFormat = 'chat-completions' | 'responses' | 'anthropic' | 'gemini';
+
+export interface LlmSelection {
+  provider: LlmProviderId;
+  model: string;
+}
+
+export interface LlmProfile {
+  apiKeyCleared?: true;
   baseUrl: string;
   apiKey: string;
   model: string;
+  apiKeyOrigin?: string;
+  apiFormat?: LlmApiFormat;
+}
+
+export interface LlmSettings {
+  /** API base URL or operation endpoint, e.g. https://api.deepseek.com/v1 */
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  apiFormat?: LlmApiFormat;
+  selection?: LlmSelection;
+  profiles?: Partial<Record<LlmProviderId, Partial<LlmProfile>>>;
 }
 
 export interface FusionConfig {

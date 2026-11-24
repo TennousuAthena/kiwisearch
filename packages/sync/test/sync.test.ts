@@ -329,6 +329,30 @@ describe('SyncEngine multi-device synchronization', () => {
     expect(await verifyMemberCertificate({ ...fields, deviceId: 'wrong-device' })).toBe(false);
   });
 
+  it('backfills the winning legacy model only on its author when peers use different providers', async () => {
+    const keys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const peers = await Promise.all([makePeer('A', keys), makePeer('B', keys)]);
+    const [author, other] = peers.sort((a, b) => a.device.deviceId < b.device.deviceId ? -1 : 1);
+    if (!author || !other) throw new Error('Expected two peers');
+    const model = 'shared-model-name';
+    await author.engine.applyLocalChanges([{ path: 'config.llm.model', value: model }]);
+    await other.engine.receiveRecords(author.engine.getAllEnvelopes());
+    const upgrade = ({ device, engine }: Awaited<ReturnType<typeof makePeer>>) => new SyncEngine({
+      device, deviceName: 'upgraded', groupKeys: keys, configVersion: 7, persisted: engine.exportState(),
+    });
+    const origin = upgrade(author);
+    const receiver = upgrade(other);
+    expect(receiver.getRegisters()['config.llm.model']?.deviceId).toBe(author.device.deviceId);
+    const path = 'config.llm.selection';
+    const original = await origin.backfillLlmSelections(async () => [{ path, value: { provider: 'openai', model } }]);
+    const competing = await receiver.backfillLlmSelections(async () => [{ path, value: { provider: 'deepseek', model } }]);
+    await origin.receiveRecords(competing);
+    await receiver.receiveRecords(original);
+    expect(origin.getRegisters()[path]?.value).toEqual({ provider: 'openai', model });
+    expect(receiver.getRegisters()[path]?.value).toEqual({ provider: 'openai', model });
+    expect(competing).toEqual([]);
+  });
+
   it('attests snapshot-only members and wraps the next epoch secret for them', async () => {
     const originalKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
     const now = 1_700_000_000_000;
@@ -1174,5 +1198,23 @@ describe('SyncEngine multi-device synchronization', () => {
     expect(B.engine.getRegisters()['config.defaultMode']!.value).toBe('news');
     expect(B.engine.getRegisters()[makeMembershipElementPath('config.judge.blockedDomains', 'local.test')]?.value).toBe(true);
     expect(B.engine.getRegisters()[makeMembershipElementPath('config.judge.blockedDomains', 'group.test')]?.value).toBe(true);
+  });
+
+  it('lets a synced key clear beat a later bootstrap from a peer that has not seen the clear', async () => {
+    const groupKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const now = Date.now();
+    const A = await makePeer('A', groupKeys, now);
+    const C = await makePeer('C', groupKeys, now + 100);
+    await A.engine.setCategories({ keys: true });
+    await C.engine.setCategories({ keys: true });
+    const path = 'config.sources.brave.apiKey';
+    const clear = await A.engine.applyLocalChanges([{ path, tombstone: true }], now + 200);
+    const seeded = await C.engine.seedUnregisteredKeys([{ path, value: 'mock-stale-key' }]);
+    expect(seeded).toHaveLength(1);
+    expect((await A.engine.receiveRecords(seeded, now + 300)).applied).toHaveLength(0);
+    expect((await C.engine.receiveRecords(clear, now + 300)).applied).toMatchObject([{ path, tombstone: true }]);
+    expect(await C.engine.seedUnregisteredKeys([{ path, value: 'mock-stale-key' }])).toEqual([]);
+    const replacement = await C.engine.applyLocalChanges([{ path, value: 'mock-new-key' }], now + 400);
+    expect((await A.engine.receiveRecords(replacement, now + 500)).applied).toMatchObject([{ path, value: 'mock-new-key' }]);
   });
 });

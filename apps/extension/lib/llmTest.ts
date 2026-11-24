@@ -1,4 +1,4 @@
-import { chat, llmUsable, postSystemOne, systemOneUsable, withGatewayHeaders, type FusionConfig, type LlmSettings, type SystemOneResponse } from '@kiwi-search/core';
+import { chat, InvalidLlmResponseError, llmUsable, postSystemOne, systemOneUsable, withGatewayHeaders, type FusionConfig, type LlmSettings, type SystemOneResponse } from '@kiwi-search/core';
 import { t } from '@kiwi-search/app/i18n';
 
 export interface LlmTestReply {
@@ -17,9 +17,11 @@ export async function handleLlmTest(message: unknown): Promise<LlmTestReply> {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   const started = Date.now();
   try {
-    await chat(withGatewayHeaders((input, init) => fetch(input, init)), llm, [{ role: 'user', content: 'Reply with one word: ok' }], { signal: controller.signal });
+    const text = await chat(withGatewayHeaders((input, init) => fetch(input, init)), llm, [{ role: 'user', content: 'Reply with one word: ok' }], { signal: controller.signal });
+    if (!text.trim()) return { ok: false, error: t('options.test.llmBadShape') };
     return { ok: true, ms: Date.now() - started };
   } catch (error) {
+    if (!controller.signal.aborted && error instanceof InvalidLlmResponseError) return { ok: false, error: t('options.test.llmBadShape') };
     return { ok: false, error: controller.signal.aborted ? t('options.test.timeout', { seconds: TIMEOUT_MS / 1000 }) : error instanceof Error ? error.message : String(error) };
   } finally {
     clearTimeout(timer);

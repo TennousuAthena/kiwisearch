@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, mergeConfig, migrateConfig, type FusionConfig } from '@kiwi-search/core';
+import { DEFAULT_CONFIG, mergeConfig, migrateConfig, profileLlmSettings, type FusionConfig } from '@kiwi-search/core';
 import { browser } from 'wxt/browser';
 import { diffSettings, diffSettingsFromBaselines, sendSettingsUpdate } from './configUpdates';
 
@@ -12,7 +12,8 @@ export const DEFAULT_BRIDGE: BridgeSettings = { enabled: true, port: 17345, toke
 
 export async function loadConfig(): Promise<FusionConfig> {
   const { config } = await browser.storage.local.get('config');
-  return mergeConfig(DEFAULT_CONFIG, migrateConfig(config));
+  const merged = mergeConfig(DEFAULT_CONFIG, migrateConfig(config));
+  return { ...merged, llm: profileLlmSettings(merged.llm), judge: { ...merged.judge, llm: profileLlmSettings(merged.judge.llm) } };
 }
 
 export async function saveConfig(config: FusionConfig, baseline: FusionConfig): Promise<void> {

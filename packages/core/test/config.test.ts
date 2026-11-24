@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG_VERSION, DEFAULT_CONFIG, mergeConfig, migrateConfig, usableSources } from '../src/config';
 import { BROWSER_ENGINES } from '../src/engines';
 import { llmUsable } from '../src/llm';
+import { resolveLlmSettings } from '../src/llmProfiles';
 
 describe('config versioning', () => {
   it('binds legacy SearXNG keys to the saved origin but never reinterprets a current unbound key', () => {
@@ -16,10 +17,63 @@ describe('config versioning', () => {
     expect(migrated?.version).toBe(CONFIG_VERSION);
     const merged = mergeConfig(DEFAULT_CONFIG, migrated);
     expect(merged.version).toBe(CONFIG_VERSION);
-    expect(merged.llm.apiKey).toBe('{{SECRET_llmkey01}}');
-    expect(merged.llm.baseUrl).toBe(DEFAULT_CONFIG.llm.baseUrl);
+    expect(resolveLlmSettings(merged.llm).apiKey).toBe('{{SECRET_llmkey01}}');
+    expect(resolveLlmSettings(merged.llm).baseUrl).toBe(DEFAULT_CONFIG.llm.baseUrl);
     expect(merged.sources.google?.enabled).toBe(false);
     expect(merged.sources.bing?.enabled).toBe(true);
+  });
+
+  it('migrates each legacy model independently and never reuses a key across profiles or origins', () => {
+    const migrated = migrateConfig({
+      version: 6,
+      llm: { baseUrl: 'https://api.openai.com/v1/', apiKey: 'mock-openai', model: 'gpt' },
+      judge: { llm: { baseUrl: 'https://judge.example/v1', apiKey: 'mock-custom', model: 'judge' } },
+    });
+    const config = mergeConfig(DEFAULT_CONFIG, migrated);
+    expect(config.llm.selection).toEqual({ provider: 'openai', model: 'gpt' });
+    expect(resolveLlmSettings(config.llm)).toEqual({ baseUrl: 'https://api.openai.com/v1', apiKey: 'mock-openai', model: 'gpt' });
+    expect(config.judge.llm.profiles?.custom?.apiKeyOrigin).toBe('https://judge.example');
+    expect(resolveLlmSettings(config.judge.llm).apiKey).toBe('mock-custom');
+    config.llm.selection = { provider: 'openrouter', model: 'openai/gpt' };
+    expect(resolveLlmSettings(config.llm)).toEqual({ baseUrl: 'https://openrouter.ai/api/v1', apiKey: '', model: 'openai/gpt' });
+    config.judge.llm.profiles!.custom!.baseUrl = 'https://other.example/v1';
+    expect(resolveLlmSettings(config.judge.llm).apiKey).toBe('');
+  });
+
+  it('preserves legacy credentials without rebinding already received profile settings during upgrade', () => {
+    const migrated = migrateConfig({
+      version: 6,
+      llm: {
+        baseUrl: 'https://api.openai.com/v1', apiKey: 'mock-legacy-openai', model: 'old',
+        selection: { provider: 'custom', model: 'new' },
+        profiles: { custom: { baseUrl: 'https://new.example/v1', apiKey: 'mock-unbound' } },
+      },
+      judge: { llm: {
+        baseUrl: 'https://old.example/v1', apiKey: 'mock-legacy-custom', model: 'old',
+        selection: { provider: 'custom', model: 'new' },
+        profiles: { custom: { baseUrl: 'https://new.example/v1' } },
+      } },
+    });
+    const { llm, judge } = mergeConfig(DEFAULT_CONFIG, migrated);
+    expect(llm.profiles?.openai?.apiKey).toBe('mock-legacy-openai');
+    expect(llm.apiKey).toBe('');
+    expect(resolveLlmSettings(llm)).toEqual({ baseUrl: 'https://new.example/v1', model: 'new', apiKey: '' });
+    expect(judge.llm.profiles?.custom?.apiKeyOrigin).toBe('https://old.example');
+    expect(resolveLlmSettings(judge.llm)).toEqual({ baseUrl: 'https://new.example/v1', model: 'new', apiKey: '' });
+  });
+
+  it('migrates an authenticated loopback gateway as custom instead of dropping its key', () => {
+    const baseUrl = 'http://localhost:11434/v1';
+    const config = mergeConfig(DEFAULT_CONFIG, migrateConfig({
+      version: 6,
+      llm: { baseUrl, apiKey: 'mock-gateway-key', model: 'gateway-model' },
+      judge: { llm: { baseUrl, apiKey: '', model: 'local-model' } },
+    }));
+    expect(config.llm.selection?.provider).toBe('custom');
+    expect(config.llm.profiles?.custom?.apiKeyOrigin).toBe('http://localhost:11434');
+    expect(resolveLlmSettings(config.llm)).toEqual({ baseUrl, apiKey: 'mock-gateway-key', model: 'gateway-model' });
+    expect(config.judge.llm.selection?.provider).toBe('ollama');
+    expect(resolveLlmSettings(config.judge.llm)).toEqual({ baseUrl, apiKey: '', model: 'local-model' });
   });
 
   it('gives a config stored before block lists existed the defaults, and fills what a partial one leaves out', () => {

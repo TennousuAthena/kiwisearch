@@ -11,6 +11,7 @@ import {
   generateDeviceKeys,
   generateRecoveryPhrase,
   importGroupSecret,
+  InvalidRecoveryPhraseError,
   memberCertificate,
   openRecordBody,
   SEARXNG_KEY_PATH,
@@ -199,7 +200,9 @@ export class SyncService {
             persisted: stored.engineState,
           });
           for (const keys of previousKeys) await this.engine.registerEpochKeys(keys);
-          if (await this.reconcileIncludedRegisters(stored.settings.categories)) await this.persist();
+          const reclassified = await this.reconcileIncludedRegisters(stored.settings.categories);
+          const backfilled = await this.backfillLlmSelections();
+          if (reclassified || backfilled.length) await this.persist();
           await this.startTransport();
         }
       } catch (error) {
@@ -864,6 +867,10 @@ export class SyncService {
         if (resolved.emitted.length) {
           await this.broadcastEnvelopes(resolved.emitted);
         }
+        if (this.settings.categories.keys) {
+          await this.reconcileIncludedRegisters({ ...this.settings.categories, keys: false });
+          await this.seedUnregisteredKeys();
+        }
       } else if (!this.pendingInitialJoinSync && result.applied.length) {
         await this.applyAppliedChanges(result.applied);
       }
@@ -916,6 +923,18 @@ export class SyncService {
     return result.reclassified;
   }
 
+  private async backfillLlmSelections(): Promise<SyncRecordEnvelope[]> {
+    if (this.pendingInitialJoinSync) return [];
+    return this.engine!.backfillLlmSelections(async (paths) => readLocalSyncChanges(paths, await loadConfig(), {}));
+  }
+
+  private async seedUnregisteredKeys(): Promise<void> {
+    const config = await loadConfig();
+    const localEntries = extractNonDefaultLocalChanges(config, {});
+    const emitted = await this.engine!.seedUnregisteredKeys(localEntries);
+    if (emitted.length) await this.broadcastEnvelopes(emitted);
+  }
+
   async handleMessage(message: SyncRuntimeMessage): Promise<SyncRuntimeResponse> {
     return this.enqueueMutation(() => this.handleMessageNow(message));
   }
@@ -963,7 +982,8 @@ export class SyncService {
         // Seed initial non-default local settings (excluding keys unless enabled).
         const config = await loadConfig();
         const storageVals = await browser.storage.local.get(null);
-        const initialChanges = extractNonDefaultLocalChanges(config, storageVals);
+        const initialChanges = extractNonDefaultLocalChanges(config, storageVals)
+          .filter(({ path }) => classifySyncPath(path) !== 'keys');
         if (initialChanges.length) {
           await this.engine.applyLocalChanges(initialChanges);
         }
@@ -1075,20 +1095,12 @@ export class SyncService {
           };
           await this.engine.setCategories(this.settings.categories);
           await this.reconcileIncludedRegisters(previousCategories);
+          const backfilled = await this.backfillLlmSelections();
+          if (backfilled.length) await this.broadcastEnvelopes(backfilled);
         }
 
-        // Publish pre-existing local keys that have never been registered.
-        if (!previousCategories.keys && this.settings.categories.keys) {
-          const registers = this.engine.getRegisters();
-          const config = await loadConfig();
-          const storageVals = await browser.storage.local.get(null);
-          const localKeyChanges = extractNonDefaultLocalChanges(config, storageVals).filter(
-            (c) => classifySyncPath(c.path) === 'keys' && !registers[c.path],
-          );
-          if (localKeyChanges.length) {
-            const emitted = await this.engine.applyLocalChanges(localKeyChanges);
-            if (emitted.length) await this.broadcastEnvelopes(emitted);
-          }
+        if (!previousCategories.keys && this.settings.categories.keys && !this.pendingInitialJoinSync) {
+          await this.seedUnregisteredKeys();
         }
 
         await this.persist();
@@ -1171,6 +1183,9 @@ export class SyncService {
 
       return { ok: false, error: 'Unknown sync message' };
     } catch (error) {
+      if (message.type === 'kiwi:sync:join-group' && error instanceof InvalidRecoveryPhraseError) {
+        return { ok: false, error: 'Invalid recovery phrase', errorCode: 'invalid-recovery-phrase' };
+      }
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   }

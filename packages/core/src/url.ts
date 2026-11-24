@@ -8,6 +8,12 @@ export function httpOrigin(value: unknown): string | undefined {
   if (url?.protocol === 'https:' || url?.protocol === 'http:') return url.origin;
 }
 
+const LOCAL_HOST = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
+
+export function isLocalUrl(url: string): boolean {
+  return LOCAL_HOST.test(URL.parse(url)?.hostname ?? '');
+}
+
 /** Canonical form of a URL used to detect duplicates across engines. */
 export function normalizeUrl(raw: string, contentIds = true): string {
   let u: URL;

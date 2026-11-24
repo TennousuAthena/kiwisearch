@@ -2,6 +2,7 @@ import { DEFAULT_CONFIG, type FusionConfig, type SourceId } from '@kiwi-search/c
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { browser } from 'wxt/browser';
 import { t } from '@kiwi-search/app/i18n';
+import type { SyncRuntimeMessage } from '@kiwi-search/protocol';
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, CircleAlertIcon, GlobeIcon, SearchIcon, SparkleIcon } from '@kiwi-search/app/icons';
 import { KiwiLogo } from '@kiwi-search/app/KiwiLogo';
 import { SourceLogo } from '@kiwi-search/app/SourceLogo';
@@ -22,6 +23,8 @@ import { DefaultSearchSteps } from '../options/DefaultSearchSteps';
 import { EnableSourceDialog } from '../options/EnableSourceDialog';
 import { InterfaceSource } from '../options/InterfaceSource';
 import { LlmFields } from '../options/LlmFields';
+import { Field } from '../options/controls';
+import { sendSyncMessage, SyncJoinForm } from '../options/SyncJoinForm';
 import { useAutosave } from '../options/useAutosave';
 import { SourcesStep, type ProbeState } from './SourcesStep';
 
@@ -41,6 +44,11 @@ export default function OnboardingApp() {
   const [health, setHealth] = useState<SourceHealthMap>({});
   const [loaded, setLoaded] = useState(false);
   const [step, setStep] = useState(0);
+  const [showJoin, setShowJoin] = useState(false);
+  const [joined, setJoined] = useState(false);
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [joinError, setJoinError] = useState('');
+  const [deviceName, setDeviceName] = useState('');
   const [probe, setProbe] = useState<ProbeState>({ status: 'idle' });
   const [results, setResults] = useState<Partial<Record<SourceId, ProbeResult>>>({});
   const [autoOff, setAutoOff] = useState<SourceId[]>([]);
@@ -67,14 +75,63 @@ export default function OnboardingApp() {
       setLoaded(true);
     });
     const stop = watchSourceStatus(setHealth);
-    return () => { stop(); probeRun.current?.abort(); };
+    let active = true;
+    void sendSyncMessage({ type: 'kiwi:sync:status' }).then((reply) => {
+      if (active && reply.ok && reply.status.enabled) setJoined(true);
+    }).catch(() => {});
+    return () => { active = false; stop(); probeRun.current?.abort(); };
   }, []);
 
   const { state: saveState, error: saveError, retry } = useAutosave({ config, bridge }, loaded, async (value, superseded) => {
     if (!baseline.current) return;
+    if (!superseded?.length && JSON.stringify(value) === JSON.stringify(baseline.current)) return;
     await saveSettings(value, baseline.current, superseded);
     baseline.current = value;
   });
+
+  useEffect(() => {
+    if (!loaded || !joined || saveState === 'saving' || saveState === 'error') return;
+    let active = true;
+    let request = 0;
+    const reload = async () => {
+      const serial = ++request;
+      const next = tidyConfig(await loadConfig());
+      if (!active || serial !== request || !baseline.current || configRef.current !== baseline.current.config) return;
+      if (JSON.stringify(next) === JSON.stringify(baseline.current.config)) return;
+      baseline.current = { ...baseline.current, config: next };
+      configRef.current = next;
+      setConfig(next);
+    };
+    const refresh = () => { void reload().catch(() => {}); };
+    const onChanged = (changes: Record<string, unknown>, area: string) => {
+      if (area === 'local' && 'config' in changes) refresh();
+    };
+    browser.storage.onChanged.addListener(onChanged);
+    refresh();
+    return () => {
+      active = false;
+      browser.storage.onChanged.removeListener(onChanged);
+    };
+  }, [joined, loaded, saveState]);
+
+  const handleJoin = async (message: Extract<SyncRuntimeMessage, { type: 'kiwi:sync:join-group' }>) => {
+    setJoinBusy(true);
+    setJoinError('');
+    try {
+      const status = await sendSyncMessage({ type: 'kiwi:sync:status' });
+      if (!status.ok) {
+        setJoinError(t('options.sync.joinFailed'));
+        return;
+      }
+      const reply = status.status.enabled ? status : await sendSyncMessage(message);
+      if (reply.ok) setJoined(true);
+      else setJoinError(reply.error);
+    } catch {
+      setJoinError(t('options.sync.joinFailed'));
+    } finally {
+      setJoinBusy(false);
+    }
+  };
 
   const go = useCallback((next: number) => {
     setStep(next);
@@ -155,11 +212,35 @@ export default function OnboardingApp() {
           {saveState === 'error' && <><CircleAlertIcon /> {t('options.app.saveFailed', { error: saveError })}</>}
         </span>
         {saveState === 'error' && <button type="button" className="btn small" onClick={retry}>{t('options.ux.retrySave')}</button>}
-        {current !== 'start' && <button type="button" className="link-btn ob-skip" onClick={() => void skipAll()}>{t('onboarding.skip')}</button>}
+        {current !== 'start' && <button type="button" className="link-btn ob-skip" disabled={joinBusy} onClick={() => void skipAll()}>{t('onboarding.skip')}</button>}
       </header>
 
       <main className="ob-main">
-        {current === 'welcome' ? (
+        {current === 'welcome' && showJoin ? (
+          <section aria-labelledby="ob-title">
+            <h1 id="ob-title" ref={heading} tabIndex={-1}>{t('onboarding.sync.title')}</h1>
+            {joined ? (
+              <>
+                <p role="status" className="ob-lead">{t('onboarding.sync.joined')}</p>
+                <button type="button" className="btn btn-primary" onClick={() => go(LAST)}>{t('onboarding.next')}<ArrowRightIcon /></button>
+              </>
+            ) : (
+              <>
+                <p className="ob-lead">{t('onboarding.sync.lead')}</p>
+                <Field label={t('options.sync.deviceNameLabel')}>
+                  <input value={deviceName} onChange={(event) => setDeviceName(event.target.value)} />
+                </Field>
+                <SyncJoinForm deviceName={deviceName} busy={joinBusy} onJoin={(message) => void handleJoin(message)} />
+                {joinError && <p role="alert">{t('options.sync.errorPrefix', { error: joinError })}</p>}
+              </>
+            )}
+            <button type="button" className="btn" disabled={joinBusy} onClick={() => {
+              setShowJoin(false);
+              setJoinError('');
+              requestAnimationFrame(() => heading.current?.focus());
+            }}><ArrowLeftIcon />{t('onboarding.back')}</button>
+          </section>
+        ) : current === 'welcome' ? (
           <section className="ob-welcome" aria-labelledby="ob-title">
             <h1 id="ob-title" ref={heading} tabIndex={-1}>{t('onboarding.welcome.title')}</h1>
             <p className="ob-lead">{t('onboarding.welcome.lead')}</p>
@@ -171,6 +252,10 @@ export default function OnboardingApp() {
             <p className="note">{t('onboarding.welcome.privacy')}</p>
             <div className="ob-start">
               <button type="button" className="btn btn-primary ob-big" onClick={() => { go(1); runProbe(); }}>{t('onboarding.welcome.start')}<ArrowRightIcon /></button>
+              <button type="button" className="btn ob-big" onClick={() => {
+                setShowJoin(true);
+                requestAnimationFrame(() => heading.current?.focus());
+              }}>{t('onboarding.sync.title')}</button>
               <p className="note">{t('onboarding.welcome.probeNote')}</p>
             </div>
           </section>

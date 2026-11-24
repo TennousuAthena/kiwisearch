@@ -24,13 +24,21 @@ Synced data is a set of registers keyed by a path. Each path belongs to one cate
 | Data (storage key, path) | Category | Default | Notes |
 |---|---|---|---|
 | `config.sources.<id>.enabled`, `.weight`, `config.sources.searxng.baseUrl` | Search settings and sources | on | SearXNG address changes and removals apply like other search settings, regardless of whether an API key is configured. |
-| scalar search settings in `config` (counts, timeouts, `judge` thresholds and `rules`, `intent`, `academic`, `rerank.provider`, model names, `summary` except keys, the Wikipedia folding choice) | Search settings and filters | on | `judge.rules` is an ordered list of sentences and syncs as one value. |
+| search settings in `config` (counts, timeouts, `judge` thresholds and `rules`, `intent`, `academic`, `rerank.provider`, `summary`, the Wikipedia folding choice); `config.llm.selection` and `config.judge.llm.selection` | Search settings and filters | on | Each chat model selection carries provider ID and model in one LWW register. |
 | `config.judge.blockedDomains`, `boostedDomains` | Site preferences | on | One register per domain holding `block`, `boost` or `none`, which keeps the existing rule that a domain is never both (see [config-and-storage.md](config-and-storage.md)). |
 | `config.judge.blocklists`: `recommended`, `subscriptions`, `custom` | Block lists | on | One register per recommended id and per subscription id; `custom` is one text value. Only the subscriptions sync, not the fetched lists (`blocklistMeta`, `blocklist:<id>`): each device fetches them itself, which means turning on sync makes the other device request those third-party hosts too, and the settings panel says so. |
 | `ui:theme`, `ui:summaryMode`, `ui:openNewTab`, `ui:recentQueries`, `academicLanguage` | Interface | on | |
-| `config.*.apiKey`, `config.sources.<id>.apiKey` (including SearXNG), other custom endpoint addresses (e.g. `config.llm.baseUrl`, `config.judge.endpoint`, `config.judge.llm.baseUrl`) | Keys and endpoints | **off** | Turning it on asks for a separate confirmation on each device. A SearXNG key carries its saved origin, if bound, inside the same encrypted record, even if the current address has changed. Older records may carry the paired full URL instead. An unbound key is not sent until saved locally. |
+| Provider-profile API Keys, custom profile addresses, other pre-existing sensitive settings (including SearXNG API Key and `config.judge.endpoint`) | Keys and endpoints | **off** | Turning it on asks for separate confirmation on each device. A custom LLM or SearXNG key record carries the key's saved origin when bound; changing the address does not rebind the key. |
 | `bridge` (MCP pairing token and port), `onboarding`, `uiSource`, `uiFallback`, `sourceStatus`, `blocklistMeta`, `blocklist:<id>`, favicon cache, `domainPreferenceRevisions`, `config.renderer.*`, `config.version`, session storage | Device-local | never | The MCP token pairs this browser with a process on this machine; the rest describes this device or is a cache. `domainPreferenceRevisions` are local undo receipts: a remote change to a domain invalidates them the same way a local edit does. |
 | `config.sources.searxng.apiKeyOrigin` | Device-local | not synced on its own | Set from the URL shown when editing or re-saving a key, from the origin accompanying a received key, or from the existing URL when migrating a legacy config. Searches send the bearer only to that HTTP(S) origin (scheme, host and port). Otherwise they run without the key and settings offers to save it for the current server. |
+
+Since config v7 (2026-11-24), the active chat provider and model move together; official preset addresses are derived on the receiving device, and Ollama's address override and fetched model lists never sync. A peer using a custom selection still needs its own address unless both devices share Keys and endpoints. Older clients' flat LLM model, URL and API Key records can still be forwarded but are not applied to profiles on an updated client: they do not identify which provider owned the model or key. Upgrade both devices for profile synchronization.
+
+Custom connections sync URL and API format atomically in `config.llm.profiles.custom.endpoint` or `config.judge.llm.profiles.custom.endpoint`, under Keys and endpoints only. The custom Key and bound origin share a separate LWW register. An explicit clear tombstones only that register, so newer endpoint edits cannot obscure it. Old separate URL records are not applied by a format-aware client. A Key with a different bound origin is not used.
+
+When opening an existing group after upgrading, only the device that wrote the winning old model record can publish its locally migrated selection at that record's clock. The model must still match, its category must be enabled, and the new selection must not be registered. Other devices cannot substitute their own provider for the same model name. If the author does not upgrade or its local model changed, a fresh peer needs a new selection edit.
+
+Checked on 2026-11-24 in two disposable Chrome profiles with a local relay: the provider and model arrived together after the second profile joined in onboarding; the sender's mock Key stayed off the recipient by default. No production relay, Firefox runtime or separate physical device was used.
 
 ## Feasibility checks (2026-11-19)
 
@@ -289,7 +297,7 @@ The removed device keeps everything it already had, and can still derive the old
 Every synced path is a last-writer-wins register stamped with a hybrid logical clock: 48-bit milliseconds, a 16-bit counter, then the device id to break ties. Writes come from where they already happen: each accepted `kiwi:update-settings` patch (leaf paths from `configUpdates.ts`), the domain block/boost actions, and the preference store. Loading defaults, merging, and `MIGRATIONS` never create records, so a default or a migration on one device cannot overwrite another device's explicit choice.
 
 - Membership fields are per-element registers, so adding `a.com` on one device and `b.com` on another keeps both, as the options page already does locally.
-- A deletion is a register set to "deleted" (a tombstone), kept until every current member has seen it.
+- A deletion is a register set to "deleted" (a tombstone). Ordinary tombstones can be removed once every current member has seen them. For Keys and endpoints, compaction keeps the winning tombstone so a late joiner learns that the group cleared the value. A later explicit edit can replace it; the superseded record can then be compacted normally.
 - Remote clocks more than 24 h ahead of the local wall clock are refused, so one device with a wrong clock cannot win every future conflict.
 
 Why not a CRDT library: the data is a few hundred small fields, the merge rules are per field and Kiwi-specific (categories, the block/boost exclusivity, version skew), and the libraries are large for that. Yjs is about 28 KB gzipped; Automerge's WebAssembly is about 1.1 MB gzipped and would need `'wasm-unsafe-eval'` in the extension's content security policy. Registers with a clock and version vectors are a few hundred lines that the unit tests can cover completely.
@@ -301,6 +309,10 @@ Each device appends its own changes as records `(device, seq, hlc, path, value)`
 ### Joining with existing settings
 
 A device that joins already has settings. The panel asks once: **use the group's settings** (the new device's differing values are replaced), **use this device's** (they become new records) or **merge** (membership fields are united; for other fields the group's value wins). The default is the group's settings.
+
+Keys and endpoints are reconciled separately after explicit opt-in. A joiner that opts in before catch-up waits until the first covered batch before importing pre-existing values. An untracked local value can only seed an unclaimed register and gets the minimum clock, so it also loses to an existing group edit or clear if that record arrives afterward. Explicit local edits retain their actual clocks. If every copy of a tombstone was compacted by an older build before updating, the group must clear the value again on the updated build.
+
+Checked on 2026-11-24 with three isolated Chrome profiles and a local relay: Custom model, Brave and SearXNG mock keys stayed cleared after compaction and a late joiner opted in with stale copies. Explicitly saving a replacement on the late joiner still synced to both other profiles. Automated tests also cover opting in before catch-up; the key-clear scenario was not checked in Firefox.
 
 ### Versions
 

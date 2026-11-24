@@ -76,7 +76,7 @@ export type SyncRuntimeMessage =
 
 export type SyncRuntimeResponse =
   | { ok: true; status: SyncStatusSnapshot; phrase?: string; code?: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; errorCode?: 'invalid-recovery-phrase' };
 
 export function isSyncRuntimeMessage(message: unknown): message is SyncRuntimeMessage {
   return (

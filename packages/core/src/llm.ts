@@ -1,4 +1,8 @@
 import { HttpError } from './http';
+import { assertLlmRequestOrigin, llmAuthHeaders, llmEndpoint } from './llmEndpoints';
+import { llmRequestBody, llmResponseText } from './llmFormats';
+import { llmApiFormat, resolveLlmSettings } from './llmProfiles';
+import { isLocalUrl } from './url';
 import type { FetchLike, LlmSettings } from './types';
 
 export interface ChatMessage {
@@ -6,27 +10,16 @@ export interface ChatMessage {
   content: string;
 }
 
-function endpoint(settings: LlmSettings): string {
-  return settings.baseUrl.replace(/\/+$/, '') + '/chat/completions';
-}
+export class InvalidLlmResponseError extends Error {}
 
 export function llmConfigured(settings: LlmSettings | undefined): boolean {
+  if (settings) settings = resolveLlmSettings(settings);
   return !!settings?.baseUrl && !!settings.model;
-}
-
-const LOCAL_HOST = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
-
-/** A server on this machine (Ollama, a self-hosted service): it needs no key. */
-export function isLocalUrl(url: string): boolean {
-  try {
-    return LOCAL_HOST.test(new URL(url).hostname);
-  } catch {
-    return false;
-  }
 }
 
 /** Callable as configured: needs a key unless it points at a local server such as Ollama. */
 export function llmUsable(settings: LlmSettings | undefined): boolean {
+  if (settings) settings = resolveLlmSettings(settings);
   if (!settings || !llmConfigured(settings)) return false;
   return !!settings.apiKey || isLocalUrl(settings.baseUrl);
 }
@@ -37,21 +30,23 @@ export async function chat(
   messages: ChatMessage[],
   opts: { signal?: AbortSignal; temperature?: number; json?: boolean } = {},
 ): Promise<string> {
-  const res = await fetch(endpoint(settings), {
+  settings = resolveLlmSettings(settings);
+  const format = llmApiFormat(settings.apiFormat);
+  const url = llmEndpoint(settings.baseUrl, format, settings.model, false);
+  assertLlmRequestOrigin(settings.baseUrl, url);
+  const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}) },
-    body: JSON.stringify({
-      model: settings.model,
-      messages,
-      temperature: opts.temperature ?? 0,
-      stream: false,
-      ...(opts.json ? { response_format: { type: 'json_object' } } : {}),
-    }),
+    headers: { 'Content-Type': 'application/json', ...llmAuthHeaders(settings.apiKey, format) },
+    body: JSON.stringify(llmRequestBody(format, settings.model, messages, { stream: false, temperature: opts.temperature ?? 0, json: opts.json })),
+    redirect: 'error',
     signal: opts.signal,
   });
   if (!res.ok) throw new HttpError(res.status, `LLM HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const data = (await res.json()) as { choices: { message: { content: string } }[] };
-  return data.choices[0]?.message?.content ?? '';
+  const data: unknown = await res.json().catch((error: unknown) => {
+    if (error instanceof SyntaxError) throw new InvalidLlmResponseError('LLM response is not valid JSON', { cause: error });
+    throw error;
+  });
+  return llmResponseText(format, data, false);
 }
 
 /**
@@ -83,27 +78,33 @@ export interface StreamOptions {
   onActivity?: () => void;
 }
 
-/** Streams an OpenAI-compatible chat completion, yielding content deltas. */
+/** Streams a model response, yielding text deltas. */
 export async function* chatStream(
   fetch: FetchLike,
   settings: LlmSettings,
   messages: ChatMessage[],
   opts: StreamOptions = {},
 ): AsyncGenerator<string> {
-  const ladder = opts.thinking === 'off' ? THINKING_OFF : [{}];
+  settings = resolveLlmSettings(settings);
+  const format = llmApiFormat(settings.apiFormat);
+  const disableThinking = format === 'chat-completions' && opts.thinking === 'off';
+  const ladder = disableThinking ? THINKING_OFF : [{}];
   const last = ladder.length - 1;
   const quirkKey = `${settings.baseUrl}\n${settings.model}`;
-  let rung = opts.thinking === 'off' ? Math.min(streamQuirks.get(quirkKey) ?? 0, last) : 0;
+  let rung = disableThinking ? Math.min(streamQuirks.get(quirkKey) ?? 0, last) : 0;
   let res: Response;
+  const url = llmEndpoint(settings.baseUrl, format, settings.model, true);
   for (;;) {
-    res = await fetch(endpoint(settings), {
+    assertLlmRequestOrigin(settings.baseUrl, url);
+    res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
-        ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}),
+        ...llmAuthHeaders(settings.apiKey, format),
       },
-      body: JSON.stringify({ model: settings.model, messages, temperature: opts.temperature ?? 0.3, stream: true, ...ladder[rung] }),
+      body: JSON.stringify(llmRequestBody(format, settings.model, messages, { stream: true, temperature: opts.temperature ?? 0.3, extra: ladder[rung] })),
+      redirect: 'error',
       signal: opts.signal,
     });
     if (res.ok && res.body) break;
@@ -112,7 +113,7 @@ export async function* chatStream(
     await res.body?.cancel().catch(() => {});
     rung++;
   }
-  if (opts.thinking === 'off') streamQuirks.set(quirkKey, rung);
+  if (disableThinking) streamQuirks.set(quirkKey, rung);
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
@@ -121,12 +122,9 @@ export async function* chatStream(
     if (!trimmed.startsWith('data:')) return {};
     const payload = trimmed.slice(5).trim();
     if (payload === '[DONE]') return { done: true };
-    try {
-      const json = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
-      return { delta: json.choices?.[0]?.delta?.content, active: true };
-    } catch {
-      return {};
-    }
+    let json: unknown;
+    try { json = JSON.parse(payload); } catch { return {}; }
+    return { delta: llmResponseText(format, json, true), active: true };
   };
   for (;;) {
     const { done, value } = await reader.read();
@@ -165,6 +163,7 @@ export async function* chatStreamHedged(
   messages: ChatMessage[],
   opts: StreamOptions & { hedgeAfterMs?: number } = {},
 ): AsyncGenerator<string> {
+  settings = resolveLlmSettings(settings);
   const { hedgeAfterMs, ...streamOpts } = opts;
   if (!hedgeAfterMs || hedgeAfterMs <= 0 || isLocalUrl(settings.baseUrl)) {
     yield* chatStream(fetch, settings, messages, streamOpts);

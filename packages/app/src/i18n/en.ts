@@ -1,4 +1,17 @@
 export const en = {
   'options.sources.searxngKeyNotSent': 'Your key won’t be sent to this server until you save it again.',
   'options.sources.searxngResaveKey': 'Save key for this server',
+  'options.sync.invalidRecoveryPhrase': 'Invalid recovery phrase. Copy all 24 English words from your other device and paste them in order.',
+  'options.sync.joinFailed': 'Could not join the sync group. Try again.',
+  'options.sync.errorPrefix': 'Action failed: {error}',
+  'options.llm.apiFormat': 'API format',
+  'options.llm.baseUrlHint': 'Enter the server address or the API base through /v1. The request path is added for you.',
+  'options.llm.requestUrl': 'Test connection will request: {url}',
+  'options.llm.listError.settingsChanged': 'Connection settings changed. Fetch the model list again.',
+  'options.test.llmBadShape': 'The response does not match the selected API format. Check the API address and format.',
+  'options.llm.format.chat-completions': 'OpenAI Chat Completions',
+  'options.llm.format.responses': 'OpenAI Responses',
+  'options.llm.format.anthropic': 'Claude Messages',
+  'options.llm.format.gemini': 'Gemini Generate Content',
+  'options.llm.ollamaOverride': 'Ollama address override (this device only)',
 };

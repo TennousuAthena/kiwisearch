@@ -17,12 +17,23 @@ const isObject = (value: unknown): value is Record<string, unknown> => !!value &
 /** Compare the page's original draft, never the newest stored config. Unedited fields are omitted. */
 export function diffSettings(baseline: unknown, next: unknown, path: string[] = []): SettingsPatch[] {
   if (JSON.stringify(baseline) === JSON.stringify(next)) return [];
+  if (path.join('.') === 'llm.selection' || path.join('.') === 'judge.llm.selection') {
+    return next === undefined ? [{ path, remove: true }] : [{ path, value: next }];
+  }
   if (path[0] === 'judge' && ['blockedDomains', 'boostedDomains'].includes(path[1]) && Array.isArray(baseline) && Array.isArray(next)) {
     return [{ path, add: next.filter((value) => !baseline.includes(value)), subtract: baseline.filter((value) => !next.includes(value)) }];
   }
   if (isObject(next)) {
     const original = isObject(baseline) ? baseline : {};
-    return [...new Set([...Object.keys(original), ...Object.keys(next)])].flatMap((key) => diffSettings(original[key], next[key], [...path, key]));
+    const patches = [...new Set([...Object.keys(original), ...Object.keys(next)])].flatMap((key) => diffSettings(original[key], next[key], [...path, key]));
+    if (['llm.profiles.custom', 'judge.llm.profiles.custom'].includes(path.join('.'))
+      && patches.some((patch) => ['apiKey', 'apiKeyOrigin'].includes(patch.path.at(-1) ?? ''))) {
+      if (!patches.some((patch) => patch.path.at(-1) === 'apiKey')) patches.push({ path: [...path, 'apiKey'], value: next.apiKey });
+      if (!patches.some((patch) => patch.path.at(-1) === 'apiKeyOrigin')) {
+        patches.push(next.apiKeyOrigin === undefined ? { path: [...path, 'apiKeyOrigin'], remove: true } : { path: [...path, 'apiKeyOrigin'], value: next.apiKeyOrigin });
+      }
+    }
+    return patches;
   }
   return next === undefined ? [{ path, remove: true }] : [{ path, value: next }];
 }

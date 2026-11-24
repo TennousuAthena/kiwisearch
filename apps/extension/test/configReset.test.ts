@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG } from '@kiwi-search/core';
+import { DEFAULT_CONFIG, resolveLlmSettings } from '@kiwi-search/core';
 import { describe, expect, it } from 'vitest';
 import { resetKeepingSecrets, tidyConfig } from '../lib/configReset';
 
@@ -23,8 +23,8 @@ describe('resetKeepingSecrets', () => {
     expect(next.sources.google?.enabled).toBe(true);
     expect(next.sources.brave).toEqual({ ...DEFAULT_CONFIG.sources.brave, apiKey: 'brave-key' });
     expect(next.sources.searxng).toMatchObject({ baseUrl: 'https://searx.example', apiKey: 'bearer' });
-    expect([next.judge.apiKey, next.llm.apiKey]).toEqual(['jev', 'llm-key']);
-    expect(next.judge.llm).toEqual({ baseUrl: 'https://fast.example/v1', apiKey: 'fast-key', model: 'small' });
+    expect([next.judge.apiKey, resolveLlmSettings(next.llm).apiKey]).toEqual(['jev', 'llm-key']);
+    expect(resolveLlmSettings(next.judge.llm)).toEqual({ baseUrl: 'https://fast.example/v1', apiKey: 'fast-key', model: 'small' });
     expect(next.judge.llmShared).toBe(true);
     expect(next.judge.rules).toEqual([]);
     expect(next.judge.blockedDomains).toEqual([]);
@@ -37,6 +37,24 @@ describe('resetKeepingSecrets', () => {
     const next = resetKeepingSecrets(structuredClone(DEFAULT_CONFIG));
     next.judge.rules.push('x');
     expect(DEFAULT_CONFIG.judge.rules).toEqual([]);
+  });
+
+  it('resets the overview model selection and remembered models but keeps profile connections', () => {
+    const current = structuredClone(DEFAULT_CONFIG);
+    current.llm.selection = { provider: 'custom', model: 'custom-model' };
+    current.llm.profiles = {
+      deepseek: { apiKey: 'mock-deepseek', model: 'changed-deepseek' },
+      custom: { baseUrl: 'https://custom.example/v1', apiKey: 'mock-custom', apiKeyOrigin: 'https://custom.example', model: 'custom-model' },
+      ollama: { baseUrl: 'http://localhost:11435/v1', model: 'local-model' },
+    };
+    const next = resetKeepingSecrets(current);
+    expect(next.llm.selection).toEqual({ provider: 'deepseek', model: DEFAULT_CONFIG.llm.model });
+    expect(resolveLlmSettings(next.llm)).toEqual({ ...DEFAULT_CONFIG.llm, apiKey: 'mock-deepseek' });
+    expect(next.llm.profiles).toEqual({
+      deepseek: { apiKey: 'mock-deepseek' },
+      custom: { baseUrl: 'https://custom.example/v1', apiKey: 'mock-custom', apiKeyOrigin: 'https://custom.example' },
+      ollama: { baseUrl: 'http://localhost:11435/v1' },
+    });
   });
 });
 

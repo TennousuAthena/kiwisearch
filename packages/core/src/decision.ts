@@ -1,5 +1,7 @@
 import { HttpError, fetchJson } from './http';
-import { chat, isLocalUrl, llmUsable, type ChatMessage } from './llm';
+import { chat, llmUsable, type ChatMessage } from './llm';
+import { resolveLlmSettings } from './llmProfiles';
+import { isLocalUrl } from './url';
 import { coreMessages } from './messages';
 import type { Env, FusionConfig, LlmSettings } from './types';
 
@@ -48,7 +50,7 @@ export interface DecisionRequest {
 
 /** The model the `llm` provider talks to: the user's own, shared with the AI overview unless they set a separate one. */
 export function decisionLlm(config: FusionConfig): LlmSettings {
-  return config.judge.llmShared ? config.llm : config.judge.llm;
+  return resolveLlmSettings(config.judge.llmShared ? config.llm : config.judge.llm);
 }
 
 /** Whether the dedicated decision model is set up: an endpoint, and a key unless the service runs on this machine. */
