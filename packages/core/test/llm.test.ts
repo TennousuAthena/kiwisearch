@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { chat, chatStream } from '../src/llm';
-import { llmApiRoot, llmEndpoint } from '../src/llmEndpoints';
+import { llmApiRoot, llmBaseUrl, llmEndpoint } from '../src/llmEndpoints';
 import { editLlmEndpoint, profileLlmSettings, resolveLlmSettings } from '../src/llmProfiles';
 import type { LlmApiFormat } from '../src/types';
 
@@ -118,6 +118,23 @@ describe('custom API formats', () => {
 });
 
 describe('LLM API addresses', () => {
+  it('can change the selected format without changing the saved version', () => {
+    const baseUrl = llmBaseUrl('https://gateway.example/v1/');
+    const saved: Parameters<typeof resolveLlmSettings>[0] = {
+      baseUrl: '', model: 'demo', apiKey: '',
+      selection: { provider: 'custom', model: 'demo' },
+      profiles: { custom: { baseUrl, apiFormat: 'gemini' } },
+    };
+    const gemini = resolveLlmSettings(saved);
+    expect(gemini.baseUrl).toBe('https://gateway.example/v1');
+    expect(llmEndpoint(gemini.baseUrl, gemini.apiFormat!, gemini.model, false))
+      .toBe('https://gateway.example/v1beta/models/demo:generateContent');
+    saved.profiles!.custom!.apiFormat = 'chat-completions';
+    const chatCompletion = resolveLlmSettings(saved);
+    expect(llmEndpoint(chatCompletion.baseUrl, chatCompletion.apiFormat!, chatCompletion.model, false))
+      .toBe('https://gateway.example/v1/chat/completions');
+  });
+
   it.each([
     ['https://gateway.example', 'chat-completions', 'https://gateway.example/v1', '/chat/completions'],
     ['https://gateway.example/openai', 'chat-completions', 'https://gateway.example/openai', '/chat/completions'],

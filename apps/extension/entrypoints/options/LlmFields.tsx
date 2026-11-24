@@ -1,4 +1,4 @@
-import { editLlmEndpoint, httpOrigin, llmApiFormat, llmEndpoint, llmProfile, LLM_API_FORMATS, LLM_PROVIDERS, profileLlmSettings, resolveLlmSettings, type LlmProfile, type LlmSettings } from '@kiwi-search/core';
+import { editLlmEndpoint, httpOrigin, llmApiFormat, llmBaseUrl, llmEndpoint, llmProfile, LLM_API_FORMATS, LLM_PROVIDERS, profileLlmSettings, resolveLlmSettings, type LlmProfile, type LlmSettings } from '@kiwi-search/core';
 import { useEffect, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { t } from '@kiwi-search/app/i18n';
@@ -61,7 +61,8 @@ export function LlmFields({ value, onChange, label }: { value: LlmSettings; onCh
           }} onBlur={() => {
             if (!addressEdited.current) return;
             addressEdited.current = false;
-            if (provider === 'custom' && connection.baseUrl && connection.baseUrl !== profile.baseUrl) editProfile({ baseUrl: connection.baseUrl });
+            const baseUrl = llmBaseUrl(profile.baseUrl);
+            if (provider === 'custom' && baseUrl && baseUrl !== profile.baseUrl) editProfile({ baseUrl });
           }} />
         </Field>
         {provider === 'custom' && <Field label={t('options.llm.apiFormat')}>
