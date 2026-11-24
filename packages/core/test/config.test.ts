@@ -62,6 +62,20 @@ describe('config versioning', () => {
     expect(resolveLlmSettings(judge.llm)).toEqual({ baseUrl: 'https://new.example/v1', model: 'new', apiKey: '' });
   });
 
+  it('migrates an authenticated loopback gateway as custom instead of dropping its key', () => {
+    const baseUrl = 'http://localhost:11434/v1';
+    const config = mergeConfig(DEFAULT_CONFIG, migrateConfig({
+      version: 6,
+      llm: { baseUrl, apiKey: 'mock-gateway-key', model: 'gateway-model' },
+      judge: { llm: { baseUrl, apiKey: '', model: 'local-model' } },
+    }));
+    expect(config.llm.selection?.provider).toBe('custom');
+    expect(config.llm.profiles?.custom?.apiKeyOrigin).toBe('http://localhost:11434');
+    expect(resolveLlmSettings(config.llm)).toEqual({ baseUrl, apiKey: 'mock-gateway-key', model: 'gateway-model' });
+    expect(config.judge.llm.selection?.provider).toBe('ollama');
+    expect(resolveLlmSettings(config.judge.llm)).toEqual({ baseUrl, apiKey: '', model: 'local-model' });
+  });
+
   it('gives a config stored before block lists existed the defaults, and fills what a partial one leaves out', () => {
     const before = mergeConfig(DEFAULT_CONFIG, migrateConfig({ judge: { blockedDomains: ['a.com'] } }));
     expect(before.judge.blockedDomains).toEqual(['a.com']);

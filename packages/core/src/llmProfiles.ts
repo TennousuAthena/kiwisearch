@@ -38,8 +38,8 @@ export function profileLlmSettings(legacy: LlmSettings): LlmSettings {
   if (legacy.selection) return legacy;
   const baseUrl = llmBaseUrl(legacy.baseUrl);
   const isOllama = isLocalUrl(baseUrl) && /^http:\/\/[^/]+:11434(?:\/v1)?$/.test(baseUrl);
-  const provider = LLM_PROVIDERS.find((id) => id !== 'custom' && LLM_PRESETS[id].baseUrl === baseUrl)
-    ?? (isOllama ? 'ollama' : baseUrl === 'https://api.deepseek.com' ? 'deepseek' : 'custom');
+  const provider = LLM_PROVIDERS.find((id) => id !== 'custom' && id !== 'ollama' && LLM_PRESETS[id].baseUrl === baseUrl)
+    ?? (isOllama && !legacy.apiKey ? 'ollama' : baseUrl === 'https://api.deepseek.com' ? 'deepseek' : 'custom');
   const apiKey = provider === 'ollama' ? '' : legacy.apiKey;
   const apiKeyOrigin = provider === 'custom' && apiKey ? httpOrigin(baseUrl) : undefined;
   return {
