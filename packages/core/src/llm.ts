@@ -1,4 +1,5 @@
 import { HttpError } from './http';
+import { isLocalUrl, resolveLlmSettings } from './llmProfiles';
 import type { FetchLike, LlmSettings } from './types';
 
 export interface ChatMessage {
@@ -11,22 +12,13 @@ function endpoint(settings: LlmSettings): string {
 }
 
 export function llmConfigured(settings: LlmSettings | undefined): boolean {
+  if (settings) settings = resolveLlmSettings(settings);
   return !!settings?.baseUrl && !!settings.model;
-}
-
-const LOCAL_HOST = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
-
-/** A server on this machine (Ollama, a self-hosted service): it needs no key. */
-export function isLocalUrl(url: string): boolean {
-  try {
-    return LOCAL_HOST.test(new URL(url).hostname);
-  } catch {
-    return false;
-  }
 }
 
 /** Callable as configured: needs a key unless it points at a local server such as Ollama. */
 export function llmUsable(settings: LlmSettings | undefined): boolean {
+  if (settings) settings = resolveLlmSettings(settings);
   if (!settings || !llmConfigured(settings)) return false;
   return !!settings.apiKey || isLocalUrl(settings.baseUrl);
 }
@@ -37,6 +29,7 @@ export async function chat(
   messages: ChatMessage[],
   opts: { signal?: AbortSignal; temperature?: number; json?: boolean } = {},
 ): Promise<string> {
+  settings = resolveLlmSettings(settings);
   const res = await fetch(endpoint(settings), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}) },
@@ -90,6 +83,7 @@ export async function* chatStream(
   messages: ChatMessage[],
   opts: StreamOptions = {},
 ): AsyncGenerator<string> {
+  settings = resolveLlmSettings(settings);
   const ladder = opts.thinking === 'off' ? THINKING_OFF : [{}];
   const last = ladder.length - 1;
   const quirkKey = `${settings.baseUrl}\n${settings.model}`;
@@ -165,6 +159,7 @@ export async function* chatStreamHedged(
   messages: ChatMessage[],
   opts: StreamOptions & { hedgeAfterMs?: number } = {},
 ): AsyncGenerator<string> {
+  settings = resolveLlmSettings(settings);
   const { hedgeAfterMs, ...streamOpts } = opts;
   if (!hedgeAfterMs || hedgeAfterMs <= 0 || isLocalUrl(settings.baseUrl)) {
     yield* chatStream(fetch, settings, messages, streamOpts);

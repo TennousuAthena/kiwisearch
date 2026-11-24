@@ -1,13 +1,14 @@
 import { DEFAULT_SYSTEMONE_ENDPOINT } from './decision';
+import { LLM_PRESETS, profileLlmSettings } from './llmProfiles';
 import { SOURCES } from './sources';
-import type { FusionConfig, Route, SearchMode, SourceId } from './types';
+import type { FusionConfig, LlmSettings, Route, SearchMode, SourceId } from './types';
 import { httpOrigin } from './url';
 
 /**
  * Bump when a stored config has to be rewritten. New fields don't need it: `mergeConfig`
  * fills them from DEFAULT_CONFIG. Add the rewrite to MIGRATIONS under the version it upgrades from.
  */
-export const CONFIG_VERSION = 6;
+export const CONFIG_VERSION = 7;
 
 export const DEFAULT_CONFIG: FusionConfig = {
   version: CONFIG_VERSION,
@@ -136,6 +137,24 @@ const MIGRATIONS: Record<number, Migration> = {
       ...stored,
       sources: { ...sources, searxng: { ...searxng, apiKeyOrigin: searxng.apiKey ? httpOrigin(searxng.baseUrl) : undefined } },
     };
+  },
+  6: (stored) => {
+    const judge = stored.judge as (Record<string, unknown> & { llm?: Partial<LlmSettings> }) | undefined;
+    const upgrade = (llm: Partial<LlmSettings> | undefined): LlmSettings => {
+      const { selection, profiles, ...flat } = llm ?? {};
+      const migrated = profileLlmSettings({ ...LLM_PRESETS.deepseek, ...flat });
+      const provider = migrated.selection!.provider;
+      const legacy = migrated.profiles![provider]!;
+      const received = profiles?.[provider];
+      const profile = { ...legacy, ...received };
+      if (received?.apiKey !== undefined && !received.apiKeyOrigin) delete profile.apiKeyOrigin;
+      return {
+        ...migrated,
+        selection: selection ?? migrated.selection,
+        profiles: { ...profiles, [provider]: profile },
+      };
+    };
+    return { ...stored, llm: upgrade(stored.llm as Partial<LlmSettings> | undefined), judge: { ...judge, llm: upgrade(judge?.llm) } };
   },
 };
 

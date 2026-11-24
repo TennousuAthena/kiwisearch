@@ -46,6 +46,11 @@ const UI_PATTERNS: readonly RegExp[] = [
 
 export const SEARXNG_KEY_PATH = 'config.sources.searxng.apiKey';
 const SEARXNG_KEY_ORIGIN_PATH = 'config.sources.searxng.apiKeyOrigin';
+export const CUSTOM_LLM_KEY_PATH = /^config\.(?:judge\.)?llm\.profiles\.custom\.apiKey$/;
+export const LLM_SELECTION_PATH = /^config\.(?:judge\.)?llm\.selection$/;
+export const LEGACY_LLM_PATH = /^config\.(?:judge\.)?llm\.(?:baseUrl|apiKey|model)$/;
+const LLM_ROOT = /^config\.(?:judge\.)?llm(?:\.|$)/;
+const LLM_SENSITIVE_PATH = /^config\.(?:judge\.)?llm\.profiles\.(?:(?:deepseek|openai|openrouter|custom)\.apiKey|custom\.baseUrl)$/;
 
 /**
  * Classifies a dotted sync path into its sync category, or null if not a known syncable path.
@@ -58,6 +63,10 @@ export function classifySyncPath(path: string): SyncCategory | null {
   const basePath = extractMembershipBasePath(path) ?? path;
   if (basePath === SEARXNG_KEY_ORIGIN_PATH || basePath.startsWith(`${SEARXNG_KEY_ORIGIN_PATH}.`)) return null;
   if (basePath === 'config.sources.searxng.baseUrl') return 'search';
+  if (LLM_ROOT.test(basePath) && !LEGACY_LLM_PATH.test(basePath)) {
+    if (LLM_SELECTION_PATH.test(basePath)) return basePath.startsWith('config.judge.') ? 'filters' : 'search';
+    return LLM_SENSITIVE_PATH.test(basePath) ? 'keys' : null;
+  }
 
   for (const pattern of KEY_AND_ENDPOINT_PATTERNS) {
     if (pattern.test(basePath)) return 'keys';
@@ -141,6 +150,14 @@ export function validateAndClampSyncValue(
   value: unknown,
 ): { ok: true; value: unknown } | { ok: false; reason: string } {
   if (hasUnsafeSegment(path)) return { ok: false, reason: 'Unsafe path segment' };
+  if (LLM_SELECTION_PATH.test(path)) {
+    const selection = value as { provider?: unknown; model?: unknown } | null;
+    if (!selection || typeof selection.provider !== 'string'
+      || !['deepseek', 'openai', 'openrouter', 'ollama', 'custom'].includes(selection.provider)
+      || typeof selection.model !== 'string' || selection.model.length > 512) return { ok: false, reason: 'Invalid model selection' };
+    return { ok: true, value: { provider: selection.provider, model: selection.model } };
+  }
+  if (LLM_SENSITIVE_PATH.test(path) && typeof value !== 'string') return { ok: false, reason: 'Invalid model connection value' };
 
   const membership = parseMembershipElementPath(path);
   if (membership) {

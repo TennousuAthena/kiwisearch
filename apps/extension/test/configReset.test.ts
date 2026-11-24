@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG } from '@kiwi-search/core';
+import { DEFAULT_CONFIG, resolveLlmSettings } from '@kiwi-search/core';
 import { describe, expect, it } from 'vitest';
 import { resetKeepingSecrets, tidyConfig } from '../lib/configReset';
 
@@ -23,8 +23,8 @@ describe('resetKeepingSecrets', () => {
     expect(next.sources.google?.enabled).toBe(true);
     expect(next.sources.brave).toEqual({ ...DEFAULT_CONFIG.sources.brave, apiKey: 'brave-key' });
     expect(next.sources.searxng).toMatchObject({ baseUrl: 'https://searx.example', apiKey: 'bearer' });
-    expect([next.judge.apiKey, next.llm.apiKey]).toEqual(['jev', 'llm-key']);
-    expect(next.judge.llm).toEqual({ baseUrl: 'https://fast.example/v1', apiKey: 'fast-key', model: 'small' });
+    expect([next.judge.apiKey, resolveLlmSettings(next.llm).apiKey]).toEqual(['jev', 'llm-key']);
+    expect(resolveLlmSettings(next.judge.llm)).toEqual({ baseUrl: 'https://fast.example/v1', apiKey: 'fast-key', model: 'small' });
     expect(next.judge.llmShared).toBe(true);
     expect(next.judge.rules).toEqual([]);
     expect(next.judge.blockedDomains).toEqual([]);

@@ -38,6 +38,7 @@ import {
   migrateRecordEntry,
   parseMembershipElementPath,
   SEARXNG_KEY_PATH,
+  CUSTOM_LLM_KEY_PATH,
   validateAndClampSyncValue,
   type SyncCategory,
   type SyncCategorySettings,
@@ -149,7 +150,7 @@ export interface AppliedChange {
 }
 
 function pairedUrlFor(path: string, url: unknown): { pairedUrl?: string } {
-  return path === SEARXNG_KEY_PATH && typeof url === 'string' && url.length <= 2048 ? { pairedUrl: url } : {};
+  return (path === SEARXNG_KEY_PATH || CUSTOM_LLM_KEY_PATH.test(path)) && typeof url === 'string' && url.length <= 2048 ? { pairedUrl: url } : {};
 }
 
 export interface ReceiveRecordsResult {

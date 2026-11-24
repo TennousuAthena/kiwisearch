@@ -10,6 +10,7 @@ import {
   openRecordBody,
   sealRecordBody,
   signEd25519,
+  SyncEngine,
   toBase64Url,
   utf8Encode,
   verifyMemberCertificate,
@@ -663,7 +664,7 @@ describe('SyncService multi-device integration', () => {
     await flushMicrotasks();
     await svcB.handleMessage({ type: 'kiwi:sync:update-settings', categories: { search: false } });
     await svcA.recordLocalChanges([
-      { path: 'config.llm.model', value: 'remote-model' },
+      { path: 'config.llm.selection', value: { provider: 'openrouter', model: 'remote-model' } },
       { path: 'config.imageCount', value: 17 },
     ]);
     await vi.waitFor(async () =>
@@ -679,7 +680,7 @@ describe('SyncService multi-device integration', () => {
     bus.setOnline(svcA.getStatus().deviceId!, false);
     const restarted = makeServiceB();
     await restarted.handleMessage({ type: 'kiwi:sync:update-settings', categories: { search: true } });
-    expect(storage.value.config).toMatchObject({ imageCount: 19, llm: { model: 'remote-model' } });
+    expect(storage.value.config).toMatchObject({ imageCount: 19, llm: { selection: { provider: 'openrouter', model: 'remote-model' } } });
     expect((await storeB.load())?.engineState.registers['config.imageCount']).toMatchObject({
       value: 19, hlc: localClock,
     });
@@ -1229,7 +1230,7 @@ describe('SyncService multi-device integration', () => {
     await svcA.recordLocalChanges([
       { path: 'config.summary.enabled', value: false },
       { path: 'config.judge.blockedDomains#farm.example', value: true },
-      { path: 'config.llm.apiKey', value: 'sk-secret-from-a' },
+      { path: 'config.llm.profiles.openai.apiKey', value: 'sk-secret-from-a' },
       { path: 'config.sources.searxng.enabled', value: true },
       { path: 'config.sources.searxng.baseUrl', value: 'https://search.androw.eu/' },
       { path: 'config.sources.searxng.apiKey', value: 'synthetic-searxng-key' },
@@ -1239,7 +1240,7 @@ describe('SyncService multi-device integration', () => {
     // Device B receives normal setting & domain block, but NOT the API key (keys default OFF).
     expect(stateB.config.summary.enabled).toBe(false);
     expect(stateB.config.judge.blockedDomains).toContain('farm.example');
-    expect(stateB.config.llm.apiKey).toBeFalsy();
+    expect(stateB.config.llm.profiles?.openai?.apiKey).toBeFalsy();
     expect(stateB.config.sources.searxng).toMatchObject({ enabled: true, baseUrl: 'https://search.androw.eu/' });
     expect(stateB.config.sources.searxng?.apiKey).toBeFalsy();
     // No echo back to A.
@@ -1248,10 +1249,10 @@ describe('SyncService multi-device integration', () => {
     // 4. Enable `keys` explicitly on both A and B, then update API key on A.
     await svcA.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
     await svcB.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
-    await svcA.recordLocalChanges([{ path: 'config.llm.apiKey', value: 'sk-explicit-sync-key' }]);
+    await svcA.recordLocalChanges([{ path: 'config.llm.profiles.openai.apiKey', value: 'sk-explicit-sync-key' }]);
     await svcA.recordLocalChanges([{ path: 'config.sources.searxng.apiKey', value: 'synthetic-searxng-key' }]);
     await flushMicrotasks();
-    expect(stateB.config.llm.apiKey).toBe('sk-explicit-sync-key');
+    expect(stateB.config.llm.profiles?.openai?.apiKey).toBe('sk-explicit-sync-key');
     expect(stateB.config.sources.searxng?.apiKey).toBe('synthetic-searxng-key');
 
     // 5. Device A goes offline (clears relayUrl), then Device C joins and syncs via B!
@@ -1269,7 +1270,7 @@ describe('SyncService multi-device integration', () => {
     // Device C receives A's settings indirectly via B, and still does NOT receive A's API key (keys OFF on C).
     expect(stateC.config.summary.enabled).toBe(false);
     expect(stateC.config.judge.blockedDomains).toContain('farm.example');
-    expect(stateC.config.llm.apiKey).toBeFalsy();
+    expect(stateC.config.llm.profiles?.openai?.apiKey).toBeFalsy();
 
     // 6. Device B removes Device C and rotates the epoch; C's later changes are rejected.
     const statusC = svcC.getStatus();
@@ -1313,7 +1314,7 @@ describe('SyncService multi-device integration', () => {
       { path: 'config.summary.enabled', value: false },
     ]);
     await svcA.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
-    await svcA.recordLocalChanges([{ path: 'config.llm.apiKey', value: 'sk-rotated-snapshot' }]);
+    await svcA.recordLocalChanges([{ path: 'config.llm.profiles.openai.apiKey', value: 'sk-rotated-snapshot' }]);
     const rotation = await svcA.handleMessage({ type: 'kiwi:sync:rotate-phrase' });
     expect(rotation.ok).toBe(true);
     const rotatedPhrase = rotation.ok ? rotation.phrase : undefined;
@@ -1331,10 +1332,60 @@ describe('SyncService multi-device integration', () => {
 
     expect(svcD.getStatus().epoch).toBe(2);
     expect(stateD.config.summary.enabled).toBe(false);
-    expect(stateD.config.llm.apiKey).toBeFalsy();
+    expect(stateD.config.llm.profiles?.openai?.apiKey).toBeFalsy();
     const storedD = await storeD.load();
-    expect(storedD?.engineState.registers['config.llm.apiKey']?.value).toBe('sk-rotated-snapshot');
+    expect(storedD?.engineState.registers['config.llm.profiles.openai.apiKey']?.value).toBe('sk-rotated-snapshot');
     expect(storedD?.settings.categories.keys).toBe(false);
+  });
+
+  it('does not apply flat fields from a version-6 peer to either model slot', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    let transportA!: SyncTransport;
+    const svcA = new SyncService({
+      storage: storeA,
+      transportFactory: (cb) => (transportA = bus.createTransport(cb, storeA)),
+      applyRemoteConfigPatches: async () => {},
+    });
+    const svcB = new SyncService({
+      storage: storeB,
+      transportFactory: (cb) => bus.createTransport(cb, storeB),
+      applyRemoteConfigPatches,
+    });
+    const group = await svcA.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!group.ok || !group.phrase) throw new Error('Failed to create group');
+    expect(await svcB.handleMessage({ type: 'kiwi:sync:join-group', phrase: group.phrase })).toMatchObject({ ok: true });
+    await flushMicrotasks();
+    await svcA.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
+    await svcB.handleMessage({ type: 'kiwi:sync:update-settings', categories: { keys: true } });
+    await svcA.recordLocalChanges([
+      { path: 'config.llm.selection', value: { provider: 'openai', model: 'active-model' } },
+      { path: 'config.judge.llm.selection', value: { provider: 'ollama', model: 'local-model' } },
+      { path: 'config.llm.profiles.openai.apiKey', value: 'mock-active-key' },
+    ]);
+    await vi.waitFor(() => expect(storage.value.config).toMatchObject({
+      llm: { selection: { provider: 'openai', model: 'active-model' }, profiles: { openai: { apiKey: 'mock-active-key' } } },
+      judge: { llm: { selection: { provider: 'ollama', model: 'local-model' } } },
+    }));
+    const baseline = structuredClone(storage.value.config);
+    const storedA = (await storeA.load())!;
+    const legacy = new SyncEngine({
+      device: storedA.device, deviceName: storedA.settings.deviceName, groupKeys: storedA.groupKeys,
+      configVersion: 6, persisted: storedA.engineState,
+    });
+    const envelopes = await legacy.applyLocalChanges([
+      { path: 'config.llm.model', value: 'old-client-model' },
+      { path: 'config.llm.baseUrl', value: 'https://old-client.example/v1' },
+      { path: 'config.llm.apiKey', value: 'mock-legacy-key' },
+      { path: 'config.judge.llm.model', value: 'old-client-judge' },
+    ]);
+    expect(envelopes.map((envelope) => envelope.configVersion)).toEqual([6, 6, 6, 6]);
+    await transportA.sendToPeer(svcB.getStatus().deviceId!, JSON.stringify({
+      type: 'records', envelopes, vector: legacy.getVersionVector(),
+    }));
+    await vi.waitFor(async () => expect((await storeB.load())?.engineState.registers['config.llm.apiKey']?.value).toBe('mock-legacy-key'));
+    expect(storage.value.config).toEqual(baseline);
   });
 
   it('promotes a manual-code joiner from the offer epoch before syncing snapshots', async () => {

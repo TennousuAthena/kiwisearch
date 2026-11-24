@@ -1,17 +1,29 @@
 import {
   classifySyncPath,
+  CUSTOM_LLM_KEY_PATH,
+  LEGACY_LLM_PATH,
+  LLM_SELECTION_PATH,
   makeMembershipElementPath,
   parseMembershipElementPath,
   SEARXNG_KEY_PATH,
   type AppliedChange,
   type LocalChangeInput,
 } from '@kiwi-search/sync';
-import { DEFAULT_CONFIG, httpOrigin, type FusionConfig } from '@kiwi-search/core';
+import { DEFAULT_CONFIG, LLM_PRESETS, httpOrigin, profileLlmSettings, type FusionConfig, type LlmSelection } from '@kiwi-search/core';
 import { preferenceKeys, storageKey, type DomainPreferenceState } from '@kiwi-search/protocol';
 import type { SettingsPatch } from './configUpdates';
 
 const MEMBERSHIP_PATHS = new Set(['config.judge.blockedDomains', 'config.judge.boostedDomains']);
 const SYNCED_UI_KEYS = new Set<string>([...preferenceKeys.map(storageKey), 'academicLanguage']);
+const CUSTOM_ORIGIN_PATH = /^config\.(?:judge\.)?llm\.profiles\.custom\.apiKeyOrigin$/;
+
+function isMappedPath(path: string): boolean {
+  return !LEGACY_LLM_PATH.test(path) && classifySyncPath(path) !== null;
+}
+
+function customProfile(path: string, config?: FusionConfig) {
+  return (path.startsWith('config.judge.') ? config?.judge.llm : config?.llm)?.profiles?.custom;
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -23,6 +35,11 @@ export function settingsPatchesToSyncChanges(patches: readonly SettingsPatch[], 
   for (const patch of patches) {
     if (!patch.path.length) continue;
     const basePath = `config.${patch.path.join('.')}`;
+    if (CUSTOM_ORIGIN_PATH.test(basePath)) {
+      const profile = customProfile(basePath, config);
+      if (profile?.apiKey) out.push({ path: basePath.slice(0, -'Origin'.length), value: profile.apiKey });
+      continue;
+    }
     if ('add' in patch) {
       for (const item of patch.add) {
         out.push({ path: makeMembershipElementPath(basePath, item), value: true });
@@ -46,10 +63,15 @@ export function settingsPatchesToSyncChanges(patches: readonly SettingsPatch[], 
     }
     flattenConfigValue(basePath, patch.value, out);
   }
-  return out.filter((change) => classifySyncPath(change.path) !== null).map((change) => withBoundOrigin(change, config));
+  return [...new Map(out.filter((change) => isMappedPath(change.path)).map((change) => [change.path, withBoundOrigin(change, config)])).values()];
 }
 
 function withBoundOrigin(change: LocalChangeInput, config?: FusionConfig): LocalChangeInput {
+  if (CUSTOM_LLM_KEY_PATH.test(change.path)) {
+    const profile = customProfile(change.path, config);
+    const origin = httpOrigin(profile?.apiKeyOrigin);
+    return change.value && change.value === profile?.apiKey && origin ? { ...change, pairedUrl: origin } : change;
+  }
   const source = config?.sources.searxng;
   if (change.path !== SEARXNG_KEY_PATH || !change.value || change.value !== source?.apiKey) return change;
   const origin = httpOrigin(source.apiKeyOrigin);
@@ -124,8 +146,20 @@ export function appliedChangesToLocalUpdates(applied: readonly AppliedChange[]):
     }
 
     if (item.path.startsWith('config.')) {
+      if (!isMappedPath(item.path)) continue;
       const segs = item.path.slice('config.'.length).split('.').filter(Boolean);
       if (!segs.length) continue;
+      if (LLM_SELECTION_PATH.test(item.path)) {
+        const selection = item.tombstone ? { provider: 'deepseek', model: LLM_PRESETS.deepseek.model } : item.value as LlmSelection;
+        configPatches.push({ path: segs, value: selection });
+        configPatches.push({ path: [...segs.slice(0, -1), 'profiles', selection.provider, 'model'], value: selection.model });
+        continue;
+      }
+      if (CUSTOM_LLM_KEY_PATH.test(item.path)) {
+        const origin = !item.tombstone && item.value ? httpOrigin(item.pairedUrl) : undefined;
+        const path = [...segs.slice(0, -1), 'apiKeyOrigin'];
+        configPatches.push(origin ? { path, value: origin } : { path, remove: true });
+      }
       if (item.tombstone) configPatches.push({ path: segs, remove: true });
       else configPatches.push({ path: segs, value: item.value });
     }
@@ -151,7 +185,7 @@ function flattenConfigValue(prefix: string, value: unknown, out: LocalChangeInpu
     }
     return;
   }
-  if (isPlainObject(value)) {
+  if (isPlainObject(value) && !LLM_SELECTION_PATH.test(prefix)) {
     for (const [key, nested] of Object.entries(value)) {
       if (key === 'version' && prefix === 'config') continue;
       flattenConfigValue(`${prefix}.${key}`, nested, out);
@@ -172,13 +206,14 @@ export function extractNonDefaultLocalChanges(
   storageValues: Record<string, unknown>,
 ): LocalChangeInput[] {
   const out: LocalChangeInput[] = [];
-  diffAgainstDefault('config', DEFAULT_CONFIG as unknown, config as unknown, out);
+  const defaults = { ...DEFAULT_CONFIG, llm: profileLlmSettings(DEFAULT_CONFIG.llm), judge: { ...DEFAULT_CONFIG.judge, llm: profileLlmSettings(DEFAULT_CONFIG.judge.llm) } };
+  diffAgainstDefault('config', defaults, config, out);
   for (const key of SYNCED_UI_KEYS) {
     if (storageValues[key] !== undefined) {
       out.push({ path: key, value: storageValues[key] });
     }
   }
-  return out.filter((change) => classifySyncPath(change.path) !== null).map((change) => withBoundOrigin(change, config));
+  return out.filter((change) => isMappedPath(change.path)).map((change) => withBoundOrigin(change, config));
 }
 
 export function readLocalSyncChanges(
@@ -190,7 +225,7 @@ export function readLocalSyncChanges(
     path.slice('config.'.length).split('.').reduce<unknown>(
       (value, key) => isPlainObject(value) ? value[key] : undefined, config,
     );
-  return paths.map((path) => {
+  return paths.filter(isMappedPath).map((path) => {
     const membership = parseMembershipElementPath(path);
     if (membership) {
       const members = configValue(membership.basePath);
@@ -218,7 +253,7 @@ function diffAgainstDefault(
     }
     return;
   }
-  if (isPlainObject(curVal)) {
+  if (isPlainObject(curVal) && !LLM_SELECTION_PATH.test(prefix)) {
     const defObj = isPlainObject(defVal) ? defVal : {};
     for (const key of Object.keys(curVal)) {
       if (key === 'version' && prefix === 'config') continue;

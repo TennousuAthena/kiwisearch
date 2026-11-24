@@ -4,6 +4,7 @@ export * from './cache';
 export * from './fusion';
 export * from './url';
 export * from './llm';
+export * from './llmProfiles';
 export * from './gateway';
 export * from './rerank';
 export * from './decision';

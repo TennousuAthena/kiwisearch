@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, SOURCES } from '@kiwi-search/core';
+import { DEFAULT_CONFIG, resolveLlmSettings, SOURCES } from '@kiwi-search/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const storage = vi.hoisted(() => ({ value: {} as Record<string, unknown>, get: vi.fn(), set: vi.fn(), send: vi.fn() }));
@@ -181,6 +181,37 @@ describe('settings writes from multiple pages', () => {
     expect(diffSettings(DEFAULT_CONFIG, structuredClone(DEFAULT_CONFIG))).toEqual([]);
     expect(() => applySettingsPatch({}, [{ path: ['__proto__', 'polluted'], value: true }])).toThrow();
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it('publishes whole model selections and binds only explicitly saved custom keys', async () => {
+    const onChange = vi.fn();
+    setOnLocalSyncChanges(onChange);
+    try {
+      const before = await loadConfig();
+      const draft = structuredClone(before);
+      draft.llm.selection = { provider: 'custom', model: 'one' };
+      draft.llm.profiles!.custom = { baseUrl: 'https://first.example/v1', apiKey: 'mock-key', apiKeyOrigin: 'https://first.example', model: 'one' };
+      draft.judge.llm.selection = { provider: 'openrouter', model: 'two' };
+      draft.judge.llm.profiles!.ollama = { baseUrl: 'http://localhost:12345/v1', model: 'local' };
+      await saveConfig(draft, before);
+      expect(onChange).toHaveBeenCalledWith(expect.arrayContaining([
+        { path: 'config.llm.selection', value: { provider: 'custom', model: 'one' } },
+        { path: 'config.llm.profiles.custom.baseUrl', value: 'https://first.example/v1' },
+        { path: 'config.llm.profiles.custom.apiKey', value: 'mock-key', pairedUrl: 'https://first.example' },
+        { path: 'config.judge.llm.selection', value: { provider: 'openrouter', model: 'two' } },
+      ]));
+      expect(onChange.mock.calls[0][0].map((change: { path: string }) => change.path)).toHaveLength(4);
+      await applyRemoteConfigPatches([{ path: ['llm', 'profiles', 'custom', 'baseUrl'], value: 'https://second.example/v1' }]);
+      const changed = await loadConfig();
+      expect(resolveLlmSettings(changed.llm).apiKey).toBe('');
+      const rebound = structuredClone(changed);
+      rebound.llm.profiles!.custom!.apiKeyOrigin = 'https://second.example';
+      await saveConfig(rebound, changed);
+      expect(resolveLlmSettings((await loadConfig()).llm).apiKey).toBe('mock-key');
+      expect(onChange).toHaveBeenLastCalledWith([{ path: 'config.llm.profiles.custom.apiKey', value: 'mock-key', pairedUrl: 'https://second.example' }]);
+    } finally {
+      setOnLocalSyncChanges(null);
+    }
   });
 
   it('preserves concurrent sibling fields when an optional object did not exist in the baseline', () => {

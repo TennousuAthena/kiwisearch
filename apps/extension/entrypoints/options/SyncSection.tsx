@@ -3,21 +3,13 @@ import { t } from '@kiwi-search/app/i18n';
 import { DEFAULT_SYNC_RELAY_URL } from '@kiwi-search/protocol';
 import type {
   SyncCategoryPrefs,
-  SyncJoinConflictMode,
   SyncPeerStatus,
   SyncRuntimeMessage,
   SyncRuntimeResponse,
   SyncStatusSnapshot,
 } from '@kiwi-search/protocol';
-import { ConfirmDialog, Field, Segmented, SwitchRow } from './controls';
-
-async function sendSyncMessage(message: SyncRuntimeMessage): Promise<SyncRuntimeResponse> {
-  const response = (await browser.runtime.sendMessage(message)) as SyncRuntimeResponse | undefined;
-  if (!response) {
-    return { ok: false, error: 'no response' };
-  }
-  return response;
-}
+import { ConfirmDialog, Field, SwitchRow } from './controls';
+import { sendSyncMessage, SyncJoinForm } from './SyncJoinForm';
 
 function channelLabel(channel: SyncPeerStatus['channel']): string {
   if (channel === 'webrtc') return t('options.sync.channelWebrtc');
@@ -45,8 +37,6 @@ export function SyncSection({ connectionOnly = false }: { connectionOnly?: boole
   const [stunEnabled, setStunEnabled] = useState(true);
   const [stunUrlsText, setStunUrlsText] = useState('');
   const [setup, setSetup] = useState<'create' | 'join' | null>(null);
-  const [joinPhrase, setJoinPhrase] = useState('');
-  const [conflictMode, setConflictMode] = useState<SyncJoinConflictMode>('group');
   const [revealedPhrase, setRevealedPhrase] = useState<string | null>(null);
   const [copiedPhrase, setCopiedPhrase] = useState(false);
   const [offerCode, setOfferCode] = useState('');
@@ -133,19 +123,6 @@ export function SyncSection({ connectionOnly = false }: { connectionOnly?: boole
     );
   };
 
-  const handleJoinGroup = () => {
-    void runAction(
-      {
-        type: 'kiwi:sync:join-group',
-        phrase: joinPhrase,
-        deviceName: deviceName.trim() || undefined,
-        conflictMode,
-      },
-      () => {
-        setJoinPhrase('');
-      },
-    );
-  };
 
   const handleSaveConnection = () => {
     void runAction({
@@ -320,40 +297,7 @@ export function SyncSection({ connectionOnly = false }: { connectionOnly?: boole
                   {busy ? t('options.sync.creating') : t('options.sync.createButton')}
                 </button>
               </div>
-            ) : <>
-              <Field label={t('options.sync.joinTitle')} wide>
-                <textarea
-                  rows={3}
-                  data-testid="sync-join-phrase"
-                  value={joinPhrase}
-                  placeholder={t('options.sync.joinPlaceholder')}
-                  onChange={(e) => setJoinPhrase(e.target.value)}
-                />
-              </Field>
-              <Field label={t('options.sync.joinConflictLabel')} wide>
-                <Segmented<SyncJoinConflictMode>
-                  label={t('options.sync.joinConflictLabel')}
-                  value={conflictMode}
-                  onChange={setConflictMode}
-                  options={[
-                    { value: 'group', label: t('options.sync.joinConflictGroup') },
-                    { value: 'merge', label: t('options.sync.joinConflictMerge') },
-                    { value: 'local', label: t('options.sync.joinConflictLocal') },
-                  ]}
-                />
-              </Field>
-              <div className="sync-button-row">
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  data-testid="sync-join-group"
-                  disabled={busy || !joinPhrase.trim()}
-                  onClick={handleJoinGroup}
-                >
-                  {busy ? t('options.sync.joining') : t('options.sync.joinButton')}
-                </button>
-              </div>
-            </>}
+            ) : <SyncJoinForm deviceName={deviceName} busy={busy} onJoin={(message) => void runAction(message)} />}
           </div>
         </div>
       ) : (

@@ -22,6 +22,9 @@ export const onboarding = {
   'onboarding.welcome.point3': '用你自己的 AI 模型总结结果，每句话都标出来源。没有设置 AI 模型也可以搜索。',
   'onboarding.welcome.privacy': 'Kiwi 不提供账号和服务器：搜索从你的浏览器发出，结果只给你看。',
   'onboarding.welcome.start': '开始',
+  'onboarding.sync.title': '加入同步组',
+  'onboarding.sync.lead': '输入另一台设备的 Kiwi 同步恢复短语。也可返回并跳过同步。',
+  'onboarding.sync.joined': '已加入同步组。另一台设备在线后，设置将自动同步，无需留在此页。',
   'onboarding.welcome.probeNote': '开始后，Kiwi 会测试能否打开各个来源的网站：每个网站发一次请求，不带你的登录信息，大约需要 5 秒。',
 
   'onboarding.sources.title': '选择要搜索的来源',

@@ -14,6 +14,16 @@ Later on 2026-11-13, the build was activated in the user's existing Chromium at 
 
 ## Settings storage and the options page
 
+### AI provider profiles (2026-11-24)
+
+The shared chat model (`llm`) and independent decision chat model (`judge.llm`) each select a provider and model. Each selection has its own set of DeepSeek, OpenAI, OpenRouter, Ollama and custom OpenAI-compatible profiles, which remember the provider's model, address and credential. Official cloud presets use fixed API addresses; an alternate gateway uses the custom profile. Ollama only accepts a loopback address and sends no cloud credential. The custom Key is usable only at the HTTP(S) origin for which it was saved. System One/Jev is unchanged.
+
+Migration 6→7 moves the local flat connection into the matching provider profile, using its configured address to identify the preset and preserving unrecognized addresses as custom. It binds a migrated custom Key to its saved origin. If an older app already stored newer profile records, migration preserves them without binding a received Key to the legacy origin. Applying a remote address does not rebind an already-profiled credential.
+
+Model discovery is an explicit GET from the background, authorized only for extension pages. OpenAI-compatible APIs use `/models` (OpenRouter's public catalog needs no Key); Ollama uses `/api/tags`. Results are transient suggestions; fetching does not select a model or run a completion. If Ollama responds with 403, allow this extension's origin in `OLLAMA_ORIGINS` and restart Ollama before retrying. Keep Ollama bound to loopback.
+
+Checked on 2026-11-24 in disposable Chrome against four local mock catalogs: headers and paths, stale results after a provider switch, retaining the typed model, and a simulated Ollama 403. No actual model service or Firefox runtime was tested.
+
 Settings are in `chrome.storage.local` under `config` and `bridge` (`lib/settings.ts`); `onboarding` is the onboarding page's progress (`{ done, step? }`, see [onboarding.md](onboarding.md); `done` was written by the guide that used to be on the settings page and means the same), `academicLanguage` the language the academic tab was last limited to (`packages/app/src/lib/academicLanguage.ts`; a page preference kept out of the search configuration), and `sourceStatus` (`lib/sourceStatus.ts`, pure part in `lib/sourceHealth.ts`) keeps what the last search that touched each source found (ok / empty / login / captcha / error), written from the pipeline events by the background and the MCP bridge. The options page (`entrypoints/options/`) autosaves (`useAutosave.ts`), groups sources by content type (`lib/sourceCatalog.ts`, typed over `SourceId`) and shows each source's status from `sourceStatus` (`lib/sourceView.ts`); the "测试连接" button sends `kiwi:test-llm` to the background (`lib/llmTest.ts`). `loadConfig` runs `migrateConfig`, then deep-merges over `DEFAULT_CONFIG`, so new config fields need defaults in `config.ts`.
 
 ### Drafts and concurrent writers
