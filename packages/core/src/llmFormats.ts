@@ -36,7 +36,9 @@ type ModelPayload = {
 };
 
 function textParts(parts: TextPart[] | undefined, type?: string): string {
-  return parts?.filter((part) => !part.thought && (!type || part.type === type)).map((part) => part.text ?? '').join('') ?? '';
+  if (!Array.isArray(parts)) return '';
+  return parts.filter((part) => part && !part.thought && (!type || part.type === type) && typeof part.text === 'string')
+    .map((part) => part.text).join('');
 }
 
 export function llmResponseText(format: LlmApiFormat, value: unknown, stream: boolean): string {
@@ -48,14 +50,17 @@ export function llmResponseText(format: LlmApiFormat, value: unknown, stream: bo
   switch (format) {
     case 'responses':
       if (stream) return data.type === 'response.output_text.delta' && typeof data.delta === 'string' ? data.delta : '';
-      return (data.output ?? []).filter((item) => item.type === 'message').map((item) => textParts(item.content, 'output_text')).join('');
+      return Array.isArray(data.output) ? data.output.filter((item) => item?.type === 'message').map((item) => textParts(item.content, 'output_text')).join('') : '';
     case 'anthropic':
       if (stream) return data.type === 'content_block_delta' && typeof data.delta === 'object'
-        && data.delta?.type === 'text_delta' ? (data.delta.text ?? '') : '';
+        && data.delta?.type === 'text_delta' && typeof data.delta.text === 'string' ? data.delta.text : '';
       return textParts(data.content, 'text');
     case 'gemini':
-      return textParts(data.candidates?.[0]?.content?.parts);
-    default:
-      return (stream ? data.choices?.[0]?.delta?.content : data.choices?.[0]?.message?.content) ?? '';
+      return Array.isArray(data.candidates) ? textParts(data.candidates[0]?.content?.parts) : '';
+    default: {
+      const choice = Array.isArray(data.choices) ? data.choices[0] : undefined;
+      const text = stream ? choice?.delta?.content : choice?.message?.content;
+      return typeof text === 'string' ? text : '';
+    }
   }
 }

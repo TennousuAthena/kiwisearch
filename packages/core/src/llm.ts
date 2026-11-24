@@ -9,6 +9,8 @@ export interface ChatMessage {
   content: string;
 }
 
+export class InvalidLlmResponseError extends Error {}
+
 export function llmConfigured(settings: LlmSettings | undefined): boolean {
   if (settings) settings = resolveLlmSettings(settings);
   return !!settings?.baseUrl && !!settings.model;
@@ -39,7 +41,11 @@ export async function chat(
     signal: opts.signal,
   });
   if (!res.ok) throw new HttpError(res.status, `LLM HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  return llmResponseText(format, await res.json(), false);
+  const data: unknown = await res.json().catch((error: unknown) => {
+    if (error instanceof SyntaxError) throw new InvalidLlmResponseError('LLM response is not valid JSON', { cause: error });
+    throw error;
+  });
+  return llmResponseText(format, data, false);
 }
 
 /**

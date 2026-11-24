@@ -40,6 +40,7 @@ export const options = {
   'options.test.connectedSeconds': '连接成功（{seconds} 秒）',
   'options.test.connectedMs': '连接成功（{ms} 毫秒）',
   'options.test.llmIncomplete': '设置不完整：需要 API 地址、模型和 API Key（本机服务可不填 Key）。',
+  'options.test.llmBadShape': '服务器响应与所选 API 格式不匹配。请检查 API 地址和格式。',
   'options.test.decisionIncomplete': '设置不完整：需要服务地址和 Key（本机服务可不填 Key）。',
   'options.test.decisionBadShape': '服务有回应，但格式不符合决策模型协议（缺少 answers.ping.noul）。',
   'options.test.timeout': '{seconds} 秒内没有回应。',
