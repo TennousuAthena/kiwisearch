@@ -684,7 +684,7 @@ export class SyncEngine {
         const path = `${root}.selection`;
         const legacy = this.registers[`${root}.model`];
         if (!this.registers[path] && !this.excludedLocalEditClocks.has(path)
-          && legacy && !legacy.tombstone && legacy.configVersion < this.configVersion
+          && legacy?.deviceId === this.device.deviceId && !legacy.tombstone && legacy.configVersion < this.configVersion
           && isCategoryEnabled(this.categories, classifySyncPath(path))) {
           legacyModels.set(path, legacy);
         }

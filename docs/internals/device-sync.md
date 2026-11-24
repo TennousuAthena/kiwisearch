@@ -34,7 +34,7 @@ Synced data is a set of registers keyed by a path. Each path belongs to one cate
 
 Since config v7 (2026-11-24), the active chat provider and model move together; official preset addresses are derived on the receiving device, and Ollama's address override and fetched model lists never sync. A peer using a custom selection still needs its own address unless both devices share Keys and endpoints. Older clients' flat LLM model, URL and API Key records can still be forwarded but are not applied to profiles on an updated client: they do not identify which provider owned the model or key. Upgrade both devices for profile synchronization.
 
-When opening an existing group after upgrading, a device can publish its locally migrated selection at the clock of the old model record if that model matches, its category is enabled and the new selection has not been registered. This lets a fresh peer receive the selection without reconstructing it from other devices' flat fields or clocking the migration as a new edit.
+When opening an existing group after upgrading, only the device that wrote the winning old model record can publish its locally migrated selection at that record's clock. The model must still match, its category must be enabled, and the new selection must not be registered. Other devices cannot substitute their own provider for the same model name. If the author does not upgrade or its local model changed, a fresh peer needs a new selection edit.
 
 Checked on 2026-11-24 in two disposable Chrome profiles with a local relay: the provider and model arrived together after the second profile joined in onboarding; the sender's mock Key stayed off the recipient by default. No production relay, Firefox runtime or separate physical device was used.
 

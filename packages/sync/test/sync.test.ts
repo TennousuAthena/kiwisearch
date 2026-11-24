@@ -329,6 +329,30 @@ describe('SyncEngine multi-device synchronization', () => {
     expect(await verifyMemberCertificate({ ...fields, deviceId: 'wrong-device' })).toBe(false);
   });
 
+  it('backfills the winning legacy model only on its author when peers use different providers', async () => {
+    const keys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
+    const peers = await Promise.all([makePeer('A', keys), makePeer('B', keys)]);
+    const [author, other] = peers.sort((a, b) => a.device.deviceId < b.device.deviceId ? -1 : 1);
+    if (!author || !other) throw new Error('Expected two peers');
+    const model = 'shared-model-name';
+    await author.engine.applyLocalChanges([{ path: 'config.llm.model', value: model }]);
+    await other.engine.receiveRecords(author.engine.getAllEnvelopes());
+    const upgrade = ({ device, engine }: Awaited<ReturnType<typeof makePeer>>) => new SyncEngine({
+      device, deviceName: 'upgraded', groupKeys: keys, configVersion: 7, persisted: engine.exportState(),
+    });
+    const origin = upgrade(author);
+    const receiver = upgrade(other);
+    expect(receiver.getRegisters()['config.llm.model']?.deviceId).toBe(author.device.deviceId);
+    const path = 'config.llm.selection';
+    const original = await origin.backfillLlmSelections(async () => [{ path, value: { provider: 'openai', model } }]);
+    const competing = await receiver.backfillLlmSelections(async () => [{ path, value: { provider: 'deepseek', model } }]);
+    await origin.receiveRecords(competing);
+    await receiver.receiveRecords(original);
+    expect(origin.getRegisters()[path]?.value).toEqual({ provider: 'openai', model });
+    expect(receiver.getRegisters()[path]?.value).toEqual({ provider: 'openai', model });
+    expect(competing).toEqual([]);
+  });
+
   it('attests snapshot-only members and wraps the next epoch secret for them', async () => {
     const originalKeys = await deriveGroupKeys(await importGroupSecret((await generateRecoveryPhrase()).entropy), 1);
     const now = 1_700_000_000_000;
