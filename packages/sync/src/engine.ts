@@ -677,6 +677,30 @@ export class SyncEngine {
     return this.withMutationLock(() => this.applyLocalChangesLocked(changes, nowMs));
   }
 
+  backfillLlmSelections(readLocalChanges: (paths: string[]) => Promise<LocalChangeInput[]>): Promise<SyncRecordEnvelope[]> {
+    return this.withMutationLock(async () => {
+      const legacyModels = new Map<string, RegisterState>();
+      for (const root of ['config.llm', 'config.judge.llm']) {
+        const path = `${root}.selection`;
+        const legacy = this.registers[`${root}.model`];
+        if (!this.registers[path] && !this.excludedLocalEditClocks.has(path)
+          && legacy && !legacy.tombstone && legacy.configVersion < this.configVersion
+          && isCategoryEnabled(this.categories, classifySyncPath(path))) {
+          legacyModels.set(path, legacy);
+        }
+      }
+      if (!legacyModels.size) return [];
+      const clocks = new Map<string, Hlc>();
+      const changes = (await readLocalChanges([...legacyModels.keys()])).filter(({ path, value }) => {
+        const legacy = legacyModels.get(path);
+        if (!legacy || (value as { model?: unknown } | undefined)?.model !== legacy.value) return false;
+        clocks.set(path, { ...legacy.hlc, deviceId: this.device.deviceId });
+        return true;
+      });
+      return this.applyLocalChangesLocked(changes, Date.now(), clocks);
+    });
+  }
+
   private async applyLocalChangesLocked(
     changes: readonly LocalChangeInput[],
     nowMs: number,

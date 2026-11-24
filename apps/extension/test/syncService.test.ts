@@ -1338,6 +1338,53 @@ describe('SyncService multi-device integration', () => {
     expect(storedD?.settings.categories.keys).toBe(false);
   });
 
+  it('shares migrated model selections with a fresh joiner without requiring an edit', async () => {
+    const bus = new MockMeshBus();
+    const storeA = new MemorySyncStorage();
+    const storeB = new MemorySyncStorage();
+    const initial = new SyncService({
+      storage: storeA, transportFactory: (cb) => bus.createTransport(cb, storeA), applyRemoteConfigPatches: async () => {},
+    });
+    const group = await initial.handleMessage({ type: 'kiwi:sync:create-group' });
+    if (!group.ok || !group.phrase) throw new Error('Failed to create group');
+    const stored = (await storeA.load())!;
+    const legacy = new SyncEngine({
+      device: stored.device, deviceName: stored.settings.deviceName, groupKeys: stored.groupKeys,
+      configVersion: 6, persisted: stored.engineState,
+    });
+    const overview = { provider: 'openai', model: 'old-overview' };
+    const judge = { provider: 'openrouter', model: 'old-judge' };
+    await legacy.applyLocalChanges([
+      { path: 'config.llm.model', value: overview.model },
+      { path: 'config.judge.llm.model', value: judge.model },
+    ]);
+    await storeA.save({ ...stored, engineState: legacy.exportState() });
+    storage.value.config = {
+      version: 6,
+      llm: { baseUrl: 'https://api.openai.com/v1', apiKey: 'mock-private', model: overview.model },
+      judge: { llm: { baseUrl: 'https://openrouter.ai/api/v1', model: judge.model } },
+    };
+    const upgraded = new SyncService({
+      storage: storeA, transportFactory: (cb) => bus.createTransport(cb, storeA), applyRemoteConfigPatches: async () => {},
+    });
+    await upgraded.init();
+    expect((await storeA.load())?.engineState.registers['config.llm.selection']).toMatchObject({
+      value: overview,
+      hlc: legacy.getRegisters()['config.llm.model'].hlc,
+    });
+
+    storage.value.config = structuredClone(DEFAULT_CONFIG);
+    const joiner = new SyncService({
+      storage: storeB, transportFactory: (cb) => bus.createTransport(cb, storeB), applyRemoteConfigPatches,
+    });
+    expect(await joiner.handleMessage({ type: 'kiwi:sync:join-group', phrase: group.phrase })).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(storage.value.config).toMatchObject({
+      llm: { selection: overview },
+      judge: { llm: { selection: judge } },
+    }));
+    expect((await storeB.load())?.engineState.registers['config.llm.profiles.openai.apiKey']).toBeUndefined();
+  });
+
   it('does not apply flat fields from a version-6 peer to either model slot', async () => {
     const bus = new MockMeshBus();
     const storeA = new MemorySyncStorage();

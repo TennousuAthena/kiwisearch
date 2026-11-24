@@ -199,7 +199,9 @@ export class SyncService {
             persisted: stored.engineState,
           });
           for (const keys of previousKeys) await this.engine.registerEpochKeys(keys);
-          if (await this.reconcileIncludedRegisters(stored.settings.categories)) await this.persist();
+          const reclassified = await this.reconcileIncludedRegisters(stored.settings.categories);
+          const backfilled = await this.backfillLlmSelections();
+          if (reclassified || backfilled.length) await this.persist();
           await this.startTransport();
         }
       } catch (error) {
@@ -916,6 +918,11 @@ export class SyncService {
     return result.reclassified;
   }
 
+  private async backfillLlmSelections(): Promise<SyncRecordEnvelope[]> {
+    if (this.pendingInitialJoinSync) return [];
+    return this.engine!.backfillLlmSelections(async (paths) => readLocalSyncChanges(paths, await loadConfig(), {}));
+  }
+
   async handleMessage(message: SyncRuntimeMessage): Promise<SyncRuntimeResponse> {
     return this.enqueueMutation(() => this.handleMessageNow(message));
   }
@@ -1075,6 +1082,8 @@ export class SyncService {
           };
           await this.engine.setCategories(this.settings.categories);
           await this.reconcileIncludedRegisters(previousCategories);
+          const backfilled = await this.backfillLlmSelections();
+          if (backfilled.length) await this.broadcastEnvelopes(backfilled);
         }
 
         // Publish pre-existing local keys that have never been registered.
