@@ -43,7 +43,7 @@ describe('custom API formats', () => {
   const messages = [{ role: 'system', content: 'Return JSON.' }, { role: 'user', content: 'Answer.' }] as const;
   const formats = [
     {
-      format: 'chat-completions', baseUrl: 'https://api.example/v1/chat/completions', path: '/v1/chat/completions',
+      format: 'chat-completions', baseUrl: 'https://api.example/chat/completions', path: '/chat/completions',
       auth: { Authorization: 'Bearer mock-key' },
       request: { model: 'demo', messages, response_format: { type: 'json_object' } },
       response: { choices: [{ message: { role: 'assistant', content: 'answer' } }] },
@@ -65,8 +65,8 @@ describe('custom API formats', () => {
         { type: 'content_block_delta', delta: { type: 'text_delta', text: 'answer' } }, { type: 'message_stop' }],
     },
     {
-      format: 'gemini', baseUrl: 'https://api.example/v1beta/models/example:streamGenerateContent?alt=sse',
-      path: '/v1beta/models/demo:generateContent', streamPath: '/v1beta/models/demo:streamGenerateContent?alt=sse',
+      format: 'gemini', baseUrl: 'https://api.example/v1/models/example:streamGenerateContent?alt=sse',
+      path: '/v1/models/demo:generateContent', streamPath: '/v1/models/demo:streamGenerateContent?alt=sse',
       auth: { 'x-goog-api-key': 'mock-key' },
       request: { systemInstruction: { parts: [{ text: 'Return JSON.' }] }, contents: [{ role: 'user', parts: [{ text: 'Answer.' }] }],
         generationConfig: { responseMimeType: 'application/json' } },
@@ -111,7 +111,7 @@ describe('custom API formats', () => {
     const next = { ...preset, ...editLlmEndpoint(preset, 'https://proxy.example/v1/responses') };
     expect(next.selection).toEqual({ provider: 'custom', model: 'keep-model' });
     expect(resolveLlmSettings(next)).toEqual({
-      baseUrl: 'https://proxy.example/v1', model: 'keep-model', apiKey: '', apiFormat: 'responses',
+      baseUrl: 'https://proxy.example/v1/responses', model: 'keep-model', apiKey: '', apiFormat: 'responses',
     });
     expect(next.profiles?.openai?.apiKey).toBe('mock-openai');
   });
@@ -120,7 +120,8 @@ describe('custom API formats', () => {
 describe('LLM API addresses', () => {
   it.each([
     ['https://gateway.example', 'chat-completions', 'https://gateway.example/v1', '/chat/completions'],
-    ['https://gateway.example/openai', 'chat-completions', 'https://gateway.example/openai/v1', '/chat/completions'],
+    ['https://gateway.example/openai', 'chat-completions', 'https://gateway.example/openai', '/chat/completions'],
+    ['https://gateway.example/chat/completions', 'chat-completions', 'https://gateway.example', '/chat/completions'],
     ['https://gateway.example/openai/v1/chat/completions/', 'chat-completions', 'https://gateway.example/openai/v1', '/chat/completions'],
     ['https://gateway.example/api/v3/responses', 'responses', 'https://gateway.example/api/v3', '/responses'],
     ['https://gateway.example/proxy/v1/models', 'anthropic', 'https://gateway.example/proxy/v1', '/messages'],
@@ -128,6 +129,7 @@ describe('LLM API addresses', () => {
     ['https://openrouter.ai', 'chat-completions', 'https://openrouter.ai/api/v1', '/chat/completions'],
     ['https://openrouter.ai/api/v1', 'chat-completions', 'https://openrouter.ai/api/v1', '/chat/completions'],
     ['https://gateway.example/proxy/v1', 'gemini', 'https://gateway.example/proxy/v1beta', '/models/demo:generateContent'],
+    ['https://gateway.example/v1/models/old:generateContent', 'gemini', 'https://gateway.example/v1', '/models/demo:generateContent'],
     ['https://generativelanguage.googleapis.com/v1beta/models/old:streamGenerateContent?alt=sse', 'gemini',
       'https://generativelanguage.googleapis.com/v1beta', '/models/demo:generateContent'],
     ['https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', 'chat-completions',
@@ -135,7 +137,6 @@ describe('LLM API addresses', () => {
     ['https://generativelanguage.googleapis.com/openai', 'chat-completions', 'https://generativelanguage.googleapis.com/v1beta/openai', '/chat/completions'],
   ] as const)('normalizes %s as %s', (address, format, root, operation) => {
     expect(llmApiRoot(address, format)).toBe(root);
-    expect(llmApiRoot(root, format)).toBe(root);
     expect(llmEndpoint(address, format, 'models/demo', false)).toBe(root + operation);
     expect(llmEndpoint(address, format, 'models/demo', true))
       .toBe(root + (format === 'gemini' ? '/models/demo:streamGenerateContent?alt=sse' : operation));

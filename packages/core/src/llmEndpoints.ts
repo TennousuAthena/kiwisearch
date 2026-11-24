@@ -4,7 +4,6 @@ import type { LlmApiFormat } from './types';
 const STREAM_OPERATION = /:streamGenerateContent\/?$/;
 const GEMINI_OPERATION = /\/models\/[^/:]+:(?:streamGenerateContent|generateContent)$/;
 const API_OPERATION = /\/(?:chat\/completions|responses|messages|models|api\/tags)$/;
-const API_VERSION = /(?:^|\/)v\d+(?:(?:alpha|beta)\d*)?(?=\/|$)/i;
 const GEMINI_HOST = 'generativelanguage.googleapis.com';
 
 export function llmBaseUrl(value: string): string {
@@ -31,15 +30,12 @@ export function inferLlmApiFormat(value: string): LlmApiFormat | undefined {
 export function llmApiRoot(baseUrl: string, format: LlmApiFormat): string {
   const url = URL.parse(llmBaseUrl(baseUrl));
   if (!url) return '';
-  let path = url.pathname.replace(/\/+$/, '').replace(GEMINI_OPERATION.test(url.pathname) ? GEMINI_OPERATION : API_OPERATION, '');
-  if (format === 'gemini') path = path.replace(/\/v1$/, '/v1beta');
-  if (!API_VERSION.test(path)) {
-    if (!path && url.hostname === 'openrouter.ai') path = '/api';
-    path = url.hostname === GEMINI_HOST && path === '/openai'
-      ? '/v1beta/openai'
-      : path + (format === 'gemini' ? '/v1beta' : '/v1');
-  }
-  return url.origin + path;
+  const path = url.pathname.replace(/\/+$/, '');
+  const prefix = path.replace(GEMINI_OPERATION.test(path) ? GEMINI_OPERATION : API_OPERATION, '');
+  if (prefix !== path) return url.origin + prefix;
+  if (!path) return url.origin + (format === 'gemini' ? '/v1beta' : url.hostname === 'openrouter.ai' ? '/api/v1' : '/v1');
+  if (url.hostname === GEMINI_HOST && path === '/openai') return url.origin + '/v1beta/openai';
+  return url.origin + (format === 'gemini' ? path.replace(/\/v1$/, '/v1beta') : path);
 }
 
 export function assertLlmRequestOrigin(baseUrl: string, endpoint: string): void {

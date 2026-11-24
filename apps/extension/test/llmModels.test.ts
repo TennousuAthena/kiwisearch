@@ -52,7 +52,9 @@ describe('model discovery', () => {
   });
 
   it.each([
-    ['custom', 'chat-completions', 'https://custom.example/gateway', 'https://custom.example/gateway/v1/models', { data: [{ id: 'demo' }] }],
+    ['custom', 'chat-completions', 'https://custom.example/gateway', 'https://custom.example/gateway/models', { data: [{ id: 'demo' }] }],
+    ['custom', 'chat-completions', 'https://custom.example/chat/completions', 'https://custom.example/models', { data: [{ id: 'demo' }] }],
+    ['custom', 'gemini', 'https://custom.example/v1/models/old:generateContent', 'https://custom.example/v1/models', { models: [{ name: 'models/demo' }] }],
     ['custom', 'gemini', 'https://custom.example/v1', 'https://custom.example/v1beta/models', { models: [{ name: 'models/demo' }] }],
     ['custom', 'chat-completions', 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
       'https://generativelanguage.googleapis.com/v1beta/openai/models', { data: [{ id: 'demo' }] }],

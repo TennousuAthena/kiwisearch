@@ -65,8 +65,9 @@ export function resolveLlmSettings(settings: LlmSettings): LlmProfile {
   const { provider, model } = settings.selection;
   if (!isLlmProvider(provider)) return LLM_PRESETS.custom;
   const profile = llmProfile(settings, provider);
-  const format = provider === 'custom' ? llmApiFormat(profile.apiFormat) : 'chat-completions';
-  const baseUrl = provider === 'ollama' && !isLocalUrl(profile.baseUrl) ? '' : llmApiRoot(profile.baseUrl, format);
+  const baseUrl = provider === 'ollama'
+    ? (isLocalUrl(profile.baseUrl) ? llmApiRoot(profile.baseUrl, 'chat-completions') : '')
+    : llmBaseUrl(profile.baseUrl);
   const origin = httpOrigin(baseUrl);
   const apiKey = provider === 'ollama' || !origin || (provider === 'custom' && origin !== profile.apiKeyOrigin)
     ? '' : profile.apiKey;
