@@ -1,4 +1,4 @@
-import { inferLlmApiFormat, llmApiRoot, llmBaseUrl } from './llmEndpoints';
+import { inferLlmApiFormat, llmBaseUrl, ollamaApiMount } from './llmEndpoints';
 import type { LlmApiFormat, LlmProfile, LlmProviderId, LlmSettings } from './types';
 import { httpOrigin } from './url';
 
@@ -65,9 +65,8 @@ export function resolveLlmSettings(settings: LlmSettings): LlmProfile {
   const { provider, model } = settings.selection;
   if (!isLlmProvider(provider)) return LLM_PRESETS.custom;
   const profile = llmProfile(settings, provider);
-  const baseUrl = provider === 'ollama'
-    ? (isLocalUrl(profile.baseUrl) ? llmApiRoot(profile.baseUrl, 'chat-completions') : '')
-    : llmBaseUrl(profile.baseUrl);
+  const mount = provider === 'ollama' && isLocalUrl(profile.baseUrl) ? ollamaApiMount(profile.baseUrl) : '';
+  const baseUrl = provider === 'ollama' ? (mount ? mount + '/v1' : '') : llmBaseUrl(profile.baseUrl);
   const origin = httpOrigin(baseUrl);
   const apiKey = provider === 'ollama' || !origin || (provider === 'custom' && origin !== profile.apiKeyOrigin)
     ? '' : profile.apiKey;

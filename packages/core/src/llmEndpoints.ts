@@ -38,6 +38,12 @@ export function llmApiRoot(baseUrl: string, format: LlmApiFormat): string {
   return url.origin + (format === 'gemini' ? path.replace(/\/v1$/, '/v1beta') : path);
 }
 
+export function ollamaApiMount(baseUrl: string): string {
+  const url = URL.parse(llmBaseUrl(baseUrl));
+  if (!url) return '';
+  return url.origin + url.pathname.replace(/\/+$/, '').replace(API_OPERATION, '').replace(/\/v1$/, '');
+}
+
 export function assertLlmRequestOrigin(baseUrl: string, endpoint: string): void {
   const origin = httpOrigin(baseUrl);
   if (!origin || origin !== httpOrigin(endpoint)) throw new Error('Invalid LLM request origin');

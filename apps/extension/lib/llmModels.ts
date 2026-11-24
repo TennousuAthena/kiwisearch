@@ -1,4 +1,4 @@
-import { assertLlmRequestOrigin, isLlmProvider, isLocalUrl, llmApiFormat, llmApiRoot, llmAuthHeaders, llmBaseUrl, LLM_PRESETS, type FetchLike } from '@kiwi-search/core';
+import { assertLlmRequestOrigin, isLlmProvider, isLocalUrl, llmApiFormat, llmApiRoot, llmAuthHeaders, llmBaseUrl, LLM_PRESETS, ollamaApiMount, type FetchLike } from '@kiwi-search/core';
 
 export type LlmModelsReply =
   | { ok: true; models: string[] }
@@ -24,8 +24,8 @@ export async function handleLlmModels(message: unknown, request: FetchLike = fet
   const key = typeof apiKey === 'string' ? apiKey.trim() : '';
   const format = provider === 'custom' ? llmApiFormat(apiFormat) : 'chat-completions';
   if ((provider === 'openai' || provider === 'deepseek') && !key) return { ok: false, reason: 'key' };
-  const apiRoot = llmApiRoot(base, format);
-  const root = provider === 'ollama' || provider === 'deepseek' ? apiRoot.replace(/\/v1$/, '') : apiRoot;
+  const root = provider === 'ollama' ? ollamaApiMount(base)
+    : provider === 'deepseek' ? base.replace(/\/v1$/, '') : llmApiRoot(base, format);
   const firstPage = root + (provider === 'ollama' ? '/api/tags' : '/models');
   try {
     const options = {

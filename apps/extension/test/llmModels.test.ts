@@ -60,6 +60,8 @@ describe('model discovery', () => {
       'https://generativelanguage.googleapis.com/v1beta/openai/models', { data: [{ id: 'demo' }] }],
     ['ollama', 'chat-completions', 'http://localhost:11434/proxy/v1/chat/completions',
       'http://localhost:11434/proxy/api/tags', { models: [{ model: 'demo' }] }],
+    ['ollama', 'chat-completions', 'http://localhost:11434/gateway/v2',
+      'http://localhost:11434/gateway/v2/api/tags', { models: [{ model: 'demo' }] }],
   ])('normalizes %s %s discovery address %s', async (provider, apiFormat, baseUrl, url, payload) => {
     const request = vi.fn(async () => Response.json(payload));
     expect(await handleLlmModels({ provider, apiFormat, baseUrl, apiKey: 'mock-key' }, request)).toEqual({ ok: true, models: ['demo'] });

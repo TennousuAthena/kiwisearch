@@ -118,6 +118,22 @@ describe('custom API formats', () => {
 });
 
 describe('LLM API addresses', () => {
+  it.each(['/gateway/v2', '/gateway/v2/v1', '/gateway/v2/v1/chat/completions', '/gateway/v2/api/tags'])(
+    'uses Ollama /v1 below the mounted override %s',
+    async (path) => {
+      const settings = {
+        baseUrl: '', model: 'demo', apiKey: '',
+        selection: { provider: 'ollama' as const, model: 'demo' },
+        profiles: { ollama: { baseUrl: 'http://localhost:11434' + path, apiKey: 'mock-must-not-send' } },
+      };
+      const fetch = vi.fn(async (_url: unknown, _init?: RequestInit) => Response.json({ choices: [{ message: { content: 'ok' } }] }));
+      expect(await chat(fetch, settings, [])).toBe('ok');
+      const [url, init] = fetch.mock.lastCall!;
+      expect(url).toBe('http://localhost:11434/gateway/v2/v1/chat/completions');
+      expect(new Headers(init?.headers).has('Authorization')).toBe(false);
+    },
+  );
+
   it('can change the selected format without changing the saved version', () => {
     const baseUrl = llmBaseUrl('https://gateway.example/v1/');
     const saved: Parameters<typeof resolveLlmSettings>[0] = {

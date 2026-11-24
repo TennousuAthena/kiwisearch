@@ -26,6 +26,8 @@ Format detection runs only when editing the address, not when loading a saved pr
 
 Model discovery is an explicit GET from the background, authorized only for extension pages. OpenAI and Claude use `/models` relative to the API root (OpenRouter's public catalog needs no Key); Gemini uses `/v1beta/models` by default and Ollama uses `/api/tags`. Claude and Gemini pagination stays on the configured origin and stops after 10 pages or a repeated cursor, with a shared 15-second timeout. Results are transient suggestions; fetching does not select a model or run a completion. If Ollama responds with 403, allow this extension's origin in `OLLAMA_ORIGINS` and restart Ollama before retrying. Keep Ollama bound to loopback. The four formats' chat and streaming shapes are covered by mock tests. No real service was called.
 
+An Ollama loopback proxy mount such as `/gateway/v2` keeps that entire path: chat uses `/gateway/v2/v1/chat/completions`, and model discovery uses `/gateway/v2/api/tags`.
+
 Checked on 2026-11-24 with mock responses: Test connection requires non-blank text in the selected API format. A successful HTTP status with no readable reply shows a localized format error. No live service or browser UI was checked for this change.
 
 Restoring defaults resets the overview's active selection and remembered model names but keeps each profile's endpoint, Key and bound origin. As before, the independent decision model configuration is preserved while the sharing switch resets.
