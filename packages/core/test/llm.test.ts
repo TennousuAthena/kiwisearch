@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { chat, chatStream } from '../src/llm';
+import { llmApiRoot, llmEndpoint } from '../src/llmEndpoints';
 import { editLlmEndpoint, profileLlmSettings, resolveLlmSettings } from '../src/llmProfiles';
 import type { LlmApiFormat } from '../src/types';
 
@@ -34,7 +35,7 @@ describe('custom API formats', () => {
     for await (const _ of chatStream(fetch, settings, [])) { /* no content */ }
     expect(fetch.mock.calls).toHaveLength(2);
     for (const [url, init] of fetch.mock.calls) {
-      expect(url).toBe(baseUrl + '/chat/completions');
+      expect(url).toBe(baseUrl + '/v1/chat/completions');
       expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer mock-key');
     }
   });
@@ -110,8 +111,58 @@ describe('custom API formats', () => {
     const next = { ...preset, ...editLlmEndpoint(preset, 'https://proxy.example/v1/responses') };
     expect(next.selection).toEqual({ provider: 'custom', model: 'keep-model' });
     expect(resolveLlmSettings(next)).toEqual({
-      baseUrl: 'https://proxy.example/v1/responses', model: 'keep-model', apiKey: '', apiFormat: 'responses',
+      baseUrl: 'https://proxy.example/v1', model: 'keep-model', apiKey: '', apiFormat: 'responses',
     });
     expect(next.profiles?.openai?.apiKey).toBe('mock-openai');
+  });
+});
+
+describe('LLM API addresses', () => {
+  it.each([
+    ['https://gateway.example', 'chat-completions', 'https://gateway.example/v1', '/chat/completions'],
+    ['https://gateway.example/openai', 'chat-completions', 'https://gateway.example/openai/v1', '/chat/completions'],
+    ['https://gateway.example/openai/v1/chat/completions/', 'chat-completions', 'https://gateway.example/openai/v1', '/chat/completions'],
+    ['https://gateway.example/api/v3/responses', 'responses', 'https://gateway.example/api/v3', '/responses'],
+    ['https://gateway.example/proxy/v1/models', 'anthropic', 'https://gateway.example/proxy/v1', '/messages'],
+    ['https://api.anthropic.com/v1/messages', 'anthropic', 'https://api.anthropic.com/v1', '/messages'],
+    ['https://openrouter.ai', 'chat-completions', 'https://openrouter.ai/api/v1', '/chat/completions'],
+    ['https://openrouter.ai/api/v1', 'chat-completions', 'https://openrouter.ai/api/v1', '/chat/completions'],
+    ['https://gateway.example/proxy/v1', 'gemini', 'https://gateway.example/proxy/v1beta', '/models/demo:generateContent'],
+    ['https://generativelanguage.googleapis.com/v1beta/models/old:streamGenerateContent?alt=sse', 'gemini',
+      'https://generativelanguage.googleapis.com/v1beta', '/models/demo:generateContent'],
+    ['https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', 'chat-completions',
+      'https://generativelanguage.googleapis.com/v1beta/openai', '/chat/completions'],
+    ['https://generativelanguage.googleapis.com/openai', 'chat-completions', 'https://generativelanguage.googleapis.com/v1beta/openai', '/chat/completions'],
+  ] as const)('normalizes %s as %s', (address, format, root, operation) => {
+    expect(llmApiRoot(address, format)).toBe(root);
+    expect(llmApiRoot(root, format)).toBe(root);
+    expect(llmEndpoint(address, format, 'models/demo', false)).toBe(root + operation);
+    expect(llmEndpoint(address, format, 'models/demo', true))
+      .toBe(root + (format === 'gemini' ? '/models/demo:streamGenerateContent?alt=sse' : operation));
+  });
+
+  it.each([
+    ['https://api.anthropic.com', 'anthropic'],
+    ['https://generativelanguage.googleapis.com/v1', 'gemini'],
+    ['https://generativelanguage.googleapis.com/v1beta/openai/models', 'chat-completions'],
+    ['https://generativelanguage.googleapis.com/v1beta/openai/responses', 'responses'],
+    ['https://gateway.example/v1/responses', 'responses'],
+  ] as const)('infers the format only when editing %s', (baseUrl, format) => {
+    const savedFormat = format === 'gemini' ? 'anthropic' : 'gemini';
+    const saved = {
+      baseUrl: '', model: 'demo', apiKey: '',
+      selection: { provider: 'custom' as const, model: 'demo' },
+      profiles: { custom: { baseUrl, apiFormat: savedFormat, apiKey: 'mock-key', apiKeyOrigin: 'https://different.example' } },
+    } satisfies Parameters<typeof resolveLlmSettings>[0];
+    expect(resolveLlmSettings(saved)).toMatchObject({ apiFormat: savedFormat, apiKey: '' });
+    expect(editLlmEndpoint(saved, baseUrl).profiles?.custom?.apiFormat).toBe(format);
+  });
+
+  it.each([
+    'https://user:secret@gateway.example',
+    'https://gateway.example/v1#fragment',
+    'https://gateway.example/v1beta/models/old:streamGenerateContent?alt=sse&key=secret',
+  ])('does not resolve an endpoint from a URL with credentials, a fragment, or an unexpected query', (address) => {
+    expect(llmEndpoint(address, 'gemini', 'demo', true)).toBe('');
   });
 });

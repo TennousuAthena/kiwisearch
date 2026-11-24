@@ -337,6 +337,8 @@ Authorization: Bearer <Key>
   'preset.llm.ollama': 'Ollama（本机）',
   'preset.llm.custom': '自定义',
   'options.llm.baseUrlLabel': 'API 地址',
+  'options.llm.baseUrlHint': '可填写服务地址或到 /v1 的 API 地址，无需补全请求路径。',
+  'options.llm.requestUrl': '测试连接将请求：{url}',
   'options.llm.apiFormat': 'API 格式',
   'options.llm.format.chat-completions': 'OpenAI Chat Completions',
   'options.llm.format.responses': 'OpenAI Responses',

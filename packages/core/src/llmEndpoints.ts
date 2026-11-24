@@ -1,12 +1,45 @@
-import { llmApiFormat, llmBaseUrl } from './llmProfiles';
 import { httpOrigin } from './url';
 import type { LlmApiFormat } from './types';
+
+const STREAM_OPERATION = /:streamGenerateContent\/?$/;
+const GEMINI_OPERATION = /\/models\/[^/:]+:(?:streamGenerateContent|generateContent)$/;
+const API_OPERATION = /\/(?:chat\/completions|responses|messages|models|api\/tags)$/;
+const API_VERSION = /(?:^|\/)v\d+(?:(?:alpha|beta)\d*)?(?=\/|$)/i;
+const GEMINI_HOST = 'generativelanguage.googleapis.com';
+
+export function llmBaseUrl(value: string): string {
+  const url = URL.parse(value);
+  if (!url || !httpOrigin(value) || url.username || url.password || url.hash) return '';
+  if (url.search && (!STREAM_OPERATION.test(url.pathname) || url.search !== '?alt=sse')) return '';
+  return url.origin + url.pathname.replace(/\/+$/, '');
+}
+
+export function inferLlmApiFormat(value: string): LlmApiFormat | undefined {
+  const url = URL.parse(llmBaseUrl(value));
+  if (!url) return;
+  const path = url.pathname;
+  if (path.endsWith('/responses')) return 'responses';
+  if (path.endsWith('/chat/completions')) return 'chat-completions';
+  if (path.endsWith('/messages')) return 'anthropic';
+  if (GEMINI_OPERATION.test(path)) return 'gemini';
+  if (url.hostname === 'api.anthropic.com') return 'anthropic';
+  if (url.hostname === GEMINI_HOST) {
+    return /(?:^|\/)openai(?:\/|$)/.test(path) ? 'chat-completions' : 'gemini';
+  }
+}
 
 export function llmApiRoot(baseUrl: string, format: LlmApiFormat): string {
   const url = URL.parse(llmBaseUrl(baseUrl));
   if (!url) return '';
-  const path = url.pathname.replace(/\/+$/, '').replace(/\/(?:chat\/completions|responses|messages|models(?:\/[^/:]+:(?:streamGenerateContent|generateContent))?)$/, '');
-  return url.origin + (path || (format === 'gemini' ? '/v1beta' : format === 'chat-completions' ? '' : '/v1'));
+  let path = url.pathname.replace(/\/+$/, '').replace(GEMINI_OPERATION.test(url.pathname) ? GEMINI_OPERATION : API_OPERATION, '');
+  if (format === 'gemini') path = path.replace(/\/v1$/, '/v1beta');
+  if (!API_VERSION.test(path)) {
+    if (!path && url.hostname === 'openrouter.ai') path = '/api';
+    path = url.hostname === GEMINI_HOST && path === '/openai'
+      ? '/v1beta/openai'
+      : path + (format === 'gemini' ? '/v1beta' : '/v1');
+  }
+  return url.origin + path;
 }
 
 export function assertLlmRequestOrigin(baseUrl: string, endpoint: string): void {
@@ -16,6 +49,7 @@ export function assertLlmRequestOrigin(baseUrl: string, endpoint: string): void 
 
 export function llmEndpoint(baseUrl: string, format: LlmApiFormat, model: string, stream: boolean): string {
   const root = llmApiRoot(baseUrl, format);
+  if (!root) return '';
   if (format === 'anthropic') return root + '/messages';
   if (format === 'responses') return root + '/responses';
   if (format === 'gemini') {
@@ -26,7 +60,7 @@ export function llmEndpoint(baseUrl: string, format: LlmApiFormat, model: string
 }
 
 export function llmAuthHeaders(apiKey: string, apiFormat?: LlmApiFormat): Record<string, string> {
-  switch (llmApiFormat(apiFormat)) {
+  switch (apiFormat) {
     case 'anthropic':
       return { 'anthropic-version': '2023-06-01', ...(apiKey ? { 'x-api-key': apiKey } : {}) };
     case 'gemini':

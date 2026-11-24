@@ -1,3 +1,4 @@
+import { inferLlmApiFormat, llmApiRoot, llmBaseUrl } from './llmEndpoints';
 import type { LlmApiFormat, LlmProfile, LlmProviderId, LlmSettings } from './types';
 import { httpOrigin } from './url';
 
@@ -6,15 +7,6 @@ export const LLM_API_FORMATS = ['chat-completions', 'responses', 'anthropic', 'g
 
 export function llmApiFormat(value: unknown): LlmApiFormat {
   return LLM_API_FORMATS.find((format) => format === value) ?? 'chat-completions';
-}
-
-export function inferLlmApiFormat(value: string): LlmApiFormat | undefined {
-  const url = URL.parse(value);
-  if (!url) return;
-  if (/\/chat\/completions\/?$/.test(url.pathname)) return 'chat-completions';
-  if (/\/responses\/?$/.test(url.pathname)) return 'responses';
-  if (/\/messages\/?$/.test(url.pathname) || url.hostname === 'api.anthropic.com') return 'anthropic';
-  if (/:(?:streamGenerateContent|generateContent)\/?$/.test(url.pathname) || url.hostname === 'generativelanguage.googleapis.com') return 'gemini';
 }
 
 export const LLM_PRESETS: Record<LlmProviderId, LlmProfile> = {
@@ -33,16 +25,6 @@ export function isLocalUrl(url: string): boolean {
 
 export function isLlmProvider(value: unknown): value is LlmProviderId {
   return LLM_PROVIDERS.some((provider) => provider === value);
-}
-
-export function llmBaseUrl(value: string): string {
-  const url = URL.parse(value);
-  if (!url || !httpOrigin(value) || url.username || url.password || url.hash) return '';
-  if (url.search) {
-    if (!/:(?:streamGenerateContent)\/?$/.test(url.pathname) || url.search !== '?alt=sse') return '';
-    url.search = '';
-  }
-  return url.href.replace(/\/+$/, '');
 }
 
 export function llmProfile(settings: LlmSettings, provider: LlmProviderId): LlmProfile {
@@ -83,10 +65,8 @@ export function resolveLlmSettings(settings: LlmSettings): LlmProfile {
   const { provider, model } = settings.selection;
   if (!isLlmProvider(provider)) return LLM_PRESETS.custom;
   const profile = llmProfile(settings, provider);
-  const url = llmBaseUrl(profile.baseUrl);
-  const baseUrl = provider === 'ollama'
-    ? (isLocalUrl(url) ? url.replace(/(?:\/v1)?$/, '/v1') : '')
-    : url;
+  const format = provider === 'custom' ? llmApiFormat(profile.apiFormat) : 'chat-completions';
+  const baseUrl = provider === 'ollama' && !isLocalUrl(profile.baseUrl) ? '' : llmApiRoot(profile.baseUrl, format);
   const origin = httpOrigin(baseUrl);
   const apiKey = provider === 'ollama' || !origin || (provider === 'custom' && origin !== profile.apiKeyOrigin)
     ? '' : profile.apiKey;

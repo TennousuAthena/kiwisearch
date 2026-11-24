@@ -105,7 +105,7 @@ OpenAlex、Crossref、arXiv、PubMed、Europe PMC、DBLP、Openverse、Exa、Dee
 
 **AI 概览**：API 模式下选择 DeepSeek、OpenAI、OpenRouter、Ollama（本机）或自定义 OpenAI 兼容服务。每个服务商记住自己的模型和 Key；点「获取模型列表」从服务器加载候选，也可手动输入。获取列表不会改动当前选择。Ollama 不用云端 Key；如返回 403，检查 `OLLAMA_ORIGINS` 是否允许本扩展的来源，修改后重启 Ollama。也可改用 Chrome 内置模型；它只在支持 Prompt API 的浏览器新标签页上下文中生成，MCP `answer` 需要 API 摘要提供方。
 
-修改 API 地址会切换到「自定义」，保留当前模型，不会复制预设的 Key。自定义支持 OpenAI Chat Completions、OpenAI Responses、Claude Messages 和 Gemini Generate Content，AI 概览与独立决策聊天模型均可使用。可填写 API 根地址或完整请求端点。
+修改 API 地址会切换到「自定义」，保留当前模型，不会复制预设的 Key。自定义支持 OpenAI Chat Completions、OpenAI Responses、Claude Messages 和 Gemini Generate Content，AI 概览与独立决策聊天模型均可使用。填服务地址或写到 `/v1` 即可；粘贴完整端点也可以。扩展会补全请求路径，并在输入框下方显示「测试连接」的实际请求地址。编辑地址时会尝试识别 API 格式，也可以手动选择。
 
 开启设备同步后，服务商和模型一起更新。自定义地址、API 格式和 Key 默认不同步；开启 Key 同步后，自定义地址和格式一起更新，Key 的保存或清除独立同步。本机 Ollama 地址覆盖始终由各设备自己保存。更改自定义地址的来源后，旧 Key 不会发到新服务器，确需使用时可重新保存。
 

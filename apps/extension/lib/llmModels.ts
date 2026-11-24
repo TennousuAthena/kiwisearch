@@ -24,7 +24,8 @@ export async function handleLlmModels(message: unknown, request: FetchLike = fet
   const key = typeof apiKey === 'string' ? apiKey.trim() : '';
   const format = provider === 'custom' ? llmApiFormat(apiFormat) : 'chat-completions';
   if ((provider === 'openai' || provider === 'deepseek') && !key) return { ok: false, reason: 'key' };
-  const root = provider === 'ollama' || provider === 'deepseek' ? base.replace(/\/v1$/, '') : llmApiRoot(base, format);
+  const apiRoot = llmApiRoot(base, format);
+  const root = provider === 'ollama' || provider === 'deepseek' ? apiRoot.replace(/\/v1$/, '') : apiRoot;
   const firstPage = root + (provider === 'ollama' ? '/api/tags' : '/models');
   try {
     const options = {

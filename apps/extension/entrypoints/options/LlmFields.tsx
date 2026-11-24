@@ -1,4 +1,4 @@
-import { editLlmEndpoint, httpOrigin, llmApiFormat, llmProfile, LLM_API_FORMATS, LLM_PROVIDERS, profileLlmSettings, resolveLlmSettings, type LlmProfile, type LlmSettings } from '@kiwi-search/core';
+import { editLlmEndpoint, httpOrigin, llmApiFormat, llmEndpoint, llmProfile, LLM_API_FORMATS, LLM_PROVIDERS, profileLlmSettings, resolveLlmSettings, type LlmProfile, type LlmSettings } from '@kiwi-search/core';
 import { useEffect, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { t } from '@kiwi-search/app/i18n';
@@ -12,6 +12,9 @@ export function LlmFields({ value, onChange, label }: { value: LlmSettings; onCh
   const { provider, model } = settings.selection!;
   const profile = llmProfile(settings, provider);
   const connection = resolveLlmSettings(settings);
+  const format = llmApiFormat(connection.apiFormat);
+  const requestUrl = format === 'gemini' && !model.trim() ? '' : llmEndpoint(connection.baseUrl, format, model, false);
+  const addressEdited = useRef(false);
   const editProfile = (patch: Partial<LlmProfile>, nextModel?: string) => onChange({
     profiles: { ...settings.profiles, [provider]: { ...settings.profiles?.[provider], ...patch } },
     ...(nextModel !== undefined ? { selection: { provider, model: nextModel } } : {}),
@@ -51,8 +54,15 @@ export function LlmFields({ value, onChange, label }: { value: LlmSettings; onCh
         ))}
       </div>
       <div className="field-grid">
-        <Field label={t('options.llm.baseUrlLabel')}>
-          <input value={profile.baseUrl} onChange={(event) => onChange(editLlmEndpoint(settings, event.target.value))} />
+        <Field label={t('options.llm.baseUrlLabel')} hint={requestUrl ? t('options.llm.requestUrl', { url: requestUrl }) : t('options.llm.baseUrlHint')}>
+          <input value={profile.baseUrl} onChange={(event) => {
+            addressEdited.current = true;
+            onChange(editLlmEndpoint(settings, event.target.value));
+          }} onBlur={() => {
+            if (!addressEdited.current) return;
+            addressEdited.current = false;
+            if (provider === 'custom' && connection.baseUrl && connection.baseUrl !== profile.baseUrl) editProfile({ baseUrl: connection.baseUrl });
+          }} />
         </Field>
         {provider === 'custom' && <Field label={t('options.llm.apiFormat')}>
           <select value={llmApiFormat(profile.apiFormat)} onChange={(event) => editProfile({ apiFormat: llmApiFormat(event.target.value) })}>

@@ -5,6 +5,8 @@ export const en = {
   'options.sync.joinFailed': 'Could not join the sync group. Try again.',
   'options.sync.errorPrefix': 'Action failed: {error}',
   'options.llm.apiFormat': 'API format',
+  'options.llm.baseUrlHint': 'Enter the server address or the API base through /v1. The request path is added for you.',
+  'options.llm.requestUrl': 'Test connection will request: {url}',
   'options.test.llmBadShape': 'The response does not match the selected API format. Check the API address and format.',
   'options.llm.format.chat-completions': 'OpenAI Chat Completions',
   'options.llm.format.responses': 'OpenAI Responses',

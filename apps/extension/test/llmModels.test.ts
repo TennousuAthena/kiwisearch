@@ -52,6 +52,19 @@ describe('model discovery', () => {
   });
 
   it.each([
+    ['custom', 'chat-completions', 'https://custom.example/gateway', 'https://custom.example/gateway/v1/models', { data: [{ id: 'demo' }] }],
+    ['custom', 'gemini', 'https://custom.example/v1', 'https://custom.example/v1beta/models', { models: [{ name: 'models/demo' }] }],
+    ['custom', 'chat-completions', 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+      'https://generativelanguage.googleapis.com/v1beta/openai/models', { data: [{ id: 'demo' }] }],
+    ['ollama', 'chat-completions', 'http://localhost:11434/proxy/v1/chat/completions',
+      'http://localhost:11434/proxy/api/tags', { models: [{ model: 'demo' }] }],
+  ])('normalizes %s %s discovery address %s', async (provider, apiFormat, baseUrl, url, payload) => {
+    const request = vi.fn(async () => Response.json(payload));
+    expect(await handleLlmModels({ provider, apiFormat, baseUrl, apiKey: 'mock-key' }, request)).toEqual({ ok: true, models: ['demo'] });
+    expect(request).toHaveBeenCalledWith(url, expect.objectContaining({ redirect: 'error' }));
+  });
+
+  it.each([
     ['anthropic', '/v1/models', 'after_id', (id: string, cursor?: string) => ({ data: [{ id }], has_more: !!cursor, last_id: cursor })],
     ['gemini', '/v1beta/models', 'pageToken', (id: string, cursor?: string) => ({ models: [{ name: `models/${id}` }], nextPageToken: cursor })],
   ] as const)('follows %s catalog pages without changing origin', async (apiFormat, path, parameter, page) => {
